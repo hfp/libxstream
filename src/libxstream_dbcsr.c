@@ -11,14 +11,12 @@
 #include <libxstream/libxstream_dbcsr.h>
 #include <libxstream/libxstream_opencl.h>
 
-/* Use DBCSR's profile for detailed timings (function name prefix-offset) */
-#if !defined(LIBXSTREAM_PROFILE_DBCSR) && (defined(__OFFLOAD_PROFILING) || 1)
-# if defined(__DBCSR_ACC)
-#   define LIBXSTREAM_PROFILE_DBCSR 8
-# endif
+/* DBCSR's timers (function name prefix-offset, 0 disables): an undefined weak reference resolves only with ELF */
+#if !defined(LIBXSTREAM_PROFILE_DBCSR) && (defined(__ELF__) || defined(__DBCSR_ACC))
+# define LIBXSTREAM_PROFILE_DBCSR 8
 #endif
 
-#if defined(LIBXSTREAM_PROFILE_DBCSR)
+#if defined(LIBXSTREAM_PROFILE_DBCSR) && (0 < LIBXSTREAM_PROFILE_DBCSR)
 /* weak: a static link reads libdbcsr.a before libxstream.a, hence only programs linking the timers anyway are profiled */
 LIBXS_PRAGMA_WEAK(c_dbcsr_timeset)
 LIBXS_PRAGMA_WEAK(c_dbcsr_timestop)
@@ -61,9 +59,7 @@ LIBXSTREAM_API int c_dbcsr_acc_finalize(void)
 
 LIBXSTREAM_API void c_dbcsr_acc_clear_errors(void)
 {
-#if defined(__OFFLOAD_OPENCL)
   libxstream_opencl_error_consume();
-#endif
 }
 
 

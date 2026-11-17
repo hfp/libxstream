@@ -7,17 +7,16 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#if defined(__OPENCL) || defined(__OFFLOAD_OPENCL)
-#  include "smm_acc_opencl.h"
-#  include <libxs/libxs_math.h>
+#include "smm_acc_opencl.h"
+#include <libxs/libxs_math.h>
 
-#  define OPENCL_LIBSMM_AI(M, N, K, TYPESIZE) ((2.0 * (M) * (N) * (K)) / ((TYPESIZE) * (K) * ((M) + (N))))
-#  define OPENCL_LIBSMM_TYPESIZE(TYPEID) \
+#define OPENCL_LIBSMM_AI(M, N, K, TYPESIZE) ((2.0 * (M) * (N) * (K)) / ((TYPESIZE) * (K) * ((M) + (N))))
+#define OPENCL_LIBSMM_TYPESIZE(TYPEID) \
     (dbcsr_type_real_8 == (TYPEID) ? ((int)sizeof(double)) : (dbcsr_type_real_4 == (TYPEID) ? ((int)sizeof(float)) : 0 /*unknown*/))
 
-#  if defined(__cplusplus)
+#if defined(__cplusplus)
 extern "C" {
-#  endif
+#endif
 
 
 int opencl_libsmm_write_trans_params(FILE* stream, int only_key, const opencl_libsmm_transkey_t* key,
@@ -272,8 +271,6 @@ int opencl_libsmm_read_smm_params(char* parambuf, opencl_libsmm_smmkey_t* key, o
   return result;
 }
 
-#  if defined(__cplusplus)
+#if defined(__cplusplus)
 }
-#  endif
-
-#endif /*defined(__OPENCL)*/
+#endif

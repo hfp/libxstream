@@ -659,7 +659,7 @@ PCSUBST_BASE = $(SED) \
   -e 's|@PREFIX@|$(ALIAS_PREFIX)|g' \
   -e 's|@INCLUDEDIR@|$(ALIAS_INCDIR)|g' \
   -e 's|@LIBDIR@|$(ALIAS_LIBDIR)|g' \
-	$(if $(LIBXS)$(LIBXS_PC),-e 's|@PC_CFLAGS@|-D__OPENCL -D__ACC -D__LIBXS|g',-e 's|@PC_CFLAGS@|-D__OPENCL -D__ACC|g') \
+	$(if $(LIBXS)$(LIBXS_PC),-e 's|@PC_CFLAGS@|-D__LIBXS -D__LIBXSTREAM|g',-e 's|@PC_CFLAGS@|-D__LIBXSTREAM|g') \
   $(if $(ALIAS_PRIVLIBS),-e 's|@LIBS_PRIVATE@|Libs.private: $(ALIAS_PRIVLIBS)|g', \
     -e 's|@LIBS_PRIVATE@||g')
 

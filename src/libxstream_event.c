@@ -7,8 +7,7 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#if defined(__OPENCL)
-# include <libxstream/libxstream_opencl.h>
+#include <libxstream/libxstream_opencl.h>
 
 
 LIBXSTREAM_API int libxstream_event_create(libxstream_event_t** event_p)
@@ -64,16 +63,16 @@ LIBXSTREAM_API int libxstream_stream_wait_event(libxstream_stream_t* stream, lib
   if (NULL != clevent && 0 == same) clRetainEvent(clevent);
   LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
   if (NULL != clevent && 0 == same) {
-# if defined(CL_VERSION_1_2)
+#if defined(CL_VERSION_1_2)
     const int track = (LIBXSTREAM_STREAM_TRACK(stream) ? libxstream_stream_enter(stream) : 0);
     cl_event barrier = NULL;
     result = clEnqueueBarrierWithWaitList(str->queue, 1, &clevent, 0 != track ? &barrier : NULL);
     if (0 != track) libxstream_stream_leave(stream, track, EXIT_SUCCESS == result ? barrier : NULL, 0 /*shared*/);
-# else
+#else
     const int track = (LIBXSTREAM_STREAM_TRACK(stream) ? libxstream_stream_enter(stream) : 0);
     result = clEnqueueWaitForEvents(str->queue, 1, &clevent);
     if (0 != track) libxstream_stream_leave(stream, track, NULL, 0 /*shared*/);
-# endif
+#endif
     if (EXIT_SUCCESS != result) {
       LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
       if (clevent == event->cl_evt) {
@@ -104,11 +103,11 @@ LIBXSTREAM_API int libxstream_event_record(libxstream_event_t* event, libxstream
   /* in-order: completing the last command is what a marker records */
   if (LIBXSTREAM_STREAM_TRACK(stream)) clevent_result = libxstream_stream_take(stream);
   if (NULL == clevent_result) {
-# if defined(CL_VERSION_1_2)
+#if defined(CL_VERSION_1_2)
     result = clEnqueueMarkerWithWaitList(str->queue, 0, NULL, &clevent_result);
-# else
+#else
     result = clEnqueueMarker(str->queue, &clevent_result);
-# endif
+#endif
   }
   LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
   clevent = event->cl_evt;
@@ -189,5 +188,3 @@ LIBXSTREAM_API int libxstream_event_sync(libxstream_event_t* event)
   }
   CL_RETURN(result, "");
 }
-
-#endif /*__OPENCL*/

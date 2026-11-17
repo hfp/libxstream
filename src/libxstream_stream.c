@@ -7,12 +7,11 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#if defined(__OPENCL)
-# include <libxstream/libxstream_opencl.h>
-# include <string.h>
-# if defined(_OPENMP)
-#   include <omp.h>
-# endif
+#include <libxstream/libxstream_opencl.h>
+#include <string.h>
+#if defined(_OPENMP)
+# include <omp.h>
+#endif
 
 
 /* numbers the streams (libxstream_stream_tracked_t) */
@@ -66,11 +65,11 @@ LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, cons
   };
   int result, tid = 0, offset = 0;
   cl_command_queue queue = NULL;
-# if defined(LIBXSTREAM_STREAM_PRIORITIES)
+#if defined(LIBXSTREAM_STREAM_PRIORITIES)
   int priority = 0;
-# endif
+#endif
   assert(NULL != stream_p);
-# if defined(LIBXSTREAM_STREAM_PRIORITIES)
+#if defined(LIBXSTREAM_STREAM_PRIORITIES)
   if (0 != (LIBXSTREAM_STREAM_LOW & flags)) {
     properties[3] = CL_QUEUE_PRIORITY_LOW_KHR;
   }
@@ -96,9 +95,9 @@ LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, cons
     properties[2] = CL_QUEUE_PRIORITY_KHR;
     properties[4] = 0; /* terminator */
   }
-# endif
+#endif
   LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_stream);
-# if defined(_OPENMP)
+#if defined(_OPENMP)
   {
     static int libxstream_opencl_stream_counter_base = 0;
     static int libxstream_opencl_stream_counter = 0;
@@ -109,7 +108,7 @@ LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, cons
     }
     else offset = libxstream_opencl_stream_counter_base++;
   }
-# endif
+#endif
   if (NULL != devinfo->context) {
     const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
     /* Any profile needs timestamps here: durations and rates come from events. */
@@ -118,7 +117,7 @@ LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, cons
     {
       properties[1] |= CL_QUEUE_PROFILING_ENABLE;
     }
-# if defined(LIBXSTREAM_XHINTS)
+#if defined(LIBXSTREAM_XHINTS)
     if ((1 & libxstream_opencl_config.xhints) && 0 != devinfo->intel) {
       properties[1] |= (((LIBXSTREAM_STREAM_PROPERTIES_TYPE)1) << 31); /* CL_QUEUE_THREAD_LOCAL_EXEC_ENABLE_INTEL */
     }
@@ -146,7 +145,7 @@ LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, cons
         }
       }
     }
-# endif
+#endif
     queue = LIBXSTREAM_CREATE_COMMAND_QUEUE(devinfo->context, device_id, properties, &result);
   }
   else result = EXIT_FAILURE;
@@ -156,18 +155,18 @@ LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, cons
     if (NULL != *stream_p) {
       libxstream_opencl_stream_t* const str = (libxstream_opencl_stream_t*)*stream_p;
       libxstream_stream_tracked_t* const tracked = (libxstream_stream_tracked_t*)*stream_p;
-# if !defined(NDEBUG)
+#if !defined(NDEBUG)
       LIBXS_MEMZERO(str);
-# endif
+#endif
       str->queue = queue;
       str->tid = tid;
       tracked->last = NULL;
       tracked->entries = tracked->inflight = 0;
       tracked->serial = LIBXS_ATOMIC_ADD_FETCH(&libxstream_stream_serial, 1, LIBXS_ATOMIC_RELAXED);
       tracked->guard = 0;
-# if defined(LIBXSTREAM_STREAM_PRIORITIES)
+#if defined(LIBXSTREAM_STREAM_PRIORITIES)
       str->priority = priority;
-# endif
+#endif
     }
     else result = EXIT_FAILURE;
   }
@@ -269,7 +268,7 @@ LIBXSTREAM_API int libxstream_stream_priority_range(int* least, int* greatest)
   int result = ((NULL != least || NULL != greatest) ? EXIT_SUCCESS : EXIT_FAILURE);
   int priohi = -1, priolo = -1;
   assert(NULL == least || NULL == greatest || least != greatest); /* no alias */
-# if defined(LIBXSTREAM_STREAM_PRIORITIES)
+#if defined(LIBXSTREAM_STREAM_PRIORITIES)
   if (0 < libxstream_opencl_config.ndevices) {
     const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
@@ -287,7 +286,7 @@ LIBXSTREAM_API int libxstream_stream_priority_range(int* least, int* greatest)
       }
     }
   }
-# endif
+#endif
   if (NULL != greatest) *greatest = priohi;
   if (NULL != least) *least = priolo;
   CL_RETURN(result, "");
@@ -303,11 +302,11 @@ LIBXSTREAM_API int libxstream_stream_sync(libxstream_stream_t* stream)
   if (0 == (32 & libxstream_opencl_config.wa)) result = clFinish(str->queue);
   else {
     cl_event event = NULL;
-# if defined(CL_VERSION_1_2)
+#if defined(CL_VERSION_1_2)
     result = clEnqueueMarkerWithWaitList(str->queue, 0, NULL, &event);
-# else
+#else
     result = clEnqueueMarker(str->queue, &event);
-# endif
+#endif
     if (EXIT_SUCCESS == result) {
       assert(NULL != event);
       result = clWaitForEvents(1, &event);
@@ -449,18 +448,16 @@ LIBXSTREAM_API int libxstream_stream_set_profiling(libxstream_stream_t* stream)
 LIBXSTREAM_API int libxstream_device_sync(void)
 {
   int result = EXIT_SUCCESS;
-# if defined(_OPENMP)
+#if defined(_OPENMP)
   if (1 == omp_get_num_threads()) {
     result = libxstream_opencl_device_synchronize(libxstream_opencl_config.lock_stream, -1 /*all*/);
   }
   else {
     result = libxstream_opencl_device_synchronize(libxstream_opencl_config.lock_stream, omp_get_thread_num());
   }
-# else
+#else
   result = libxstream_opencl_device_synchronize(libxstream_opencl_config.lock_stream, /*main*/ 0);
-# endif
+#endif
   libxstream_mem_release_poll(0 /*no wait*/);
   CL_RETURN(result, "");
 }
-
-#endif /*__OPENCL*/

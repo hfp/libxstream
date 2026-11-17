@@ -7,16 +7,15 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#if defined(__OPENCL) || defined(__OFFLOAD_OPENCL)
-#  include "smm_acc_opencl.h"
+#include "smm_acc_opencl.h"
 /* angle brackets: a header generated on the include path wins over the installed one */
-#  include <smm_kernels.h>
-#  include <libxs/libxs_timer.h>
-#  include <libxs/libxs_hash.h>
-#  include <libxs/libxs_str.h>
+#include <smm_kernels.h>
+#include <libxs/libxs_timer.h>
+#include <libxs/libxs_hash.h>
+#include <libxs/libxs_str.h>
 
-#  if !defined(LIBXSTREAM_CHECK)
-#    define LIBXSTREAM_CHECK(RESULT, EXPR, MSG) \
+#if !defined(LIBXSTREAM_CHECK)
+#  define LIBXSTREAM_CHECK(RESULT, EXPR, MSG) \
       do { \
         const int libxstream_check_r_ = (EXPR); \
         if (EXIT_SUCCESS != libxstream_check_r_) { \
@@ -24,26 +23,26 @@
           fprintf(stderr, "ERROR: %s (%i)\n", (MSG), libxstream_check_r_); \
         } \
       } while (0)
-#  endif
-#  if !defined(OPENCL_KERNELS_SOURCE_TRANSPOSE)
-#    error "OpenCL transpose-kernel code not found!"
-#  endif
-#  if !defined(OPENCL_LIBSMM_KERNELNAME_TRANS)
-#    define OPENCL_LIBSMM_KERNELNAME_TRANS "trans"
-#  endif
-#  if !defined(OPENCL_LIBSMM_NLOCKS_TRANS)
-#    define OPENCL_LIBSMM_NLOCKS_TRANS 16
-#  endif
-#  if !defined(OPENCL_LIBSMM_DEFAULT_BS)
-#    define OPENCL_LIBSMM_DEFAULT_BS 8
-#  endif
-#  define OPENCL_LIBSMM_TYPESIZE(TYPEID) \
+#endif
+#if !defined(OPENCL_KERNELS_SOURCE_TRANSPOSE)
+#  error "OpenCL transpose-kernel code not found!"
+#endif
+#if !defined(OPENCL_LIBSMM_KERNELNAME_TRANS)
+#  define OPENCL_LIBSMM_KERNELNAME_TRANS "trans"
+#endif
+#if !defined(OPENCL_LIBSMM_NLOCKS_TRANS)
+#  define OPENCL_LIBSMM_NLOCKS_TRANS 16
+#endif
+#if !defined(OPENCL_LIBSMM_DEFAULT_BS)
+#  define OPENCL_LIBSMM_DEFAULT_BS 8
+#endif
+#define OPENCL_LIBSMM_TYPESIZE(TYPEID) \
     (dbcsr_type_real_8 == (TYPEID) ? ((int)sizeof(double)) : (dbcsr_type_real_4 == (TYPEID) ? ((int)sizeof(float)) : 0 /*unknown*/))
-#  define OPENCL_LIBSMM_TRANSENV(KEY) opencl_libsmm_getenv("OPENCL_LIBSMM_TRANS", KEY)
+#define OPENCL_LIBSMM_TRANSENV(KEY) opencl_libsmm_getenv("OPENCL_LIBSMM_TRANS", KEY)
 
-#  if defined(__cplusplus)
+#if defined(__cplusplus)
 extern "C" {
-#  endif
+#endif
 
 
 int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, void* dev_data, libsmm_acc_data_t datatype, int m,
@@ -55,17 +54,17 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
   LIBXS_ASSERT(0 < m && 0 < n);
   if (0 != stack_size && 1 != mn &&
       (
-#  if defined(OPENCL_LIBSMM_F64)
+#if defined(OPENCL_LIBSMM_F64)
         dbcsr_type_real_8 == datatype
-#  else
+#else
         0
-#  endif
+#endif
         ||
-#  if defined(OPENCL_LIBSMM_F32)
+#if defined(OPENCL_LIBSMM_F32)
         dbcsr_type_real_4 == datatype
-#  else
+#else
         0
-#  endif
+#endif
         ) &&
       mn <= (max_kernel_dim * max_kernel_dim))
   {
@@ -74,18 +73,18 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
     opencl_libsmm_trans_t* config;
     libxs_lock_t* lock = locks;
     opencl_libsmm_transkey_t key;
-#  if (1 < OPENCL_LIBSMM_NLOCKS_TRANS)
+#if (1 < OPENCL_LIBSMM_NLOCKS_TRANS)
     unsigned int hash;
-#  endif
+#endif
     LIBXS_MEMZERO(&key); /* potentially heterogeneous key-data (alignment gaps) */
     key.type = datatype;
     key.m = m;
     key.n = n; /* initialize key */
-#  if (1 < OPENCL_LIBSMM_NLOCKS_TRANS)
+#if (1 < OPENCL_LIBSMM_NLOCKS_TRANS)
     LIBXS_ASSERT(!(OPENCL_LIBSMM_NLOCKS_TRANS & (OPENCL_LIBSMM_NLOCKS_TRANS - 1))); /* POT */
     hash = libxs_hash(&key, sizeof(key), 25071975 /*seed*/);
     lock += LIBXS_MOD2(hash, OPENCL_LIBSMM_NLOCKS_TRANS);
-#  endif
+#endif
     /* calling clSetKernelArg/clEnqueueNDRangeKernel must be consistent */
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, lock);
     config = (opencl_libsmm_trans_t*)libxs_registry_get(
@@ -96,10 +95,10 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
       int nchar = LIBXS_SNPRINTF(fname, sizeof(fname),
         /* kernel name are meant to be unambiguous (BLAS-typeprefix and kernelsize) */
         "x" OPENCL_LIBSMM_KERNELNAME_TRANS "%ix%i", m, n);
-#  if defined(__DBCSR_ACC)
+#if defined(__DBCSR_ACC)
       int routine_handle;
       c_dbcsr_timeset(LIBSMM_ACC_TRANSPOSE_ROUTINE_NAME_STRPTR, LIBSMM_ACC_TRANSPOSE_ROUTINE_NAME_LENPTR, &routine_handle);
-#  endif
+#endif
       if (0 < nchar && (int)sizeof(fname) > nchar) {
         const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
         const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
@@ -108,11 +107,11 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         const char* const cmem = (EXIT_SUCCESS != libxstream_opencl_use_cmem_size(devinfo, 0) ? "global" : "constant");
         const char* const build_format = "-DCONSTANT=%s -DINPLACE=%i -DFN=%s -DSM=%i -DSN=%i -DWG=%i -DT=%s -DBS=%i -DSLM_PAD=%i";
         const char *const env_inplace = OPENCL_LIBSMM_TRANSENV("INPLACE"), *tname = "";
-#  if defined(OPENCL_LIBSMM_TRANS_INPLACE)
+#if defined(OPENCL_LIBSMM_TRANS_INPLACE)
         const int inplace = ((m == n) && (NULL == env_inplace ? 1 : ('0' != *env_inplace)));
-#  else
+#else
         const int inplace = ((m == n) && (NULL == env_inplace ? 0 : ('0' != *env_inplace)));
-#  endif
+#endif
         const int blockm = ((NULL == env_bm || '\0' == *env_bm) ? 0 : atoi(env_bm));
         const int bm = (0 >= blockm ? m : LIBXS_MIN(blockm, m));
         const int typesize = OPENCL_LIBSMM_TYPESIZE(datatype);
@@ -187,9 +186,9 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
       else {
         result = EXIT_FAILURE;
       }
-#  if defined(__DBCSR_ACC)
+#if defined(__DBCSR_ACC)
       c_dbcsr_timestop(&routine_handle);
-#  endif
+#endif
     }
     LIBXS_ASSERT((NULL != config && NULL != config->kernel && 0 < config->wgsize && 1 <= config->bs) || EXIT_SUCCESS != result);
     if (EXIT_SUCCESS == result) {
@@ -236,8 +235,6 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
   return result;
 }
 
-#  if defined(__cplusplus)
+#if defined(__cplusplus)
 }
-#  endif
-
-#endif /*defined(__OPENCL)*/
+#endif

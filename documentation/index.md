@@ -45,9 +45,7 @@ the implementation. No special include order is required.
 `-DLIBXSTREAM_SOURCE` implies `-DLIBXS_SOURCE`; LIBXS can also
 be made header-only independently with `-DLIBXS_SOURCE`.
 
-Either header-only variant needs `-D__OPENCL` (implied by
-`-D__OFFLOAD_OPENCL`), otherwise the implementation compiles to
-nothing, and the OpenCL library at link time.
+Either header-only variant needs the OpenCL library at link time.
 
 The library is compiled for SSE4.2 by default but dynamically
 dispatches to the best ISA available at runtime (up to AVX-512).
@@ -66,7 +64,7 @@ LIBXS is used from its matching `lib/<target>` if available.
 | LIBARCH    | (auto)    | Name of the build folder (`lib/<target>`)       |
 | STATIC     | (unset)   | Unset: static and shared, 0: shared, 1: static  |
 | OMP        | 1         | OpenMP (sizes per-thread resources)             |
-| OCL        | 2         | 1: `-D__OPENCL`, 2: also `-D__OFFLOAD_OPENCL`   |
+| OCL        | 2         | OpenCL setup, 0: none (stencil host path)       |
 | USM        | 0         | 1: `-D__OFFLOAD_UNIFIED_MEMORY` (SVM only)      |
 
 pkg-config support: `lib/pkgconfig/libxstream.pc` (`libxstream-static.pc` and

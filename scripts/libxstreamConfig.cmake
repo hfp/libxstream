@@ -67,7 +67,7 @@ if(LIBXSTREAM_LIBRARY AND LIBXSTREAM_INCLUDE_DIR)
       libxstream::libxstream
       PROPERTIES IMPORTED_LOCATION "${LIBXSTREAM_LIBRARY}"
                  INTERFACE_INCLUDE_DIRECTORIES "${LIBXSTREAM_INCLUDE_DIR}"
-                 INTERFACE_COMPILE_DEFINITIONS "__OPENCL;__ACC;__LIBXS")
+                 INTERFACE_COMPILE_DEFINITIONS "__LIBXS;__LIBXSTREAM")
     if(TARGET libxs::libxs)
       set_property(
         TARGET libxstream::libxstream

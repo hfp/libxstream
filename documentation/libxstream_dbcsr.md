@@ -17,13 +17,13 @@ DBCSR expects every accelerator backend to expose a flat C API with the `c_dbcsr
 
 Every function delegates to the corresponding `libxstream_*` routine (e.g., `c_dbcsr_acc_stream_create` calls `libxstream_stream_create`). `c_dbcsr_acc_event_query` reports through `c_dbcsr_acc_bool_t` (an `int`), the header's only type.
 
-`c_dbcsr_acc_clear_errors` acts only in OpenCL builds (`__OFFLOAD_OPENCL`). `c_dbcsr_acc_stream_create` ignores `priority` unless LIBXSTREAM is built with `LIBXSTREAM_STREAM_PRIORITIES`, which is off by default.
+`c_dbcsr_acc_stream_create` ignores `priority` unless LIBXSTREAM is built with `LIBXSTREAM_STREAM_PRIORITIES`, which is off by default.
 
 ## Profiling
 
 The header also declares `c_dbcsr_timeset` and `c_dbcsr_timestop`, which are DBCSR's Fortran-side timer callbacks and are provided by DBCSR at link time. Every ACC function except `c_dbcsr_acc_clear_errors` is bracketed by these calls, so that individual backend operations appear in DBCSR's timing report, if two conditions hold:
 
-- The ACC functions are compiled with `LIBXSTREAM_PROFILE_DBCSR`, which `__DBCSR_ACC` defines. A LIBXSTREAM library built on its own does not define it; this optional debug aid is enabled with `make ECFLAGS=-DLIBXSTREAM_PROFILE_DBCSR=8`, and such a library then only links together with DBCSR.
+- The ACC functions are compiled with `LIBXSTREAM_PROFILE_DBCSR`, which is the default on ELF platforms such as Linux (`-DLIBXSTREAM_PROFILE_DBCSR=0` drops it). The timers are weak references there, so a program without DBCSR still links and is not profiled. Elsewhere, `make ECFLAGS=-DLIBXSTREAM_PROFILE_DBCSR=8` enables it, and the library then only links together with DBCSR.
 - `LIBXSTREAM_PROFILE` is non-zero at runtime, which also enables LIBXSTREAM's own per-kernel profile.
 
 ## LIBSMM

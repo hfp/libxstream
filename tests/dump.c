@@ -7,15 +7,11 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#if defined(__OPENCL)
-# if defined(LIBXSTREAM_SOURCE)
-#   include <libxstream/libxstream_source.h>
-# else
-#   include <libxstream/libxstream_opencl.h>
-# endif
+#if defined(LIBXSTREAM_SOURCE)
+# include <libxstream/libxstream_source.h>
+#else
+# include <libxstream/libxstream_opencl.h>
 #endif
-
-#if defined(__OPENCL)
 
 /**
  * Root of the source tree, which the tests read kernels and headers from. Not a
@@ -251,14 +247,3 @@ static int probe(const char name[], const char source[], const char params[], co
   else remove(path);
   return result;
 }
-
-#else
-
-int main(void)
-{
-  /* nothing to instantiate without __OPENCL; say so rather than exit zero mutely */
-  fprintf(stderr, "dump: skipped, built without __OPENCL\n");
-  return EXIT_SUCCESS;
-}
-
-#endif

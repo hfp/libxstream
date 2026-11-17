@@ -28,17 +28,13 @@
 
 LIBXS_PRAGMA_DIAG_PUSH()
 LIBXS_PRAGMA_DIAG_OFF_PEDANTIC()
-#if defined(__OPENCL)
-# if !defined(CL_TARGET_OPENCL_VERSION)
-#   define CL_TARGET_OPENCL_VERSION 220
-# endif
-# if defined(__APPLE__)
-#   include <OpenCL/cl.h>
-# else
-#   include <CL/cl.h>
-# endif
+#if !defined(CL_TARGET_OPENCL_VERSION)
+# define CL_TARGET_OPENCL_VERSION 220
+#endif
+#if defined(__APPLE__)
+# include <OpenCL/cl.h>
 #else
-# error Definition of __OPENCL preprocessor symbol is missing!
+# include <CL/cl.h>
 #endif
 #if !defined(LIBXSTREAM_NOEXT)
 # if defined(__APPLE__)

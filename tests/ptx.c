@@ -7,22 +7,16 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#if defined(__OPENCL)
-# if defined(LIBXSTREAM_SOURCE)
-#   include <libxstream/libxstream_source.h>
-# else
-#   include <libxstream/libxstream_opencl.h>
-# endif
+#if defined(LIBXSTREAM_SOURCE)
+# include <libxstream/libxstream_source.h>
+#else
+# include <libxstream/libxstream_opencl.h>
 #endif
-
-#if defined(__OPENCL)
 
 /**
  * Selecting NVIDIA's accelerated target is what makes warp-group MMA reachable
  * from OpenCL at all (the front-end emits the plain target and no build option
  * changes it), so the rewrite is covered here rather than only in a sample.
- * The default test build carries no OpenCL backend and skips; run "make OCL=1"
- * to exercise this.
  */
 static int check(const char text[], const char expected[])
 {
@@ -72,13 +66,3 @@ int main(void)
   if (EXIT_SUCCESS == result) printf("ptx: OK\n");
   return result;
 }
-
-#else
-
-int main(void)
-{
-  printf("ptx: skipped (OpenCL backend not compiled in)\n");
-  return EXIT_SUCCESS;
-}
-
-#endif

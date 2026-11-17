@@ -7,146 +7,145 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#if defined(__OPENCL)
-# include <libxstream/libxstream_opencl.h>
-# if defined(__linux__) && defined(__has_include)
-#   if __has_include(<CL/cl_icd.h>)
-#     define LIBXSTREAM_MPS
-#   endif
+#include <libxstream/libxstream_opencl.h>
+#if defined(__linux__) && defined(__has_include)
+# if __has_include(<CL/cl_icd.h>)
+#   define LIBXSTREAM_MPS
 # endif
-# if defined(LIBXSTREAM_MPS)
-#   include <CL/cl_icd.h>
-#   include <libxs/libxs_reg.h>
-#   include <libxs/libxs_str.h>
-#   include <libxs/libxs_timer.h>
-#   include <libxs/libxs_utils.h>
-#   include <sys/mman.h>
-#   include <sys/socket.h>
-#   include <sys/syscall.h>
-#   include <sys/uio.h>
-#   include <sys/un.h>
-#   include <fcntl.h>
-#   include <limits.h>
-#   include <errno.h>
-#   include <poll.h>
-#   include <sys/wait.h>
-#   include <dirent.h>
-#   include <pthread.h>
-#   include <semaphore.h>
-#   include <signal.h>
-#   include <spawn.h>
-#   include <time.h>
-#   include <unistd.h>
-# endif
+#endif
+#if defined(LIBXSTREAM_MPS)
+# include <CL/cl_icd.h>
+# include <libxs/libxs_reg.h>
+# include <libxs/libxs_str.h>
+# include <libxs/libxs_timer.h>
+# include <libxs/libxs_utils.h>
+# include <sys/mman.h>
+# include <sys/socket.h>
+# include <sys/syscall.h>
+# include <sys/uio.h>
+# include <sys/un.h>
+# include <fcntl.h>
+# include <limits.h>
+# include <errno.h>
+# include <poll.h>
+# include <sys/wait.h>
+# include <dirent.h>
+# include <pthread.h>
+# include <semaphore.h>
+# include <signal.h>
+# include <spawn.h>
+# include <time.h>
+# include <unistd.h>
+#endif
 
-# if defined(LIBXSTREAM_MPS)
-#   if !defined(LIBXSTREAM_MPS_MAXNCONN)
-#     define LIBXSTREAM_MPS_MAXNCONN 1024
-#   endif
-#   if !defined(LIBXSTREAM_MPS_MAXNMAPS)
-#     define LIBXSTREAM_MPS_MAXNMAPS 1024
-#   endif
-#   if !defined(LIBXSTREAM_MPS_CAPACITY)
-#     define LIBXSTREAM_MPS_CAPACITY (1 << 20)
-#   endif
-#   if !defined(LIBXSTREAM_MPS_ARENA)
-#     define LIBXSTREAM_MPS_ARENA 256
-#   endif
+#if defined(LIBXSTREAM_MPS)
+# if !defined(LIBXSTREAM_MPS_MAXNCONN)
+#   define LIBXSTREAM_MPS_MAXNCONN 1024
+# endif
+# if !defined(LIBXSTREAM_MPS_MAXNMAPS)
+#   define LIBXSTREAM_MPS_MAXNMAPS 1024
+# endif
+# if !defined(LIBXSTREAM_MPS_CAPACITY)
+#   define LIBXSTREAM_MPS_CAPACITY (1 << 20)
+# endif
+# if !defined(LIBXSTREAM_MPS_ARENA)
+#   define LIBXSTREAM_MPS_ARENA 256
+# endif
 /* seconds to wait for the server (client) or for the first client (server) */
-#   if !defined(LIBXSTREAM_MPS_CONNECT)
-#     define LIBXSTREAM_MPS_CONNECT 60
-#   endif
-#   if !defined(LIBXSTREAM_MPS_IDLE)
-#     define LIBXSTREAM_MPS_IDLE 2
-#   endif
-/* installed server, relative to the library's directory (build systems pass the actual path) */
-#   if !defined(LIBXSTREAM_MPS_BINDIR)
-#     define LIBXSTREAM_MPS_BINDIR "../bin"
-#   endif
-/* the ICD by soname: its unversioned link belongs to development files (build systems pass a different soname) */
-#   if !defined(LIBXSTREAM_MPS_ICD_SONAME)
-#     define LIBXSTREAM_MPS_ICD_SONAME "libxstream_icd.so." LIBXS_STRINGIFY(LIBXSTREAM_VERSION_MAJOR)
-#   endif
-#   define LIBXSTREAM_MPS_NARGS 11
-#   define LIBXSTREAM_MPS_UNORDERED (~(uint64_t)0)
-#   define LIBXSTREAM_MPS_FENCE (~(uint64_t)0)
-/* a dependency's top bits: the object kind, and whether another thread used the object (LIBXSTREAM_VERBOSE=2) */
-#   define LIBXSTREAM_MPS_TAG(KIND, CROSS) ((uint64_t)(((KIND) & 7) | (0 != (CROSS) ? 8 : 0)) << 60)
-#   define LIBXSTREAM_MPS_UNTAG(DEP) ((DEP) & ~((uint64_t)15 << 60))
-#   define LIBXSTREAM_MPS_TAGOF(DEP) ((unsigned int)((DEP) >> 60))
-#   define LIBXSTREAM_MPS_NWAITS 17 /* tags, and the window or a fence */
-#   if !defined(LIBXSTREAM_MPS_NDEPS)
-#     define LIBXSTREAM_MPS_NDEPS 128
-#   endif
-#   if !defined(LIBXSTREAM_MPS_WINDOW)
-#     define LIBXSTREAM_MPS_WINDOW (1 << 20)
-#   endif
-#   define LIBXSTREAM_MPS_NLOCAL 16
-#   define LIBXSTREAM_MPS_NCLASSES 40
-#   define LIBXSTREAM_MPS_PAGE 4096
-#   define LIBXSTREAM_MPS_SUFFIX "MPS"
-#   define LIBXSTREAM_MPS_NAME " (LIBXSTREAM-MPS)"
-#   define LIBXSTREAM_MPS_INFO 9
-#   define LIBXSTREAM_MPS_GEN 10
-
-#   define LIBXSTREAM_MPS_HELLO 1
-#   define LIBXSTREAM_MPS_PLATFORM_INFO 2
-#   define LIBXSTREAM_MPS_DEVICE_IDS 3
-#   define LIBXSTREAM_MPS_DEVICE_INFO 4
-#   define LIBXSTREAM_MPS_CONTEXT 5
-#   define LIBXSTREAM_MPS_QUEUE 6
-#   define LIBXSTREAM_MPS_QUEUE_INFO 7
-#   define LIBXSTREAM_MPS_BUFFER 8
-#   define LIBXSTREAM_MPS_SUBBUFFER 9
-#   define LIBXSTREAM_MPS_PROGRAM_SOURCE 10
-#   define LIBXSTREAM_MPS_PROGRAM_BINARY 11
-#   define LIBXSTREAM_MPS_BUILD 12
-#   define LIBXSTREAM_MPS_PROGRAM_INFO 13
-#   define LIBXSTREAM_MPS_BUILD_INFO 14
-#   define LIBXSTREAM_MPS_KERNEL 15
-#   define LIBXSTREAM_MPS_KERNEL_INFO 16
-#   define LIBXSTREAM_MPS_KERNEL_WGINFO 17
-#   define LIBXSTREAM_MPS_RELEASE 19
-#   define LIBXSTREAM_MPS_WRITE 20
-#   define LIBXSTREAM_MPS_READ 21
-#   define LIBXSTREAM_MPS_COPY 22
-#   define LIBXSTREAM_MPS_FILL 23
-#   define LIBXSTREAM_MPS_NDRANGE 24
-#   define LIBXSTREAM_MPS_MARKER 25
-#   define LIBXSTREAM_MPS_MAP 26
-#   define LIBXSTREAM_MPS_UNMAP 27
-#   define LIBXSTREAM_MPS_FINISH 28
-#   define LIBXSTREAM_MPS_FLUSH 29
-#   define LIBXSTREAM_MPS_WAIT 30
-#   define LIBXSTREAM_MPS_EVENT_STATUS 31
-#   define LIBXSTREAM_MPS_NOPS 32
-
-#   define LIBXSTREAM_MPS_KIND_DEVICE 1
-#   define LIBXSTREAM_MPS_KIND_CONTEXT 2
-#   define LIBXSTREAM_MPS_KIND_QUEUE 3
-#   define LIBXSTREAM_MPS_KIND_MEM 4
-#   define LIBXSTREAM_MPS_KIND_PROGRAM 5
-#   define LIBXSTREAM_MPS_KIND_KERNEL 6
-#   define LIBXSTREAM_MPS_KIND_EVENT 7
-#   define LIBXSTREAM_MPS_KIND_PLATFORM 8
-/* what else the reaper releases (libxstream_mpsd_reaper): a kernel's instances, a departed process */
-#   define LIBXSTREAM_MPS_REAP_KERNEL 16
-#   define LIBXSTREAM_MPS_REAP_CLIENT 17
-
-#   define LIBXSTREAM_MPS_ARG_VALUE 0
-#   define LIBXSTREAM_MPS_ARG_MEM 1
-#   define LIBXSTREAM_MPS_ARG_LOCAL 2
-
-#   define LIBXSTREAM_MPS_OBJ(HANDLE) ((libxstream_mps_obj_t*)(HANDLE))
-#   define LIBXSTREAM_MPS_IS(HANDLE, KIND) (NULL != (HANDLE) && (KIND) == LIBXSTREAM_MPS_OBJ(HANDLE)->kind)
-#   define LIBXSTREAM_MPS_ID(CLIENT, HANDLE) \
-      (NULL != (HANDLE) ? (uint64_t)(LIBXSTREAM_MPS_OBJ(HANDLE) - (CLIENT)->objects) + 1 : 0)
-#   define LIBXSTREAM_MPS_DEVID(CLIENT, HANDLE) ((uint64_t)(LIBXSTREAM_MPS_OBJ(HANDLE) - (CLIENT)->devices))
-#   define LIBXSTREAM_MPS_COUNT(DST_PTR, VALUE) LIBXS_ATOMIC(LIBXS_ATOMIC_ADD_FETCH, 64)(DST_PTR, VALUE, LIBXS_ATOMIC_RELAXED)
+# if !defined(LIBXSTREAM_MPS_CONNECT)
+#   define LIBXSTREAM_MPS_CONNECT 60
 # endif
+# if !defined(LIBXSTREAM_MPS_IDLE)
+#   define LIBXSTREAM_MPS_IDLE 2
+# endif
+/* installed server, relative to the library's directory (build systems pass the actual path) */
+# if !defined(LIBXSTREAM_MPS_BINDIR)
+#   define LIBXSTREAM_MPS_BINDIR "../bin"
+# endif
+/* the ICD by soname: its unversioned link belongs to development files (build systems pass a different soname) */
+# if !defined(LIBXSTREAM_MPS_ICD_SONAME)
+#   define LIBXSTREAM_MPS_ICD_SONAME "libxstream_icd.so." LIBXS_STRINGIFY(LIBXSTREAM_VERSION_MAJOR)
+# endif
+# define LIBXSTREAM_MPS_NARGS 11
+# define LIBXSTREAM_MPS_UNORDERED (~(uint64_t)0)
+# define LIBXSTREAM_MPS_FENCE (~(uint64_t)0)
+/* a dependency's top bits: the object kind, and whether another thread used the object (LIBXSTREAM_VERBOSE=2) */
+# define LIBXSTREAM_MPS_TAG(KIND, CROSS) ((uint64_t)(((KIND) & 7) | (0 != (CROSS) ? 8 : 0)) << 60)
+# define LIBXSTREAM_MPS_UNTAG(DEP) ((DEP) & ~((uint64_t)15 << 60))
+# define LIBXSTREAM_MPS_TAGOF(DEP) ((unsigned int)((DEP) >> 60))
+# define LIBXSTREAM_MPS_NWAITS 17 /* tags, and the window or a fence */
+# if !defined(LIBXSTREAM_MPS_NDEPS)
+#   define LIBXSTREAM_MPS_NDEPS 128
+# endif
+# if !defined(LIBXSTREAM_MPS_WINDOW)
+#   define LIBXSTREAM_MPS_WINDOW (1 << 20)
+# endif
+# define LIBXSTREAM_MPS_NLOCAL 16
+# define LIBXSTREAM_MPS_NCLASSES 40
+# define LIBXSTREAM_MPS_PAGE 4096
+# define LIBXSTREAM_MPS_SUFFIX "MPS"
+# define LIBXSTREAM_MPS_NAME " (LIBXSTREAM-MPS)"
+# define LIBXSTREAM_MPS_INFO 9
+# define LIBXSTREAM_MPS_GEN 10
+
+# define LIBXSTREAM_MPS_HELLO 1
+# define LIBXSTREAM_MPS_PLATFORM_INFO 2
+# define LIBXSTREAM_MPS_DEVICE_IDS 3
+# define LIBXSTREAM_MPS_DEVICE_INFO 4
+# define LIBXSTREAM_MPS_CONTEXT 5
+# define LIBXSTREAM_MPS_QUEUE 6
+# define LIBXSTREAM_MPS_QUEUE_INFO 7
+# define LIBXSTREAM_MPS_BUFFER 8
+# define LIBXSTREAM_MPS_SUBBUFFER 9
+# define LIBXSTREAM_MPS_PROGRAM_SOURCE 10
+# define LIBXSTREAM_MPS_PROGRAM_BINARY 11
+# define LIBXSTREAM_MPS_BUILD 12
+# define LIBXSTREAM_MPS_PROGRAM_INFO 13
+# define LIBXSTREAM_MPS_BUILD_INFO 14
+# define LIBXSTREAM_MPS_KERNEL 15
+# define LIBXSTREAM_MPS_KERNEL_INFO 16
+# define LIBXSTREAM_MPS_KERNEL_WGINFO 17
+# define LIBXSTREAM_MPS_RELEASE 19
+# define LIBXSTREAM_MPS_WRITE 20
+# define LIBXSTREAM_MPS_READ 21
+# define LIBXSTREAM_MPS_COPY 22
+# define LIBXSTREAM_MPS_FILL 23
+# define LIBXSTREAM_MPS_NDRANGE 24
+# define LIBXSTREAM_MPS_MARKER 25
+# define LIBXSTREAM_MPS_MAP 26
+# define LIBXSTREAM_MPS_UNMAP 27
+# define LIBXSTREAM_MPS_FINISH 28
+# define LIBXSTREAM_MPS_FLUSH 29
+# define LIBXSTREAM_MPS_WAIT 30
+# define LIBXSTREAM_MPS_EVENT_STATUS 31
+# define LIBXSTREAM_MPS_NOPS 32
+
+# define LIBXSTREAM_MPS_KIND_DEVICE 1
+# define LIBXSTREAM_MPS_KIND_CONTEXT 2
+# define LIBXSTREAM_MPS_KIND_QUEUE 3
+# define LIBXSTREAM_MPS_KIND_MEM 4
+# define LIBXSTREAM_MPS_KIND_PROGRAM 5
+# define LIBXSTREAM_MPS_KIND_KERNEL 6
+# define LIBXSTREAM_MPS_KIND_EVENT 7
+# define LIBXSTREAM_MPS_KIND_PLATFORM 8
+/* what else the reaper releases (libxstream_mpsd_reaper): a kernel's instances, a departed process */
+# define LIBXSTREAM_MPS_REAP_KERNEL 16
+# define LIBXSTREAM_MPS_REAP_CLIENT 17
+
+# define LIBXSTREAM_MPS_ARG_VALUE 0
+# define LIBXSTREAM_MPS_ARG_MEM 1
+# define LIBXSTREAM_MPS_ARG_LOCAL 2
+
+# define LIBXSTREAM_MPS_OBJ(HANDLE) ((libxstream_mps_obj_t*)(HANDLE))
+# define LIBXSTREAM_MPS_IS(HANDLE, KIND) (NULL != (HANDLE) && (KIND) == LIBXSTREAM_MPS_OBJ(HANDLE)->kind)
+# define LIBXSTREAM_MPS_ID(CLIENT, HANDLE) \
+      (NULL != (HANDLE) ? (uint64_t)(LIBXSTREAM_MPS_OBJ(HANDLE) - (CLIENT)->objects) + 1 : 0)
+# define LIBXSTREAM_MPS_DEVID(CLIENT, HANDLE) ((uint64_t)(LIBXSTREAM_MPS_OBJ(HANDLE) - (CLIENT)->devices))
+# define LIBXSTREAM_MPS_COUNT(DST_PTR, VALUE) LIBXS_ATOMIC(LIBXS_ATOMIC_ADD_FETCH, 64)(DST_PTR, VALUE, LIBXS_ATOMIC_RELAXED)
+#endif
 
 
-# if defined(LIBXSTREAM_MPS)
+#if defined(LIBXSTREAM_MPS)
 /* A command: a fixed header followed by nbytes of payload. */
 typedef struct libxstream_mps_msg_t { /* ndeps sequence numbers follow the payload */
   uint64_t op, nbytes, seq, ndeps;
@@ -310,10 +309,10 @@ typedef struct libxstream_mpsd_t {
   int issuers; /* zero: unbounded */
   int nthreads, nserved, verbosity, ncontexts_per; /* contexts per set of devices */
 } libxstream_mpsd_t;
-# endif
+#endif
 
 
-# if defined(LIBXSTREAM_MPS)
+#if defined(LIBXSTREAM_MPS)
 extern char** environ;
 static struct _cl_icd_dispatch libxstream_mps_dispatch;
 static libxstream_mps_obj_t libxstream_mps_platform;
@@ -328,10 +327,10 @@ static libxstream_mpsd_reap_t* libxstream_mpsd_reaps; /* queue of what the reape
 static size_t libxstream_mpsd_nreaps, libxstream_mpsd_reaphead, libxstream_mpsd_maxreaps;
 static int libxstream_mpsd_reaping; /* 1: started, 2: releasing */
 static libxstream_mpsd_t libxstream_mpsd;
-# endif
+#endif
 
 
-# if defined(LIBXSTREAM_MPS)
+#if defined(LIBXSTREAM_MPS)
 static int libxstream_mps_recv(int fd, void* data, size_t size)
 {
   int result = EXIT_SUCCESS;
@@ -549,7 +548,7 @@ static libxstream_mps_obj_t* libxstream_mps_lookup(const libxstream_mps_client_t
 static int libxstream_mps_libdir(char dir[], size_t size)
 {
   int result = EXIT_FAILURE;
-#   if defined(LIBXS_INTERCEPT_DYNAMIC)
+# if defined(LIBXS_INTERCEPT_DYNAMIC)
   union { int (*fn)(char[], size_t); const void* ptr; } self;
   char real[PATH_MAX];
   Dl_info info;
@@ -561,10 +560,10 @@ static int libxstream_mps_libdir(char dir[], size_t size)
       if (0 < LIBXS_SNPRINTF(dir, size, "%s", real)) result = EXIT_SUCCESS;
     }
   }
-#   else
+# else
   LIBXS_UNUSED(dir);
   LIBXS_UNUSED(size);
-#   endif
+# endif
   return result;
 }
 
@@ -658,9 +657,9 @@ static void libxstream_mps_spawn(int verbosity)
       }
       closedir(fds);
     }
-#   if defined(POSIX_SPAWN_SETSID)
+# if defined(POSIX_SPAWN_SETSID)
     posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSID);
-#   endif
+# endif
     if (0 != (0 == search ? posix_spawn(&pid, server, &actions, &attr, argv, NULL != envp ? envp : environ)
                           : posix_spawnp(&pid, server, &actions, &attr, argv, NULL != envp ? envp : environ)))
     {
@@ -871,8 +870,8 @@ static uint64_t libxstream_mps_order(libxstream_mps_client_t* c, libxstream_mps_
   const uint64_t* const a = msg->arg;
   const uint64_t seq = msg->seq;
   uint64_t ndeps = 0, i;
-#   define LIBXSTREAM_MPS_OBJID(ID) (0 != (ID) && (ID) <= c->capacity ? (c->objects + (ID) - 1) : NULL)
-#   define LIBXSTREAM_MPS_USE(ID) libxstream_mps_use(LIBXSTREAM_MPS_OBJID(ID), seq, deps, &ndeps)
+# define LIBXSTREAM_MPS_OBJID(ID) (0 != (ID) && (ID) <= c->capacity ? (c->objects + (ID) - 1) : NULL)
+# define LIBXSTREAM_MPS_USE(ID) libxstream_mps_use(LIBXSTREAM_MPS_OBJID(ID), seq, deps, &ndeps)
   switch (msg->op) {
     case LIBXSTREAM_MPS_CONTEXT: libxstream_mps_created(LIBXSTREAM_MPS_OBJID(a[0]), seq); break;
     case LIBXSTREAM_MPS_QUEUE:
@@ -923,8 +922,8 @@ static uint64_t libxstream_mps_order(libxstream_mps_client_t* c, libxstream_mps_
     } break;
     default: break; /* platform and device information */
   }
-#   undef LIBXSTREAM_MPS_USE
-#   undef LIBXSTREAM_MPS_OBJID
+# undef LIBXSTREAM_MPS_USE
+# undef LIBXSTREAM_MPS_OBJID
   return ndeps;
 }
 
@@ -3811,10 +3810,10 @@ static int libxstream_mpsd_discover(void)
   }
   return result;
 }
-# endif
+#endif
 
 
-# if defined(LIBXSTREAM_MPS)
+#if defined(LIBXSTREAM_MPS)
 LIBXSTREAM_API_INTERN void libxstream_mps_presetup(int verbosity)
 {
   const char* const env_mps = getenv("LIBXSTREAM_MPS");
@@ -3959,7 +3958,7 @@ LIBXSTREAM_API int libxstream_mps_server(void)
   }
   return result;
 }
-# else
+#else
 LIBXSTREAM_API_INTERN void libxstream_mps_presetup(int verbosity)
 {
   LIBXS_UNUSED(verbosity);
@@ -3978,11 +3977,11 @@ LIBXSTREAM_API cl_int libxstream_mps_icd_platforms(cl_uint num_entries, cl_platf
   LIBXS_UNUSED(num_entries);
   LIBXS_UNUSED(platforms);
   if (NULL != num_platforms) *num_platforms = 0;
-#   if defined(CL_PLATFORM_NOT_FOUND_KHR)
+# if defined(CL_PLATFORM_NOT_FOUND_KHR)
   return CL_PLATFORM_NOT_FOUND_KHR;
-#   else /* headers without cl_khr_icd (Apple) */
+# else /* headers without cl_khr_icd (Apple) */
   return CL_INVALID_PLATFORM;
-#   endif
+# endif
 }
 
 
@@ -3991,6 +3990,4 @@ LIBXSTREAM_API int libxstream_mps_server(void)
   fprintf(stderr, "ERROR LIBXSTREAM-MPS: not available in this build\n");
   return EXIT_FAILURE;
 }
-# endif
-
-#endif /*__OPENCL*/
+#endif

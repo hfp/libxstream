@@ -21,15 +21,11 @@
  * NVIDIA flavors are also compiled to PTX and assembled, which checks the
  * operands of their inline PTX that a syntax check accepts unread.
  */
-#if defined(__OPENCL)
-# if defined(LIBXSTREAM_SOURCE)
-#   include <libxstream/libxstream_source.h>
-# else
-#   include <libxstream/libxstream_opencl.h>
-# endif
+#if defined(LIBXSTREAM_SOURCE)
+# include <libxstream/libxstream_source.h>
+#else
+# include <libxstream/libxstream_opencl.h>
 #endif
-
-#if defined(__OPENCL)
 
 /**
  * Root of the source tree, which the tests read kernels and headers from. Not a
@@ -177,6 +173,16 @@
  * then compiled at the levels that provide them (kernels_level_t.sg).
  */
 typedef struct { const char* path; const char* flavor; const char* params; int nv; int sg; } kernels_file_t;
+
+/**
+ * A level names what it selects, and states the language its artifact is in and
+ * what that language provides. The fp64 flavors need the extension whether or not
+ * the host target advertises it, and from OpenCL C 3.0 on the extension and the
+ * feature are one fact stated twice: a compiler that checks the pair refuses a
+ * build that names only one of them, and the feature does not exist before 3.0.
+ */
+typedef struct { const char* name; const char* defines; const char* std; const char* ext; int sg; } kernels_level_t;
+
 static const kernels_file_t kernel_files[] = {
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/gemm3m.cl", "", "", 0, 0 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "fp64", KERNELS_OZAKI_FP64, 0, 0 },
@@ -205,15 +211,6 @@ static const kernels_file_t kernel_files[] = {
   { LIBXSTREAM_SRCDIR "/samples/dbm/kernels/multiply.cl", "sgb", KERNELS_DBM_SGB, 0, 1 },
   { LIBXSTREAM_SRCDIR "/samples/dbm/kernels/multiply.cl", "sgbnv", KERNELS_DBM_SGB_NV, 1, 0 }
 };
-
-/**
- * A level names what it selects, and states the language its artifact is in and
- * what that language provides. The fp64 flavors need the extension whether or not
- * the host target advertises it, and from OpenCL C 3.0 on the extension and the
- * feature are one fact stated twice: a compiler that checks the pair refuses a
- * build that names only one of them, and the feature does not exist before 3.0.
- */
-typedef struct { const char* name; const char* defines; const char* std; const char* ext; int sg; } kernels_level_t;
 static const kernels_level_t kernel_levels[] = {
   { "floor", "-DLIBXSTREAM_OCLVER_C=120 -DLIBXSTREAM_OCLVER=120", "CL1.2", "+cl_khr_fp64", 0 },
   { "cl3_bare", "-DLIBXSTREAM_OCLVER_C=300 -DLIBXSTREAM_OCLVER=300 -DGPU=1", "CL3.0",
@@ -433,14 +430,3 @@ static int one(const kernels_file_t* file, const kernels_level_t* level)
   free(source);
   return result;
 }
-
-#else
-
-int main(void)
-{
-  /* no kernels to instantiate without __OPENCL; say so rather than exit zero mutely */
-  fprintf(stderr, "kernels: skipped, built without __OPENCL\n");
-  return EXIT_SUCCESS;
-}
-
-#endif

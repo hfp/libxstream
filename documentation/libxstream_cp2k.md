@@ -15,7 +15,7 @@ The DBCSR adapter ([`src/libxstream_dbcsr.c`](https://github.com/hfp/libxstream/
 
 ## API
 
-The header requires only `libxstream.h` (C99, no OpenCL headers) and provides opaque handle types, an error-checking macro, and functions for error handling, streams, events, memory, transfers, and the device. The implementation is compiled only if `__OPENCL` is defined (`__OFFLOAD_OPENCL` implies it); the CMake target `libxstream::libxstream` and the pkg-config file both provide `-D__OPENCL`.
+The header requires only `libxstream.h` (C99, no OpenCL headers) and provides opaque handle types, an error-checking macro, and functions for error handling, streams, events, memory, transfers, and the device. The CMake target `libxstream::libxstream` and the pkg-config file both provide `-D__LIBXSTREAM`, which selects this backend in CP2K's `offload_runtime.h`.
 
 ### Types and Constants
 

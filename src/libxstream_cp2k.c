@@ -7,12 +7,11 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#if defined(__OPENCL)
-# include <libxstream/libxstream_cp2k.h>
-# include <libxstream/libxstream_opencl.h>
+#include <libxstream/libxstream_cp2k.h>
+#include <libxstream/libxstream_opencl.h>
 
 /* reports the failing code regardless of verbosity, e.g., event waits do not record it */
-# define OFFLOAD_EXPECT(RESULT, NAME) \
+#define OFFLOAD_EXPECT(RESULT, NAME) \
     do { \
       const int offload_expect_result_ = (RESULT); \
       if (EXIT_SUCCESS != offload_expect_result_) { \
@@ -201,5 +200,3 @@ LIBXSTREAM_API void offloadEnsureMallocHeapSize(size_t required_size)
   LIBXS_UNUSED(required_size);
   LIBXS_ASSERT(0 == required_size);
 }
-
-#endif /*__OPENCL*/

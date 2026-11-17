@@ -7,17 +7,16 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#if defined(__OPENCL) || defined(__OFFLOAD_OPENCL)
-#  include "smm_acc_opencl.h"
+#include "smm_acc_opencl.h"
 /* angle brackets: a header generated on the include path wins over the installed one */
-#  include <smm_kernels.h>
-#  include "acc_bench.h"
-#  include <libxs/libxs_predict.h>
-#  include <libxs/libxs_timer.h>
-#  include <libxs/libxs_hash.h>
+#include <smm_kernels.h>
+#include "acc_bench.h"
+#include <libxs/libxs_predict.h>
+#include <libxs/libxs_timer.h>
+#include <libxs/libxs_hash.h>
 
-#  if !defined(LIBXSTREAM_CHECK)
-#    define LIBXSTREAM_CHECK(RESULT, EXPR, MSG) \
+#if !defined(LIBXSTREAM_CHECK)
+#  define LIBXSTREAM_CHECK(RESULT, EXPR, MSG) \
       do { \
         const int libxstream_check_r_ = (EXPR); \
         if (EXIT_SUCCESS != libxstream_check_r_) { \
@@ -25,62 +24,62 @@
           fprintf(stderr, "ERROR: %s (%i)\n", (MSG), libxstream_check_r_); \
         } \
       } while (0)
-#  endif
-#  if !defined(OPENCL_KERNELS_SOURCE_MULTIPLY)
-#    error "OpenCL SMM-kernel code not found!"
-#  endif
-#  if !defined(OPENCL_LIBSMM_KERNELNAME_SMM)
-#    define OPENCL_LIBSMM_KERNELNAME_SMM "smm"
-#  endif
-#  if !defined(OPENCL_LIBSMM_NLOCKS_SMM)
-#    define OPENCL_LIBSMM_NLOCKS_SMM 16
-#  endif
-#  if !defined(OPENCL_LIBSMM_DEFAULT_BM)
-#    define OPENCL_LIBSMM_DEFAULT_BM INT_MAX
-#  endif
-#  if !defined(OPENCL_LIBSMM_DEFAULT_BN)
-#    define OPENCL_LIBSMM_DEFAULT_BN 1
-#  endif
-#  if !defined(OPENCL_LIBSMM_DEFAULT_BK)
-#    define OPENCL_LIBSMM_DEFAULT_BK INT_MAX
-#  endif
-#  if !defined(OPENCL_LIBSMM_DEFAULT_BS)
-#    define OPENCL_LIBSMM_DEFAULT_BS 8
-#  endif
-#  if !defined(OPENCL_LIBSMM_BS_MIN) && 1
-#    define OPENCL_LIBSMM_BS_MIN 32
-#  endif
-#  if !defined(OPENCL_LIBSMM_SMM_S)
-#    define OPENCL_LIBSMM_SMM_S 64
-#  endif
-#  if !defined(OPENCL_LIBSMM_VMIN)
-#    define OPENCL_LIBSMM_VMIN 8
-#  endif
-#  define OPENCL_LIBSMM_TYPESIZE(TYPEID) \
+#endif
+#if !defined(OPENCL_KERNELS_SOURCE_MULTIPLY)
+#  error "OpenCL SMM-kernel code not found!"
+#endif
+#if !defined(OPENCL_LIBSMM_KERNELNAME_SMM)
+#  define OPENCL_LIBSMM_KERNELNAME_SMM "smm"
+#endif
+#if !defined(OPENCL_LIBSMM_NLOCKS_SMM)
+#  define OPENCL_LIBSMM_NLOCKS_SMM 16
+#endif
+#if !defined(OPENCL_LIBSMM_DEFAULT_BM)
+#  define OPENCL_LIBSMM_DEFAULT_BM INT_MAX
+#endif
+#if !defined(OPENCL_LIBSMM_DEFAULT_BN)
+#  define OPENCL_LIBSMM_DEFAULT_BN 1
+#endif
+#if !defined(OPENCL_LIBSMM_DEFAULT_BK)
+#  define OPENCL_LIBSMM_DEFAULT_BK INT_MAX
+#endif
+#if !defined(OPENCL_LIBSMM_DEFAULT_BS)
+#  define OPENCL_LIBSMM_DEFAULT_BS 8
+#endif
+#if !defined(OPENCL_LIBSMM_BS_MIN) && 1
+#  define OPENCL_LIBSMM_BS_MIN 32
+#endif
+#if !defined(OPENCL_LIBSMM_SMM_S)
+#  define OPENCL_LIBSMM_SMM_S 64
+#endif
+#if !defined(OPENCL_LIBSMM_VMIN)
+#  define OPENCL_LIBSMM_VMIN 8
+#endif
+#define OPENCL_LIBSMM_TYPESIZE(TYPEID) \
     (dbcsr_type_real_8 == (TYPEID) ? ((int)sizeof(double)) : (dbcsr_type_real_4 == (TYPEID) ? ((int)sizeof(float)) : 0 /*unknown*/))
-#  define OPENCL_LIBSMM_SMMENV(KEY) opencl_libsmm_getenv("OPENCL_LIBSMM_SMM", KEY)
+#define OPENCL_LIBSMM_SMMENV(KEY) opencl_libsmm_getenv("OPENCL_LIBSMM_SMM", KEY)
 
-#  if defined(__cplusplus)
+#if defined(__cplusplus)
 extern "C" {
-#  endif
+#endif
 
-#  if defined(OPENCL_KERNELS_PREDICT_MODELS)
+#if defined(OPENCL_KERNELS_PREDICT_MODELS)
 extern libxs_predict_t* opencl_libsmm_predict_model;
 extern double opencl_libsmm_predict_conf;
-#  endif
+#endif
 extern unsigned int opencl_libsmm_devuid;
 
 opencl_libsmm_acc_dbm_launch_fn_t opencl_libsmm_acc_dbm_launch_fn;
 
-#  if defined(OPENCL_LIBSMM_PFORMAT) && (0 < OPENCL_LIBSMM_PFORMAT)
+#if defined(OPENCL_LIBSMM_PFORMAT) && (0 < OPENCL_LIBSMM_PFORMAT)
 void opencl_libsmm_acc_set_dbm_launch_fn(opencl_libsmm_acc_dbm_launch_fn_t launch_fn) {
   opencl_libsmm_acc_dbm_launch_fn = launch_fn;
 }
-#  else
+#else
 int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, int stack_size, libsmm_acc_data_t datatype,
   const void* dev_a_data, const void* dev_b_data, void* dev_c_data, int m_max, int n_max, int k_max, int max_kernel_dim,
   libxstream_bool_t def_mnk, void* stream, void* c_stream, int param_format, cl_event* event);
-#  endif
+#endif
 int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, int stack_size, libsmm_acc_data_t datatype,
   const void* dev_a_data, const void* dev_b_data, void* dev_c_data, int m_max, int n_max, int k_max, int max_kernel_dim,
   libxstream_bool_t def_mnk, void* stream, void* c_stream, int param_format, cl_event* event)
@@ -110,14 +109,14 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
     key.m = m_max;
     key.n = n_max;
     key.k = k_max;
-#  if (1 < OPENCL_LIBSMM_NLOCKS_SMM)
+#if (1 < OPENCL_LIBSMM_NLOCKS_SMM)
     LIBXS_ASSERT(!(OPENCL_LIBSMM_NLOCKS_SMM & (OPENCL_LIBSMM_NLOCKS_SMM - 1))); /* POT */
     lock += LIBXS_MOD2(libxs_hash(&key, sizeof(key), 25071975 /*seed*/), OPENCL_LIBSMM_NLOCKS_SMM);
-#  endif
+#endif
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, lock); /* calling clSetKernelArg/clEnqueueNDRangeKernel must be consistent */
     config = (opencl_libsmm_smm_t*)libxs_registry_get(
       opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
-#  if defined(OPENCL_KERNELS_PREDICT_MODELS)
+#if defined(OPENCL_KERNELS_PREDICT_MODELS)
     /* the models are trained on FP64 parameters only, hence other types take the defaults */
     if (NULL == config && NULL != opencl_libsmm_predict_model && dbcsr_type_real_8 == key.type) {
       libxs_predict_info_t pinfo;
@@ -178,7 +177,7 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
         }
       }
     }
-#  endif
+#endif
     if (0 >= bs) bs = ((NULL != config && 0 < config->bs) ? config->bs : OPENCL_LIBSMM_DEFAULT_BS);
     /* determine kernel-kind (mini-batch vs. mini-kernel) */
     if (1 == bs || 0 > s || (bs * s) > stack_size) kernel_idx = bs = 1;
@@ -188,10 +187,10 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
       int nchar = LIBXS_SNPRINTF(fname, sizeof(fname),
         /* kernel name are meant to be unambiguous (BLAS-typeprefix and kernelsize) */
         "x" OPENCL_LIBSMM_KERNELNAME_SMM "%ix%ix%i", m_max, n_max, k_max);
-#  if defined(__DBCSR_ACC)
+#if defined(__DBCSR_ACC)
       int routine_handle;
       c_dbcsr_timeset(LIBSMM_ACC_PROCESS_ROUTINE_NAME_STRPTR, LIBSMM_ACC_PROCESS_ROUTINE_NAME_LENPTR, &routine_handle);
-#  endif
+#endif
       result = ((0 < nchar && (int)sizeof(fname) > nchar) ? EXIT_SUCCESS : EXIT_FAILURE);
       if (EXIT_SUCCESS == result) {
         libxstream_opencl_atomic_fp_t tkind = libxstream_opencl_atomic_fp_no;
@@ -288,13 +287,13 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
             (NULL == env_wg || '\0' == *env_wg) ? (0 != defaults || OPENCL_LIBSMM_UNSET(config, 5) ? default_wg : config->wg) : atoi(env_wg), -2, 2);
           new_config.nz = LIBXS_CLMP(
             (NULL == env_nz || '\0' == *env_nz) ? (0 != defaults || OPENCL_LIBSMM_UNSET(config, 7) ? /*default*/ 0 : config->nz) : atoi(env_nz), 0, 1);
-#  if defined(OPENCL_LIBSMM_TODO)
+#if defined(OPENCL_LIBSMM_TODO)
           new_config.al = LIBXS_CLMP(/* bug with AL=1 and XF=1? */
             (NULL == env_al || '\0' == *env_al) ? (0 != defaults || OPENCL_LIBSMM_UNSET(config, 8) ? /*default*/ 0 : config->al) : atoi(env_al), 0, 1);
-#  else
+#else
           LIBXS_UNUSED(env_al);
           new_config.al = 0;
-#  endif
+#endif
           new_config.tb = LIBXS_CLMP(
             (NULL == env_tb || '\0' == *env_tb) ? (0 != defaults || OPENCL_LIBSMM_UNSET(config, 9) ? /*default*/ 0 : config->tb) : atoi(env_tb), 0, 1);
           new_config.tc = LIBXS_CLMP(
@@ -484,9 +483,9 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
         }
         config = NULL; /* removed from the registry */
       }
-#  if defined(__DBCSR_ACC)
+#if defined(__DBCSR_ACC)
       c_dbcsr_timestop(&routine_handle);
-#  endif
+#endif
     }
     LIBXS_ASSERT(EXIT_SUCCESS != result || (NULL != config && NULL != config->kernel[kernel_idx]));
     LIBXS_ASSERT(EXIT_SUCCESS != result || (1 <= config->bm && config->bm <= m_max));
@@ -509,11 +508,11 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
       size_t work_size;
       /* scale intra-kernel batchsize according to stacksize */
       if (0 == kernel_idx && 1 < config->bs && stack_size < config->s) {
-#  if defined(OPENCL_LIBSMM_BS_MIN)
+#if defined(OPENCL_LIBSMM_BS_MIN)
         const int config_bs = LIBXS_MAX(config->bs, OPENCL_LIBSMM_BS_MIN);
-#  else
+#else
         const int config_bs = config->bs;
-#  endif
+#endif
         bs = LIBXS_UPDIV(stack_size * config_bs, config->s - 1);
         if (config->bs < bs) bs = config->bs;
       }
@@ -583,8 +582,6 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
   return result;
 }
 
-#  if defined(__cplusplus)
+#if defined(__cplusplus)
 }
-#  endif
-
-#endif /*defined(__OPENCL)*/
+#endif

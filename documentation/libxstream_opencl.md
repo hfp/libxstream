@@ -4,7 +4,7 @@
 
 ## Compile-Time Configuration
 
-The header is guarded by `__OPENCL` (set automatically when `__OFFLOAD_OPENCL` is defined). Key compile-time knobs:
+Key compile-time knobs:
 
 | Macro | Default | Description |
 |---|---|---|
