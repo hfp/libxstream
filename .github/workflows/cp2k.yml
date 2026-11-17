@@ -108,15 +108,8 @@ jobs:
         grep -q "DBM-kernel" miniapp.log || { echo "ERROR: the DBM kernel did not run"; exit 1; }
 
   DBCSR:
-    name: DBCSR${{ matrix.profile && ' (profile)' || '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        # profile: LIBXSTREAM brackets each ACC call with DBCSR's timers, an
-        # optional debug aid (LIBXSTREAM_PROFILE_DBCSR) that only links with DBCSR
-        profile: [false, true]
     env:
       # the scheduled run has no inputs, hence the defaults of the inputs again
       OWNER_DBCSR: ${{ github.event.inputs.owner_dbcsr || 'hfp' }}
@@ -126,8 +119,20 @@ jobs:
       OMP_NUM_THREADS: 2
       # DBCSR's copy of acc_bench fails on a wrong result only if CHECK is positive
       CHECK: 1
-      # turns the bracketing on at runtime (and the per-kernel profile)
-      LIBXSTREAM_PROFILE: ${{ matrix.profile && '1' || '0' }}
+      # dbcsr_perf reports checksums without comparing them, hence the reference
+      # values (deterministic input, refresh if DBCSR changes the input), and the
+      # accelerator must have taken the flops since a CPU fallback passes as well.
+      CHECKSUM_C_OUT: 0.610128079932045E+12
+      CHECKSUM_C_POS: 0.230554708055126E+11
+      PERF_CHECK: |
+        function off(x, r) { return (x > r ? x - r : r - x) / (0 > r ? -r : r) }
+        /checksum\(C_out\) =/ { nout++; if (1e-10 < off($NF + 0, out + 0)) bad = 1 }
+        /checksum\(C_out\) POS =/ { npos++; if (1e-10 < off($NF + 0, pos + 0)) bad = 1 }
+        /^ flops total/ { found = 1; if ("0.0%" == $NF) acc = 0; else acc = 1 }
+        END {
+          if (1 != nout || 1 != npos || bad) { print "ERROR: checksum of C differs from the reference"; exit 1 }
+          if (!found || !acc) { print "ERROR: the accelerator did not run the multiplications"; exit 1 }
+        }
     steps:
     - uses: actions/checkout@v7
 
@@ -171,13 +176,9 @@ jobs:
       run: cd ${LIBXSROOT} && make -j $(nproc)
 
     - name: Build LIBXSTREAM
-      env:
-        PROFILE_FLAGS: ${{ matrix.profile && '-DLIBXSTREAM_PROFILE_DBCSR=8' || '' }}
-      run: make -j $(nproc) ${PROFILE_FLAGS:+"ECFLAGS=${PROFILE_FLAGS}"}
+      run: make -j $(nproc)
 
-    # the standalone sample has no DBCSR to provide the timers of the profile
     - name: Test SMM sample
-      if: ${{ !matrix.profile }}
       run: |
         make -j $(nproc) -C samples/smm
         cd samples/smm && ./acc_bench.x 3 3000 13x5x7
@@ -196,23 +197,36 @@ jobs:
         ./acc_bench 3 3000 13x5x7
 
     # DBCSR's own test suite is not repeated here: this is an integration build.
-    # dbcsr_perf reports checksums without comparing them, hence the reference
-    # values (deterministic input, refresh if DBCSR changes the input), and the
-    # accelerator must have taken the flops since a CPU fallback passes as well.
+    # LIBXSTREAM's ACC calls are among DBCSR's timers exactly if profiled (DBCSR
+    # names only acc_transpose_blocks* and acc_calculate_norms on its own).
     - name: Benchmark DBCSR
       shell: bash # pipefail, or tee hides a failure
-      env:
-        CHECKSUM_C_OUT: 0.610128079932045E+12
-        CHECKSUM_C_POS: 0.230554708055126E+11
       run: |
         cd "${DBCSR_ROOT}/build/tests"
         ./dbcsr_perf "${DBCSR_ROOT}/tests/inputs/test_H2O.perf" 2>&1 | tee perf.log
-        awk -v out="${CHECKSUM_C_OUT}" -v pos="${CHECKSUM_C_POS}" '
-          function off(x, r) { return (x > r ? x - r : r - x) / (0 > r ? -r : r) }
-          /checksum\(C_out\) =/ { nout++; if (1e-10 < off($NF + 0, out + 0)) bad = 1 }
-          /checksum\(C_out\) POS =/ { npos++; if (1e-10 < off($NF + 0, pos + 0)) bad = 1 }
-          END { exit !(1 == nout && 1 == npos && !bad) }' perf.log \
-          || { echo "ERROR: checksum of C differs from the reference"; exit 1; }
-        awk '/^ flops total/ { found = 1; if ("0.0%" == $NF) acc = 0; else acc = 1 }
-          END { exit !(found && acc) }' perf.log \
-          || { echo "ERROR: the accelerator did not run the multiplications"; exit 1; }
+        awk -v out="${CHECKSUM_C_OUT}" -v pos="${CHECKSUM_C_POS}" "${PERF_CHECK}" perf.log
+        if grep -qE '^ acc_memcpy_h2d ' perf.log; then FOUND=1; else FOUND=0; fi
+        if [ "0" != "${LIBXSTREAM_PROFILE:-0}" ]; then EXPECT=1; else EXPECT=0; fi
+        [ "${EXPECT}" = "${FOUND}" ] \
+          || { echo "ERROR: LIBXSTREAM_PROFILE=${LIBXSTREAM_PROFILE:-0} but LIBXSTREAM in DBCSR's timers=${FOUND}"; exit 1; }
+
+    # The same binaries again: the hook is compiled in by default (ELF), hence
+    # only the runtime switch brackets each ACC call with DBCSR's timers (and
+    # enables the per-kernel profile), which must not change the result.
+    # acc_bench prints no DBCSR timers, but LIBXSTREAM's own per-kernel profile.
+    - name: Profile DBCSR
+      shell: bash # pipefail, or tee hides a failure
+      env:
+        LIBXSTREAM_PROFILE: 1
+      run: |
+        cd "${DBCSR_ROOT}/build/tests"
+        ./dbcsr_acc_test
+        ./acc_bench 3 3000 13x5x7 2>&1 | tee bench.log
+        grep -qE '^PROF ACC/OpenCL: ID=[0-9.]+ dsmm[0-9x]+=' bench.log \
+          || { echo "ERROR: the SMM kernel is missing in LIBXSTREAM's profile"; exit 1; }
+        ./dbcsr_perf "${DBCSR_ROOT}/tests/inputs/test_H2O.perf" 2>&1 | tee perf.log
+        awk -v out="${CHECKSUM_C_OUT}" -v pos="${CHECKSUM_C_POS}" "${PERF_CHECK}" perf.log
+        if grep -qE '^ acc_memcpy_h2d ' perf.log; then FOUND=1; else FOUND=0; fi
+        if [ "0" != "${LIBXSTREAM_PROFILE:-0}" ]; then EXPECT=1; else EXPECT=0; fi
+        [ "${EXPECT}" = "${FOUND}" ] \
+          || { echo "ERROR: LIBXSTREAM_PROFILE=${LIBXSTREAM_PROFILE:-0} but LIBXSTREAM in DBCSR's timers=${FOUND}"; exit 1; }
