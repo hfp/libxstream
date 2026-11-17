@@ -313,19 +313,39 @@ static int ozaki_wgmma_depth(const ozaki_context_t* ctx, int tm, int tn, int* de
   const int wku_n = (0 < tn && tn < ctx->tn_req) ? (ctx->ku * (ctx->tn_req / tn)) : ctx->ku;
   const int wku = (tm < ctx->tm_req && 4 <= wku_n) ? (wku_n / 2) : wku_n;
   const int wide = (128 == tm && 256 == tn);
-  const int dfr = (0 <= ctx->wgmma_defer ? ctx->wgmma_defer : wide) ? 1 : 0;
-  const int stg = (0 != dfr) ? ctx->wgmma_stages : 2;
+  /**
+   * Tensor-memory MMA budgets differently: the accumulators (TN columns) and STAGES
+   * stages of A (WKU*BK/4 columns each) share 512 columns per SM, the B ring shares the
+   * SM's shared memory, and nothing is held in registers across the K-loop. Four stages
+   * (the depth the warp-group path measured best at for int8), as deep as both fit, and
+   * within 256 columns where the tile is 128 wide, so that two work-groups fit an SM.
+   * The spare buffers come with the deferred wait the warp-group macros pair them with.
+   */
+  const int stg_tc = (2 <= ctx->wgmma_stages) ? ctx->wgmma_stages : 4;
+  const int dfr = (0 != ctx->tcgen05) ? ((2 < stg_tc) ? 1 : 0)
+                : ((0 <= ctx->wgmma_defer ? ctx->wgmma_defer : wide) ? 1 : 0);
+  const int stg = (0 != ctx->tcgen05) ? stg_tc : ((0 != dfr) ? ctx->wgmma_stages : 2);
   /* Halved once for any spare buffer, which holds the two-buffer footprint per buffer. */
   const int result = (2 == stg) ? wku : LIBXS_MAX(wku / 2, 2);
+  int wku_r;
   if (NULL != defer) *defer = dfr;
   if (NULL != stages) *stages = stg;
-  { /* The ring is static local memory; the kernel refuses more than the probe validates. */
+  if (0 != ctx->tcgen05) {
+    const int ncols = (128 >= tn) ? 256 : 512;
+    wku_r = (0 != ku_pin) ? ku_pin : 16;
+    while (1 < wku_r && (ncols < tn + stg * wku_r * ctx->bk_pre / 4
+      || OZAKI_WGMMA_RING_MAX < (size_t)stg * tn * wku_r * ctx->bk_pre))
+    {
+      wku_r >>= 1;
+    }
+  }
+  else { /* The ring is static local memory; the kernel refuses more than the probe validates. */
     /* Two resident work-groups share what the probe validated for one. */
     const size_t ring_max = (0 != ozaki_wgmma_resident(ctx, tm, tn)) ? (OZAKI_WGMMA_RING_MAX / 2) : OZAKI_WGMMA_RING_MAX;
-    int wku_r = (0 != ku_pin) ? ku_pin : result;
+    wku_r = (0 != ku_pin) ? ku_pin : result;
     while (2 < wku_r && ring_max < (size_t)stg * tn * wku_r * ctx->bk_pre) wku_r >>= 1;
-    return wku_r;
   }
+  return wku_r;
 }
 
 

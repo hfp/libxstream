@@ -1293,15 +1293,16 @@
 #   if !defined(OZAKI_ABLOCK) || (2 != OZAKI_ABLOCK)
 #     error OZAKI_TCGEN05 reads A in the fragment layout of its store (OZAKI_ABLOCK=2).
 #   endif
-#   if defined(OZAKI_BF16) && (OZAKI_BF16)
-#     error OZAKI_TCGEN05 takes the int8 carrier only.
-#   endif
-#   if (32 != WBK) && (64 != WBK) && (128 != WBK) && (256 != WBK) && (512 != WBK)
+/* A stage in BYTES (WBK counts elements), and the K of one instruction in elements: 32 bytes either way. */
+#   define OZAKI_TC_WBB (WBK * OZAKI_AS_ESZ)
+#   define OZAKI_TC_KSTEP (32 / OZAKI_AS_ESZ)
+#   if (32 != OZAKI_TC_WBB) && (64 != OZAKI_TC_WBB) && (128 != OZAKI_TC_WBB) && (256 != OZAKI_TC_WBB) \
+    && (512 != OZAKI_TC_WBB)
 #     error OZAKI_TCGEN05 implies a stage of 1, 2, 4, 8 or 16 K steps (32 bytes each).
 #   endif
 /* Accumulators first, then the A ring; the allocation is a power of two of at least 32. */
 #   define OZAKI_TC_ACOL BN
-#   define OZAKI_TC_ANCOL (WBK / 4)
+#   define OZAKI_TC_ANCOL (OZAKI_TC_WBB / 4)
 #   if 512 < (BN + (OZAKI_WGMMA_STAGES) * OZAKI_TC_ANCOL)
 #     error the accumulators and the A ring exceed the 512 columns of tensor memory.
 #   elif 256 < (BN + (OZAKI_WGMMA_STAGES) * OZAKI_TC_ANCOL)
@@ -1309,15 +1310,24 @@
 #   else
 #     define OZAKI_TC_NCOLS 256
 #   endif
-#   if defined(OZAKI_U8) && (OZAKI_U8)
+/* The instruction's kind, and its descriptor's accumulator (s32 2, f32 1) and element formats (u8 0, s8 1; bf16 1). */
+#   if defined(OZAKI_BF16) && (OZAKI_BF16)
+#     define OZAKI_TC_KIND "kind::f16"
+#     define OZAKI_TC_DFMT 1
+#     define OZAKI_TC_EFMT 1
+#   elif defined(OZAKI_U8) && (OZAKI_U8)
+#     define OZAKI_TC_KIND "kind::i8"
+#     define OZAKI_TC_DFMT 2
 #     define OZAKI_TC_EFMT 0
 #   else
+#     define OZAKI_TC_KIND "kind::i8"
+#     define OZAKI_TC_DFMT 2
 #     define OZAKI_TC_EFMT 1
 #   endif
-/* Instruction descriptor: s32 accumulators, A and B u8 or s8, K-major, N/8 and M/16. */
+/* Instruction descriptor: accumulator and element formats, K-major, N/8 and M/16. */
 #   define OZAKI_TC_IDESC \
-      ((2u << 4) | ((uint)OZAKI_TC_EFMT << 7) | ((uint)OZAKI_TC_EFMT << 10) | ((uint)(BN >> 3) << 17) \
-        | ((uint)(BM >> 4) << 24))
+      (((uint)OZAKI_TC_DFMT << 4) | ((uint)OZAKI_TC_EFMT << 7) | ((uint)OZAKI_TC_EFMT << 10) \
+        | ((uint)(BN >> 3) << 17) | ((uint)(BM >> 4) << 24))
 /* Shared-memory descriptor without the address: LBO and SBO as for wgmma, version bit 46. */
 #   define OZAKI_TC_BDESC (((ulong)1 << 46) | ((ulong)8 << 32) | ((ulong)(BN) << 16))
 #   define OZAKI_TC_STR(X) OZAKI_WGMMA_STR(X)
@@ -1367,37 +1377,37 @@
       } while (0)
 /* One store per stage: K step j of the warp's 16 rows is repetition j (eight columns). */
 #   define OZAKI_TC_R4(V) "r"((V).x), "r"((V).y), "r"((V).z), "r"((V).w)
-#   if (32 == WBK)
+#   if (32 == OZAKI_TC_WBB)
 #     define OZAKI_TC_STORE(TA, AV) \
         __asm__ volatile("// SPLICE tcgen05.st.sync.aligned.16x256b.x1.b32 [%0], {%1, %2, %3, %4};" \
           :: "r"(TA), OZAKI_TC_R4((AV)[0]) : "memory")
-#   elif (64 == WBK)
+#   elif (64 == OZAKI_TC_WBB)
 #     define OZAKI_TC_STORE(TA, AV) \
         __asm__ volatile("// SPLICE tcgen05.st.sync.aligned.16x256b.x2.b32 [%0], {%1, %2, %3, %4, %5, %6, %7, %8};" \
           :: "r"(TA), OZAKI_TC_R4((AV)[0]), OZAKI_TC_R4((AV)[1]) : "memory")
-#   elif (128 == WBK)
+#   elif (128 == OZAKI_TC_WBB)
 #     define OZAKI_TC_STORE(TA, AV) \
         __asm__ volatile("// SPLICE tcgen05.st.sync.aligned.16x256b.x4.b32 [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16};" \
           :: "r"(TA), OZAKI_TC_R4((AV)[0]), OZAKI_TC_R4((AV)[1]), OZAKI_TC_R4((AV)[2]), OZAKI_TC_R4((AV)[3]) : "memory")
-#   elif (256 == WBK)
+#   elif (256 == OZAKI_TC_WBB)
 #     define OZAKI_TC_STORE(TA, AV) \
         __asm__ volatile("// SPLICE tcgen05.st.sync.aligned.16x256b.x8.b32 [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32};" \
           :: "r"(TA), OZAKI_TC_R4((AV)[0]), OZAKI_TC_R4((AV)[1]), OZAKI_TC_R4((AV)[2]), OZAKI_TC_R4((AV)[3]), OZAKI_TC_R4((AV)[4]), OZAKI_TC_R4((AV)[5]), OZAKI_TC_R4((AV)[6]), OZAKI_TC_R4((AV)[7]) : "memory")
-#   elif (512 == WBK)
+#   elif (512 == OZAKI_TC_WBB)
 #     define OZAKI_TC_STORE(TA, AV) \
         __asm__ volatile("// SPLICE tcgen05.st.sync.aligned.16x256b.x16.b32 [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32, %33, %34, %35, %36, %37, %38, %39, %40, %41, %42, %43, %44, %45, %46, %47, %48, %49, %50, %51, %52, %53, %54, %55, %56, %57, %58, %59, %60, %61, %62, %63, %64};" \
           :: "r"(TA), OZAKI_TC_R4((AV)[0]), OZAKI_TC_R4((AV)[1]), OZAKI_TC_R4((AV)[2]), OZAKI_TC_R4((AV)[3]), OZAKI_TC_R4((AV)[4]), OZAKI_TC_R4((AV)[5]), OZAKI_TC_R4((AV)[6]), OZAKI_TC_R4((AV)[7]), OZAKI_TC_R4((AV)[8]), OZAKI_TC_R4((AV)[9]), OZAKI_TC_R4((AV)[10]), OZAKI_TC_R4((AV)[11]), OZAKI_TC_R4((AV)[12]), OZAKI_TC_R4((AV)[13]), OZAKI_TC_R4((AV)[14]), OZAKI_TC_R4((AV)[15]) : "memory")
 #   endif
 /**
  * B by bulk copies, one per 16-byte K block, which spans the tile's width contiguously both
- * in global memory (the blocked layout) and in the stage: WBK/16 copies of BN*16 bytes from
+ * in global memory (the blocked layout) and in the stage: WBB/16 copies of BN*16 bytes from
  * as many lanes of warp 0, against WBSZ copies of 16 bytes spread over the work-group. The
  * stage's bytes are announced on its "full" mbarrier, on which the copies complete, so no
  * thread waits for them and no proxy fence is needed (they are written by the async proxy
  * the MMA reads them through). The announcement may follow a copy's completion: the phase
  * still waits for every thread's arrival.
  */
-#   if (32 < (WBK / 16))
+#   if (32 < (OZAKI_TC_WBB / 16))
 #     error OZAKI_TCGEN05 copies a stage from the lanes of one warp at most.
 #   endif
 #   define OZAKI_TC_BSTAGE(BS_K, N_PAD, NB, KOFF, SBS, SGI, LANE, BAR) \
@@ -1407,7 +1417,7 @@
             __asm__ volatile("// SPLICE mbarrier.expect_tx.relaxed.cta.shared::cta.b64 [%0], %1;" \
               :: "l"(BAR), "r"((uint)(WBSZ * 16)) : "memory"); \
           } \
-          if ((LANE) < WBK / 16) { \
+          if ((LANE) < OZAKI_TC_WBB / 16) { \
             __asm__ volatile("// SPLICE cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes [%0], [%1], %2, [%3];" \
               :: "l"((SBS) + (LANE) * BN), \
                  "l"((BS_K) + ((long)(((KOFF) >> OZAKI_BS_BLOG) + (LANE)) * (N_PAD) + (NB)) * 16), \
@@ -1425,8 +1435,9 @@
 #   define OZAKI_TC_PRODUCE(ASW, BSW, K_PAD, N_PAD, NB, KOFF, G, SB, SGI, ABLK, LANE, ALANE, FULL, EMPTY) \
       do { \
         const int sp_ = (G) % OZAKI_WGMMA_STAGES; \
-        CONSTANT const char* ap_ = (ASW) + ((((long)(ABLK) * ((K_PAD) >> 5) + ((KOFF) >> 5))) << 9) + ((LANE) << 4); \
-        uint4 av_[WBK / 32]; \
+        CONSTANT const char* ap_ = (ASW) \
+          + ((((long)(ABLK) * ((K_PAD) / OZAKI_TC_KSTEP) + ((KOFF) / OZAKI_TC_KSTEP))) << 9) + ((LANE) << 4); \
+        uint4 av_[OZAKI_TC_WBB / 32]; \
         int ca_; \
         if ((G) >= OZAKI_WGMMA_STAGES) { \
           OZAKI_TC_WAIT((EMPTY) + sp_, (((G) / OZAKI_WGMMA_STAGES) - 1) & 1); \
@@ -1434,7 +1445,7 @@
         OZAKI_TC_SYNCWARP(); \
         OZAKI_TC_BSTAGE(BSW, N_PAD, NB, KOFF, (SB) + sp_ * WBSZ, SGI, LANE, (FULL) + sp_); \
         OZAKI_TC_SYNCWARP(); /* the copies are issued by some lanes, the store wants all */ \
-        UNROLL_FORCE(WBK / 32) for (ca_ = 0; ca_ < WBK / 32; ++ca_) { \
+        UNROLL_FORCE(OZAKI_TC_WBB / 32) for (ca_ = 0; ca_ < OZAKI_TC_WBB / 32; ++ca_) { \
           av_[ca_] = *(CONSTANT const uint4*)(ap_ + ca_ * 512); \
         } \
         OZAKI_TC_STORE((ALANE) + OZAKI_TC_ACOL + sp_ * OZAKI_TC_ANCOL, av_); \
@@ -1442,7 +1453,7 @@
         OZAKI_TC_FENCE_BEFORE(); \
         OZAKI_TC_ARRIVE((FULL) + sp_); \
       } while (0)
-/* Issue round G from one thread: WBK/32 instructions, then commit them to "empty". */
+/* Issue round G from one thread: WBB/32 instructions, then commit them to "empty". */
 #   define OZAKI_TC_ISSUE(G, FIRST, SB, TADDR, FULL, EMPTY) \
       do { \
         const int si_ = (G) % OZAKI_WGMMA_STAGES; \
@@ -1450,10 +1461,10 @@
         int ci_; \
         OZAKI_TC_WAIT((FULL) + si_, ((G) / OZAKI_WGMMA_STAGES) & 1); \
         OZAKI_TC_FENCE_AFTER(); \
-        UNROLL_FORCE(WBK / 32) for (ci_ = 0; ci_ < WBK / 32; ++ci_) { \
+        UNROLL_FORCE(OZAKI_TC_WBB / 32) for (ci_ = 0; ci_ < OZAKI_TC_WBB / 32; ++ci_) { \
           __asm__ volatile("// SPLICE { .reg .b64 %%d; .reg .pred %%p; shr.u64 %%d, %2, 4; and.b64 %%d, %%d, 16383;" \
             " or.b64 %%d, %%d, %3; setp.ne.u32 %%p, %4, 0;" \
-            " tcgen05.mma.cta_group::1.kind::i8 [%0], [%1], %%d, %5, %%p; }" \
+            " tcgen05.mma.cta_group::1." OZAKI_TC_KIND " [%0], [%1], %%d, %5, %%p; }" \
             :: "r"(TADDR), "r"((TADDR) + OZAKI_TC_ACOL + si_ * OZAKI_TC_ANCOL + ci_ * 8), \
                "l"((SB) + si_ * WBSZ + ci_ * 2 * BN), "l"(bd_), "r"((uint)(0 == (FIRST) || 0 != ci_)), \
                "r"((uint)OZAKI_TC_IDESC) : "memory"); \
@@ -1473,6 +1484,51 @@
           (ACC8)[j_] = (int4)((int)v_[4 * j_], (int)v_[4 * j_ + 1], (int)v_[4 * j_ + 2], (int)v_[4 * j_ + 3]); \
         } \
       } while (0)
+/**
+ * The bf16 carrier accumulates in fp32, exact for OZAKI_ACC_KMAX of K, so the accumulators
+ * are folded back into residues every OZAKI_TC_NFOLD rounds (as many as fit, the bound need
+ * not be a multiple of a round: 258 for unsigned residues), in place in tensor memory:
+ * once the round's commit drained the MMAs, each warp reads its accumulators eight blocks at
+ * a time, reduces them and stores them back, and the work-group barrier holds the next issue
+ * until every warp stored. In place needs no second set of columns, which the 128x256 tile
+ * does not have; the MMAs wait for the fold instead (a second set would let them continue,
+ * at the columns' cost, which is a question of time). No fold follows the last round: the
+ * epilogue reduces what the readout returns.
+ */
+#   if defined(OZAKI_BF16) && (OZAKI_BF16)
+#     if (OZAKI_ACC_KMAX < WBK)
+#       error a round overruns the fp32 accumulator.
+#     endif
+#     define OZAKI_TC_NFOLD (OZAKI_ACC_KMAX / WBK)
+#     define OZAKI_TC_FOLD(R, NR, RL, PIDX, G, EMPTY) \
+        do { \
+          if (0 == (((R) + 1) % OZAKI_TC_NFOLD) && ((R) + 1) < (NR)) { \
+            int fb_, fj_; \
+            OZAKI_TC_WAIT((EMPTY) + (G) % OZAKI_WGMMA_STAGES, ((G) / OZAKI_WGMMA_STAGES) & 1); \
+            OZAKI_TC_SYNCWARP(); \
+            OZAKI_TC_FENCE_AFTER(); \
+            UNROLL_FORCE(RTN / 8) for (fb_ = 0; fb_ < RTN / 8; ++fb_) { \
+              uint v_[32]; \
+              __asm__ volatile("// SPLICE tcgen05.ld.sync.aligned.16x256b.x8.b32 {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31}, [%32];" \
+                " tcgen05.wait::ld.sync.aligned;" \
+                : "=r"(v_[0]), "=r"(v_[1]), "=r"(v_[2]), "=r"(v_[3]), "=r"(v_[4]), "=r"(v_[5]), "=r"(v_[6]), "=r"(v_[7]), "=r"(v_[8]), "=r"(v_[9]), "=r"(v_[10]), "=r"(v_[11]), "=r"(v_[12]), "=r"(v_[13]), "=r"(v_[14]), "=r"(v_[15]), "=r"(v_[16]), "=r"(v_[17]), "=r"(v_[18]), "=r"(v_[19]), "=r"(v_[20]), "=r"(v_[21]), "=r"(v_[22]), "=r"(v_[23]), "=r"(v_[24]), "=r"(v_[25]), "=r"(v_[26]), "=r"(v_[27]), "=r"(v_[28]), "=r"(v_[29]), "=r"(v_[30]), "=r"(v_[31]) : "r"((RL) + fb_ * 64) : "memory"); \
+              UNROLL_FORCE(32) for (fj_ = 0; fj_ < 32; ++fj_) { \
+                uint rd_; \
+                OZAKI_MOD_REDUCE_ELEM((int)v_[fj_], (PIDX), rd_); \
+                v_[fj_] = (uint)OZAKI_ACC_OF(rd_); \
+              } \
+              __asm__ volatile("// SPLICE tcgen05.st.sync.aligned.16x256b.x8.b32 [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32};" \
+                :: "r"((RL) + fb_ * 64), "r"(v_[0]), "r"(v_[1]), "r"(v_[2]), "r"(v_[3]), "r"(v_[4]), "r"(v_[5]), "r"(v_[6]), "r"(v_[7]), "r"(v_[8]), "r"(v_[9]), "r"(v_[10]), "r"(v_[11]), "r"(v_[12]), "r"(v_[13]), "r"(v_[14]), "r"(v_[15]), "r"(v_[16]), "r"(v_[17]), "r"(v_[18]), "r"(v_[19]), "r"(v_[20]), "r"(v_[21]), "r"(v_[22]), "r"(v_[23]), "r"(v_[24]), "r"(v_[25]), "r"(v_[26]), "r"(v_[27]), "r"(v_[28]), "r"(v_[29]), "r"(v_[30]), "r"(v_[31]) : "memory"); \
+            } \
+            __asm__ volatile("// SPLICE tcgen05.wait::st.sync.aligned;" ::: "memory"); \
+            OZAKI_TC_FENCE_BEFORE(); \
+            barrier(CLK_LOCAL_MEM_FENCE); \
+            OZAKI_TC_FENCE_AFTER(); \
+          } \
+        } while (0)
+#   else
+#     define OZAKI_TC_FOLD(R, NR, RL, PIDX, G, EMPTY) ((void)0)
+#   endif
 /**
  * One modulus: the first STAGES rounds filled ahead, then per round the issue (one
  * thread) and the refill of the stage the round STAGES back released. G counts rounds
@@ -1501,6 +1557,7 @@
             OZAKI_TC_PRODUCE(asw_, bsw_, K_PAD, N_PAD, NB, (r_ + OZAKI_WGMMA_STAGES) * WBK, \
               (G) + r_ + OZAKI_WGMMA_STAGES, SB, SGI, ab_, LANE, rl_, FULL, EMPTY); \
           } \
+          OZAKI_TC_FOLD(r_, nr_, rl_, PIDX, (G) + r_, EMPTY); \
         } \
         OZAKI_TC_WAIT((EMPTY) + ((G) + nr_ - 1) % OZAKI_WGMMA_STAGES, (((G) + nr_ - 1) / OZAKI_WGMMA_STAGES) & 1); \
         OZAKI_TC_SYNCWARP(); \

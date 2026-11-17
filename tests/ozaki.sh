@@ -7,11 +7,13 @@
 # SPDX-License-Identifier: BSD-3-Clause                                       #
 ###############################################################################
 # Runs the Ozaki sample (fp64) on every GPU in GPUS, which are simulated NVIDIA
-# GPUs (VGPU_GPU, see "vgpu list-gpus") or "local" for whatever device is
-# present, through every kernel level the GPU has: on NVIDIA LIBXSTREAM_NV
+# GPUs (VGPU_GPU, see "vgpu list-gpus", with ":sm_NNN" for an architecture
+# other than the profile's, e.g., one LLVM knows) or "local" for whatever device
+# is present, through every kernel level the GPU has: on NVIDIA LIBXSTREAM_NV
 # (1 generic, 2 dp4a and m8n8k16, 3 m16n8k32, 4 m16n8k32 on Hopper and later)
 # with warp-group MMA where it is taken (on a simulated GPU of sm_90) and the
-# fifth generation's MMA (tcgen05, int8 on a simulated GPU of sm_100), on Intel
+# fifth generation's MMA (tcgen05 on a simulated GPU from sm_100 to before
+# sm_120: bf16 on each, int8 where kind::i8 exists), on Intel
 # LIBXSTREAM_INTEL (0 generic, 1 Intel GPU, 2 DPAS), elsewhere the one generic
 # level. A local device's vendor and top level are what the sample selects. Both
 # schemes, with the carriers of Scheme 2 (int8, int8 with symmetric residues,
@@ -49,7 +51,7 @@ LOGS=${LOGS:-${PWD}/ozaki}
 SIZES=${SIZES:-256 257}
 MAKE=${MAKE:-$(command -v make)}
 NPROC=$(nproc 2> /dev/null || echo 4)
-GPUS=${GPUS:-nvidia/h100-pcie nvidia/gh200-480gb nvidia/b200}
+GPUS=${GPUS:-nvidia/h100-pcie nvidia/gh200-480gb nvidia/b200 nvidia/b300 nvidia/vr200:sm_103}
 STATUS=0
 
 mkdir -p "${LOGS}/logs" || exit 1
@@ -67,13 +69,13 @@ echo "|---|---|---|---|" >> "${RESULTS}"
 "${MAKE}" -j "${NPROC}" -C "${ROOT}/samples/ozaki" splice || exit 1
 cp "${ROOT}/samples/ozaki/ozaki.x" "${ROOT}/samples/ozaki/ozaki_splice.x" "${BIN}" || exit 1
 
-# cases <var> <first> <top> <wgmma> <tcgen05>: name|environment|size, levels
-# first to top of the variable that selects them (none: one generic level),
-# warp-group MMA as OZAKI_WGMMA gives it and the fifth generation as
-# OZAKI_TCGEN05 does (none: not taken), each also on the 128x256 tile; a name
-# ends in the precision
+# cases <var> <first> <top> <wgmma> <tcgen05> <int8>: name|environment|size,
+# levels first to top of the variable that selects them (none: one generic
+# level), warp-group MMA as OZAKI_WGMMA gives it and the fifth generation as
+# OZAKI_TCGEN05 does (none: not taken, bf16 always and int8 where <int8> is 1),
+# each also on the 128x256 tile; a name ends in the precision
 cases() {
-  local VAR=$1 TOP=$3 WG=$4 TC=$5 LEVEL N
+  local VAR=$1 TOP=$3 WG=$4 TC=$5 TCI=$6 LEVEL N
   # the full tile, which a small problem gives back below the saturation floor
   local WIDE="OZAKI_TILE_SAT=1024 OZAKI_WGMMA_RESIDE=0"
   local TAG=${VAR#LIBXSTREAM_}
@@ -95,10 +97,15 @@ cases() {
       echo "oz2int8_wgmmawide_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${WIDE}|${N}"
       echo "oz2bf16_wgmmawide_n${N}_double|OZAKI=2 OZAKI_BF16=1 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${WIDE}|${N}"
     fi
-    if [ -n "${TC}" ]; then
+    if [ -n "${TC}" ] && [ 1 = "${TCI}" ]; then
       echo "oz2int8_tcgen05_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_TCGEN05=${TC}|${N}"
       echo "oz2sym_tcgen05_n${N}_double|OZAKI=2 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_TCGEN05=${TC}|${N}"
       echo "oz2int8_tcgen05wide_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_TCGEN05=${TC} ${WIDE}|${N}"
+    fi
+    if [ -n "${TC}" ]; then
+      echo "oz2bf16_tcgen05_n${N}_double|OZAKI=2 OZAKI_BF16=1 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_TCGEN05=${TC}|${N}"
+      echo "oz2bf16u8_tcgen05_n${N}_double|OZAKI=2 OZAKI_BF16=1 ${VAR}=${TOP} OZAKI_TCGEN05=${TC}|${N}"
+      echo "oz2bf16_tcgen05wide_n${N}_double|OZAKI=2 OZAKI_BF16=1 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_TCGEN05=${TC} ${WIDE}|${N}"
     fi
   done
 }
@@ -108,13 +115,14 @@ value() {
   sed -n "s/.*\<$1=\([^ ]*\).*/\1/p" <<< "$2"
 }
 
-for GPU in ${GPUS}; do
+for SPEC in ${GPUS}; do
+  GPU=${SPEC%%:*}
   TARGET=${GPU//\//_}
   if [ "local" = "${GPU}" ]; then
     # the device's vendor and top level, as the sample configures itself by default
     unset VGPU_GPU POCL_CUDA_GPU_ARCH
     CONFIG=$(OZAKI=2 OZAKI_VERBOSE=3 "${BIN}/ozaki.x" 64 2>&1 | grep -m1 "^INFO OZAKI: gpu=")
-    WG="" TC=""
+    WG="" TC="" TCI=0
     if [ -n "$(value intel "${CONFIG}")" ]; then
       VAR=LIBXSTREAM_INTEL FIRST=0 TOP=$(value intel "${CONFIG}")
     elif [ -n "$(value nv "${CONFIG}")" ]; then
@@ -125,16 +133,19 @@ for GPU in ${GPUS}; do
     fi
   else
     SM=$(vgpu info --gpu "${GPU}" | sed -n 's/.*compute capability:[[:space:]]*\([0-9]*\)\.\([0-9]*\).*/sm_\1\2/p')
+    if [ "${GPU}" != "${SPEC}" ] && [ -n "${SM}" ]; then SM=${SPEC#*:}; fi
     if [ -z "${SM}" ]; then
       echo "| ${GPU} | | | FAIL: not a simulated NVIDIA GPU |" >> "${RESULTS}"
       STATUS=1
       continue
     fi
     export VGPU_GPU=${GPU} POCL_CUDA_GPU_ARCH=${SM}
-    VAR=LIBXSTREAM_NV FIRST=1 TOP=1 WG="" TC=""
+    VAR=LIBXSTREAM_NV FIRST=1 TOP=1 WG="" TC="" TCI=0
     if [ 90 -le "${SM#sm_}" ]; then TOP=4; elif [ 80 -le "${SM#sm_}" ]; then TOP=3; elif [ 75 -le "${SM#sm_}" ]; then TOP=2; fi
     if [ sm_90 = "${SM}" ]; then WG=2; fi
-    if [ sm_100 = "${SM}" ]; then TC=2; fi # kind::i8 is sm_100a's (and sm_110a's) only
+    # tensor memory from sm_100 to before the consumer parts (sm_120), kind::i8 on sm_100a and sm_110a only
+    if [ 100 -le "${SM#sm_}" ] && [ 120 -gt "${SM#sm_}" ]; then TC=2; fi
+    if [ sm_100 = "${SM}" ] || [ sm_110 = "${SM}" ]; then TCI=1; fi
   fi
   CACHE=${BIN}/cache-${TARGET}
   declare -A REFERENCE=()
@@ -211,7 +222,7 @@ for GPU in ${GPUS}; do
     echo "| ${GPU} | ${NAME} | \`${SETENV% OZAKI_VERBOSE=3}\` | ${RESULT} |" >> "${RESULTS}"
     echo "${GPU} ${NAME}: ${RESULT}"
     if [ "ok" != "${RESULT}" ]; then STATUS=1; fi
-  done < <(cases "${VAR}" "${FIRST}" "${TOP}" "${WG}" "${TC}")
+  done < <(cases "${VAR}" "${FIRST}" "${TOP}" "${WG}" "${TC}" "${TCI}")
   unset REFERENCE
 done
 

@@ -1891,7 +1891,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        * selects the spliced instruction and the two must agree.
        */
       if (0 != ctx->use_bf16) {
-        if ((0 != wgmma && 0 != bblock && 1 == ablock) || (0 != ctx->nv_mma && 0 != bkmajor)) {
+        if ((0 != wgmma && 0 != bblock && 0 != ablock) || (0 != ctx->nv_mma && 0 != bkmajor)) {
           coff = ozaki_append(coff, sizeof(build_params),
             LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BF16=1"));
         }
@@ -1908,9 +1908,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        * block, and the spare buffers of four stages halve KU again, so a round covers a
        * quarter of the int8 K and the per-round fence and wait dominate. Measured on the
        * 128x256 tile, two stages are 1.4x faster for bf16 at n=6144 and 8192 and bit-identical,
-       * while int8 loses 4..5% with two and keeps four.
+       * while int8 loses 4..5% with two and keeps four. Tensor-memory MMA keeps four for both:
+       * its stages are sized by the budget, not halved, and its rounds pay no work-group barrier.
        */
-      if (0 == ctx->wgmma_stages) ctx->wgmma_stages = (0 != ctx->use_bf16 ? 2 : 4);
+      if (0 == ctx->wgmma_stages) ctx->wgmma_stages = (0 != ctx->use_bf16 && 0 == ctx->tcgen05 ? 2 : 4);
       if (NULL != env_skip && 0 != atoi(env_skip)) {
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DSKIP_GARNER=1"));
       }

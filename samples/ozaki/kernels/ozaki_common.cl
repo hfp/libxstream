@@ -157,13 +157,19 @@
  * both rows. One 16-byte load per lane and instruction, whole sectors, one store per stage.
  */
 # if defined(OZAKI_BF16) && (OZAKI_BF16)
-#   error OZAKI_ABLOCK=2 takes the int8 carrier only.
-# endif
-# define OZAKI_IDX_AS(ROW, COL, K_PAD) \
+/* An ELEMENT index, 16 of K per 32 bytes: a register holds two adjacent K, the store's pair. */
+#  define OZAKI_IDX_AS(ROW, COL, K_PAD) \
+    (((((long)(ROW) >> 4) * ((K_PAD) >> 4) + ((COL) >> 4)) << 8) \
+      | ((long)((((ROW) & 7) << 2) | (((COL) & 15) >> 2)) << 3) \
+      | ((long)(((((ROW) >> 3) & 1) << 1) | (((COL) >> 1) & 1)) << 1) \
+      | ((COL) & 1))
+# else
+#  define OZAKI_IDX_AS(ROW, COL, K_PAD) \
     (((((long)(ROW) >> 4) * ((K_PAD) >> 5) + ((COL) >> 5)) << 9) \
       | ((long)((((ROW) & 7) << 2) | (((COL) & 31) >> 3)) << 4) \
       | ((long)(((((ROW) >> 3) & 1) << 1) | (((COL) >> 2) & 1)) << 2) \
       | ((COL) & 3))
+# endif
 #elif defined(OZAKI_ABLOCK) && (OZAKI_ABLOCK)
 # if defined(OZAKI_BF16) && (OZAKI_BF16)
 /**
