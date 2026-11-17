@@ -14,6 +14,9 @@
 #include <libxs/libxs_predict.h>
 #include <libxs/libxs_timer.h>
 #include <libxs/libxs_hash.h>
+#if defined(OPENCL_LIBSMM_SYCL)
+#  include "smm_sycl.h"
+#endif
 
 #if !defined(OPENCL_KERNELS_SOURCE_MULTIPLY)
 #  error "OpenCL SMM-kernel code not found!"
@@ -567,7 +570,23 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, lock);
   }
   else if (0 < stack_size) { /* inhomogeneous, large kernel, or unsupported datatype */
-    return -1; /* TODO: document result code to trigger host-fallback */
+    result = -1; /* negative: DBCSR falls back to the host */
+#if defined(OPENCL_LIBSMM_SYCL)
+    /* oneMKL takes what DBCSR's format says and what Intel USM lets it address */
+    if (dbcsr_type_real_8 == datatype && 0 != def_mnk && 0 == param_format && NULL != host_param_stack &&
+        NULL != libxstream_opencl_config.device.clDeviceMemAllocINTEL)
+    {
+      /* B is in the layout libsmm_acc_transpose left it, which transposes k x n up to max_kernel_dim^2 */
+#  if defined(OPENCL_LIBSMM_F64)
+      const int kn = k_max * n_max, transb = (1 != kn && kn <= max_kernel_dim * max_kernel_dim);
+#  else
+      const int transb = 0;
+#  endif
+      result = opencl_libsmm_sycl_dgemm(libxstream_opencl_config.device.context, ((libxstream_stream_t*)stream)->queue,
+        host_param_stack, stack_size, m_max, n_max, k_max, transb, (const double*)dev_a_data, (const double*)dev_b_data,
+        (double*)dev_c_data);
+    }
+#endif
   }
   return result;
 }

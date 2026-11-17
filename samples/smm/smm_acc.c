@@ -13,6 +13,9 @@
 #include "acc_bench.h"
 #include <libxs/libxs_predict.h>
 #include <libxs/libxs_str.h>
+#if defined(OPENCL_LIBSMM_SYCL)
+#  include "smm_sycl.h"
+#endif
 #if defined(_OPENMP)
 #  include <omp.h>
 #endif
@@ -486,6 +489,9 @@ int libsmm_acc_finalize(void) {
   if (0 == opencl_libsmm_initialized) {
     size_t cursor = 0, key_size = 0;
     const void* regentry = libxs_registry_begin_length(opencl_libsmm_registry, NULL /*key*/, &key_size, &cursor);
+#if defined(OPENCL_LIBSMM_SYCL)
+    opencl_libsmm_sycl_finalize();
+#endif
     for (; NULL != regentry;
          regentry = libxs_registry_next_length(opencl_libsmm_registry, NULL /*key*/, &key_size, &cursor))
     {
@@ -624,8 +630,10 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
     {
   int result = EXIT_SUCCESS;
 #if defined(OPENCL_LIBSMM_PFORMAT) && (0 < OPENCL_LIBSMM_PFORMAT)
-  LIBXS_ASSERT(LIBXS_MAX(LIBXS_MAX(m_max, n_max), k_max) < (1 << (OPENCL_LIBSMM_PFORMAT - 1)));
-  if (dbcsr_type_real_8 == datatype && 0 != def_mnk && NULL != opencl_libsmm_acc_dbm_launch_fn) {
+  /* the shape packs into PFORMAT bits per extent, larger stacks take the other path */
+  if (dbcsr_type_real_8 == datatype && 0 != def_mnk && NULL != opencl_libsmm_acc_dbm_launch_fn &&
+      LIBXS_MAX(LIBXS_MAX(m_max, n_max), k_max) < (1 << (OPENCL_LIBSMM_PFORMAT - 1)))
+  {
     result = opencl_libsmm_acc_dbm_launch_fn(stream, 1.0 /*alpha*/, stack_size,
       m_max | (n_max << OPENCL_LIBSMM_PFORMAT) | (k_max << (OPENCL_LIBSMM_PFORMAT * 2)), NULL /*shape*/, host_param_stack,
       dev_param_stack, (const double*)dev_a_data, (const double*)dev_b_data, (double*)dev_c_data);

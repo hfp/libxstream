@@ -296,6 +296,8 @@ set(LIBXSTREAM_SMM_SRC
     "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/smm_kernel.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/smm_params.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/smm_trans.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/smm_sycl.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/smm_sycl.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/smm_acc_opencl.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/acc.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/acc_bench.h"

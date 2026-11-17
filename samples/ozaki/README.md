@@ -153,7 +153,7 @@ The complex variables take effect through the LIBXS interceptor
 | Variable               | Default | Description                                                                                              |
 |------------------------|---------|----------------------------------------------------------------------------------------------------------|
 | OZAKI_WGMMA            | (auto)  | Sch.2: warp-group MMA. On where reachable (see below)                                                    |
-| OZAKI_TCGEN05          | 0       | Sch.2: tensor-memory MMA (Blackwell, int8), 1 or 2 as for OZAKI_WGMMA (see below)                        |
+| OZAKI_TCGEN05          | 0       | Sch.2: tensor-memory MMA (Blackwell, Rubin), 1 or 2 as for OZAKI_WGMMA (see below)                       |
 | OZAKI_WGMMA_N          | 256     | Warp-group tile width, 64, 128 or 256                                                                    |
 | OZAKI_WGMMA_M          | 128     | Warp-group tile rows: 64 = one warp group, 128 = two, 256 = four (with OZAKI_WGMMA_N of 128 or less)     |
 | OZAKI_WGMMA_KU         | 0       | Staging depth per tile, overriding the derived one (0=derived; still capped to the shared-memory budget) |
@@ -190,9 +190,10 @@ bound.
 
 `OZAKI_TCGEN05=1` takes the warp-group tile with the fifth-generation
 instructions (`tcgen05`, accumulators in tensor memory, A from registers
-through tensor memory), int8 only, which `sm_100a` provides and `sm_103a`
-does not. It is off by default and not probed: a failed patch refuses the
-kernel. `OZAKI_TCGEN05=2` uses the program as built, like `OZAKI_WGMMA=2`.
+through tensor memory, B by bulk copies). int8 needs `sm_100a` (not
+`sm_103a`), `OZAKI_BF16=1` runs on every part with tensor memory. It is off
+by default and not probed: a failed patch refuses the kernel.
+`OZAKI_TCGEN05=2` uses the program as built, like `OZAKI_WGMMA=2`.
 
 `OZAKI_BKMAJOR=1` applies to the `mma.sync` and dp4a paths, not to
 warp-group MMA, and is exact like the default layout.

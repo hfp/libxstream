@@ -187,7 +187,6 @@ int main(int argc, char* argv[])
 #else
       const int mn = m * n, mk = m * k, kn = k * n;
 #endif
-      const int max_kernel_dim = ceil(sqrt(m * n));
       int *stack_hst = NULL, *stack_dev = NULL, *trans_hst = NULL, *trans_dev = NULL;
       const int* stack_kernel = NULL; /* stack given to the kernel */
       ELEM_TYPE *amat_hst = NULL, *bmat_hst = NULL, *cmat_hst = NULL;
@@ -254,10 +253,6 @@ int main(int argc, char* argv[])
       PRINTF(
         "%s%s%i %i %i %i %i %i %i %i\n", 0 < argc ? argv[0] : "", 0 < argc ? " " : "", nrepeat, stack_size, m, n, k, nc, na, nb);
       PRINTF("typename (id=%i): %s\n", DBCSR_TYPE(ELEM_TYPE), DBCSR_STRINGIFY(ELEM_TYPE));
-      if (MAX_KERNEL_DIM < max_kernel_dim) {
-        fprintf(stderr, "ERROR: Matrix shape (%i) exceeds MAX_KERNEL_DIM=%i\n", max_kernel_dim, MAX_KERNEL_DIM);
-        result = EXIT_FAILURE;
-      }
       CHECK(c_dbcsr_acc_stream_create(&stream, "stream", -1 /*default priority*/), &result, check);
       CHECK(c_dbcsr_acc_host_mem_allocate((void**)(void*)&amat_hst, sizeof(ELEM_TYPE) * mk * na, stream), &result, check);
       CHECK(c_dbcsr_acc_host_mem_allocate((void**)(void*)&bmat_hst, sizeof(ELEM_TYPE) * kn * nb, stream), &result, check);
