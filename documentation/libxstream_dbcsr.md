@@ -23,7 +23,7 @@ Every function delegates to the corresponding `libxstream_*` routine (e.g., `c_d
 
 The header also declares `c_dbcsr_timeset` and `c_dbcsr_timestop`, which are DBCSR's Fortran-side timer callbacks and are provided by DBCSR at link time. Every ACC function except `c_dbcsr_acc_clear_errors` is bracketed by these calls, so that individual backend operations appear in DBCSR's timing report, if two conditions hold:
 
-- The ACC functions are compiled with `LIBXSTREAM_PROFILE_DBCSR`, which is the default on ELF platforms such as Linux (`-DLIBXSTREAM_PROFILE_DBCSR=0` drops it). The timers are weak references there, so a program without DBCSR still links and is not profiled. Elsewhere, `make ECFLAGS=-DLIBXSTREAM_PROFILE_DBCSR=8` enables it, and the library then only links together with DBCSR.
+- The ACC functions are compiled with `LIBXSTREAM_PROFILE_DBCSR`, which is the default on ELF platforms such as Linux (`-DLIBXSTREAM_PROFILE_DBCSR=0` drops it). The timers are weak references there, so a program without DBCSR still links and is not profiled. Elsewhere, `make ECFLAGS=-DLIBXSTREAM_PROFILE_DBCSR=1` enables it, and the library then only links together with DBCSR.
 - `LIBXSTREAM_PROFILE` is non-zero at runtime, which also enables LIBXSTREAM's own per-kernel profile.
 
 ## LIBSMM
