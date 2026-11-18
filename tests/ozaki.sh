@@ -15,7 +15,9 @@
 # fifth generation's MMA (tcgen05 on a simulated GPU from sm_100 to before
 # sm_120: bf16 on each, int8 where kind::i8 exists), on Intel
 # LIBXSTREAM_INTEL (0 generic, 1 Intel GPU, 2 DPAS), elsewhere the one generic
-# level. A local device's vendor and top level are what the sample selects. Both
+# level. A local device's vendor and top level are what the sample selects, and
+# a local NVIDIA device of compute capability 10.x or 11.x (nvidia-smi) takes the
+# fifth generation as well (opt-in, OZAKI_TCGEN05=1: spliced in-process). Both
 # schemes, with the carriers of Scheme 2 (int8, int8 with symmetric residues,
 # and bf16 with symmetric residues, which needs warp-group MMA), at a size of
 # whole tiles and at one that is not (SIZES). CASES selects cases by an
@@ -148,6 +150,11 @@ for SPEC in ${GPUS}; do
     elif [ -n "$(value nv "${CONFIG}")" ]; then
       VAR=LIBXSTREAM_NV FIRST=1 TOP=$(value nv "${CONFIG}")
       if [ 1 = "$(value wgmma "${CONFIG}")" ]; then WG=1; fi
+      # the fifth generation is opt-in and not probed, hence the device's compute capability
+      # (nvidia-smi, first GPU): tensor memory from 10.0 to before 12.0, kind::i8 on 10.0 and 11.0
+      CC=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2> /dev/null | head -n1 | tr -d ' .')
+      if [ -n "${CC}" ] && [ 100 -le "${CC}" ] && [ 120 -gt "${CC}" ]; then TC=1; fi
+      if [ 100 = "${CC}" ] || [ 110 = "${CC}" ]; then TCI=1; fi
     else
       VAR="" FIRST=1 TOP=1
     fi
