@@ -75,9 +75,11 @@ jobs:
           echo "LD_LIBRARY_PATH=${DIR}/shim${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
         } >> "${GITHUB_ENV}"
 
+    # LLVM 22 as locally: sm_103 needs 21 or later, and counts depend on the compiler
     - uses: ./.github/actions/pocl
       with:
         devices: cuda
+        llvm: 22
 
     # PoCL targets sm_75 at most unless told the GPU's architecture, which the
     # simulator reports; the first GPU is the one of the steps below.
@@ -163,7 +165,7 @@ jobs:
       if: ${{ !cancelled() }}
       shell: bash
       env:
-        # Blackwell, Blackwell Ultra and Rubin (as sm_103, which LLVM knows) for the fifth-generation MMA (tcgen05)
+        # Blackwell, Blackwell Ultra and Rubin (as sm_103, which LLVM targets from 21 on) for the fifth-generation MMA (tcgen05)
         GPUS: ${{ github.event.inputs.gpus || 'nvidia/h100-pcie nvidia/gh200-480gb nvidia/b200 nvidia/b300 nvidia/vr200:sm_103' }}
         LOGS: ${{ runner.temp }}/ozaki
         META: "PoCL 7.2 with LLVM ${{ env.POCL_LLVM }}, PantheonSim 0.2.1"

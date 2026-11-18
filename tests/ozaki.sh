@@ -41,8 +41,9 @@
 # count). Into LOGS (default: ./ozaki): the logs, counts.tsv (per kernel and
 # launch), and summary.md (every run, and the instructions per kernel that
 # changed against PREV, a counts.tsv of an earlier run). META names what the
-# counts depend on (toolchain, simulator). The exit status is non-zero if a
-# run failed.
+# counts depend on (toolchain, simulator). A target the LLVM behind PoCL does
+# not know (POCL_LLVM, else read from PoCL's platform version) fails as a whole.
+# The exit status is non-zero if a run failed.
 ###############################################################################
 
 HERE=$(cd "$(dirname "$0")" && pwd -P)
@@ -126,6 +127,14 @@ value() {
   sed -n "s/.*\<$1=\([^ ]*\).*/\1/p" <<< "$2"
 }
 
+# llvm_min <sm_NNN>: the first LLVM (major) that targets it, empty where not listed
+llvm_min() {
+  case "$1" in
+    sm_100 | sm_101 | sm_120) echo 20 ;;
+    sm_103 | sm_121) echo 21 ;;
+  esac
+}
+
 for SPEC in ${GPUS}; do
   GPU=${SPEC%%:*}
   TARGET=${GPU//\//_}
@@ -151,6 +160,19 @@ for SPEC in ${GPUS}; do
       continue
     fi
     export VGPU_GPU=${GPU} POCL_CUDA_GPU_ARCH=${SM}
+    # the LLVM behind PoCL (POCL_LLVM, else its platform version; empty without clinfo):
+    # a target it does not know fails every kernel build, hence one line instead of every case
+    if [ -z "${POCL_LLVM+x}" ]; then
+      POCL_LLVM=$(clinfo --raw 2> /dev/null | sed -n 's/.*CL_PLATFORM_VERSION.* PoCL .* LLVM \([0-9]*\)\..*/\1/p' | head -n1)
+    fi
+    NEED=$(llvm_min "${SM}")
+    if [ -n "${POCL_LLVM}" ] && [ -n "${NEED}" ] && [ "${POCL_LLVM}" -lt "${NEED}" ]; then
+      RESULT="FAIL: PoCL's LLVM ${POCL_LLVM} cannot target ${SM} (LLVM ${NEED} or later)"
+      echo "| ${GPU} | | | ${RESULT} |" >> "${RESULTS}"
+      echo "${GPU}: ${RESULT}"
+      STATUS=1
+      continue
+    fi
     VAR=LIBXSTREAM_NV FIRST=1 TOP=1 WG="" TC="" TCI=0
     if [ 90 -le "${SM#sm_}" ]; then TOP=4; elif [ 80 -le "${SM#sm_}" ]; then TOP=3; elif [ 75 -le "${SM#sm_}" ]; then TOP=2; fi
     if [ sm_90 = "${SM}" ]; then WG=2; fi

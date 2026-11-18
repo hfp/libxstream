@@ -10,20 +10,41 @@ inputs:
   devices:
     description: "PoCL's driver: cpu, or cuda (simulated NVIDIA GPUs)"
     default: cpu
+  llvm:
+    description: >-
+      LLVM major version from apt.llvm.org (e.g., 22 for sm_103, which LLVM
+      targets from 21 on); empty: the newest LLVM the image packages
+    default: ""
 
 runs:
   using: composite
   steps:
-  # The newest packaged LLVM PoCL accepts. Its runtime libraries are needed by
-  # a cached build as well, the development files only to build.
+  # The requested LLVM (apt.llvm.org, its key checked by fingerprint), else the
+  # newest packaged LLVM PoCL accepts. Its runtime libraries are needed by a
+  # cached build as well, the development files only to build.
   - name: LLVM and OpenCL loader
     shell: bash
+    env:
+      LLVM: ${{ inputs.llvm }}
+      LLVM_KEY: 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
     run: |
-      sudo apt update -y
-      for VERSION in 23 22 21 20 19 18; do
-        if apt-cache show "llvm-${VERSION}-dev" > /dev/null 2>&1; then LLVM=${VERSION}; break; fi
-      done
-      if [ -z "${LLVM}" ]; then echo "ERROR: no LLVM between 18 and 23 packaged"; exit 1; fi
+      if [ -n "${LLVM}" ]; then
+        curl -fsSL --retry 5 -o "${RUNNER_TEMP}/llvm.asc" https://apt.llvm.org/llvm-snapshot.gpg.key
+        if ! gpg --show-keys --with-colons "${RUNNER_TEMP}/llvm.asc" | grep -q "^fpr:*${LLVM_KEY}:"; then
+          echo "ERROR: apt.llvm.org key is not ${LLVM_KEY}"; exit 1
+        fi
+        sudo cp "${RUNNER_TEMP}/llvm.asc" /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+        CODENAME=$(. /etc/os-release && echo "${VERSION_CODENAME}")
+        echo "deb https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-${LLVM} main" \
+          | sudo tee /etc/apt/sources.list.d/llvm-${LLVM}.list
+        sudo apt update -y
+      else
+        sudo apt update -y
+        for VERSION in 23 22 21 20 19 18; do
+          if apt-cache show "llvm-${VERSION}-dev" > /dev/null 2>&1; then LLVM=${VERSION}; break; fi
+        done
+        if [ -z "${LLVM}" ]; then echo "ERROR: no LLVM between 18 and 23 packaged"; exit 1; fi
+      fi
       sudo apt install -y "libllvm${LLVM}" "libclang-cpp${LLVM}" libhwloc-dev \
         opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev clinfo
       # the runner's image (ImageOS, e.g., ubuntu24) is not in the expression context
@@ -42,7 +63,8 @@ runs:
     run: |
       sudo apt install -y cmake ninja-build "llvm-${POCL_LLVM}-dev" "libclang-${POCL_LLVM}-dev" \
         "clang-${POCL_LLVM}" "libclang-cpp${POCL_LLVM}-dev"
-      scripts/tool_pocl.sh "${POCL_PREFIX}"
+      # the LLVM the cache key names, not the newest one the image happens to have
+      LLVM_CONFIG=$(command -v "llvm-config-${POCL_LLVM}") scripts/tool_pocl.sh "${POCL_PREFIX}"
 
   - name: Select PoCL
     shell: bash
