@@ -107,6 +107,37 @@ jobs:
         ./dbm_miniapp.x 5x13x7 2>&1 | tee -a miniapp.log
         grep -q "DBM-kernel" miniapp.log || { echo "ERROR: the DBM kernel did not run"; exit 1; }
 
+
+  # CP2K's grid miniapp built from CP2K's tree by samples/grid: unit test, and
+  # task lists recorded by the reference backend and replayed by the others.
+  GRID:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OWNER_CP2K: ${{ github.event.inputs.owner_cp2k || 'hfp' }}
+      REF_CP2K: ${{ github.event.inputs.ref_cp2k || 'master' }}
+      OMP_NUM_THREADS: 2
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Install OpenBLAS
+      run: |
+        sudo apt update -y
+        sudo apt install -y libopenblas-openmp-dev
+
+    - name: Setup CP2K
+      run: |
+        CP2K_REPO="https://github.com/${OWNER_CP2K}/cp2k.git"
+        git clone --depth 1 --branch "${REF_CP2K}" "${CP2K_REPO}" ${{ github.workspace }}/../cp2k
+        echo "CP2K_ROOT=${{ github.workspace }}/../cp2k" >> $GITHUB_ENV
+        git -C ${{ github.workspace }}/../cp2k log -1 --format="CP2K %H %cs"
+
+    - name: Build grid miniapp
+      run: make -j $(nproc) -C samples/grid
+
+    - name: Test grid miniapp
+      run: make -C samples/grid test
+
   DBCSR:
     runs-on: ubuntu-latest
     timeout-minutes: 60

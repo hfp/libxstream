@@ -55,6 +55,7 @@ nav:
   - Ozaki: samples/libxstream_ozaki.md
   - SMM: samples/libxstream_smm.md
   - DBM: samples/libxstream_dbm.md
+  - Grid: samples/libxstream_grid.md
 - Tests:
   - Dump: tests/dump.md
   - Kernels: tests/kernels.md
