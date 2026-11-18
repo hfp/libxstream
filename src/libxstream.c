@@ -281,7 +281,6 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   const char* const env_pin = getenv("LIBXSTREAM_PIN");
   const char* const env_stage = getenv("LIBXSTREAM_STAGE");
   const char* const env_stage_nt = getenv("LIBXSTREAM_STAGE_NT");
-  const char* const env_stage_grain = getenv("LIBXSTREAM_STAGE_GRAIN");
 #if defined(LIBXSTREAM_STREAM_PRIORITIES)
   const char* const env_priority = getenv("LIBXSTREAM_PRIORITY");
 #endif
@@ -362,11 +361,13 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   { /* the window is halved for double buffering, so it wants room for two chunks */
     const int stage = (NULL == env_stage ? 0 : atoi(env_stage));
     const int stage_nt = (NULL == env_stage_nt ? 0 : atoi(env_stage_nt));
-    const int stage_grain = (NULL == env_stage_grain ? 0 : atoi(env_stage_grain));
+#if defined(_OPENMP)
+    const int half = LIBXS_MAX(omp_get_max_threads() / 2, 1);
+#else
+    const int half = 1;
+#endif
     libxstream_opencl_config.stage = (0 < stage ? ((size_t)stage << 20) : (size_t)(LIBXSTREAM_MEM_STAGE));
-    libxstream_opencl_config.stage_nt = (0 < stage_nt ? stage_nt : (LIBXSTREAM_MEM_STAGE_NT));
-    libxstream_opencl_config.stage_grain = (0 < stage_grain
-      ? ((size_t)stage_grain << 10) : (size_t)(LIBXSTREAM_MEM_STAGE_GRAIN));
+    libxstream_opencl_config.stage_nt = (0 < stage_nt ? stage_nt : LIBXS_MIN(half, LIBXSTREAM_MEM_STAGE_NT));
   }
   { /**
      * NEOReadDebugKeys gates only the bits that populate a NEO debug key (1-8).

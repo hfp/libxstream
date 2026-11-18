@@ -32,8 +32,7 @@ Environment variables are read when the library initializes, except those concer
 | `LIBXSTREAM_DEVMATCH` | Device whose tuned kernel parameters are taken: a device name or ID (e.g., `[0x0bd5]`) to use another device's parameters, 0 to accept parameters of any device; default: the active device |
 | `LIBXSTREAM_PIN` | Route for host memory, see [CUDA Host Registration](#cuda-host-registration); default: resolved per device |
 | `LIBXSTREAM_STAGE` | Staging window per thread in MB, for host memory staged through a runtime-owned buffer (`LIBXSTREAM_PIN=1`); default: 32 |
-| `LIBXSTREAM_STAGE_NT` | Threads of the staging copy; default: 32 |
-| `LIBXSTREAM_STAGE_GRAIN` | Block of the staging copy in KB, handed out round-robin; default: 32 |
+| `LIBXSTREAM_STAGE_NT` | Threads of the staging copy; default: half of the OpenMP threads, at most 32 |
 | `LIBXSTREAM_USM` | Unified Shared Memory level: 0 = off, 1 = Intel USM, 2 = OpenCL 2.0 SVM coarse-grain, 3 = OpenCL 2.0 SVM reported caps. Unset means 1 on an Intel discrete GPU, 0 on an Intel integrated GPU (which also transfers synchronously), off on NVIDIA, and 2 otherwise. Intel MPI cannot exchange Intel USM host memory without `I_MPI_OFFLOAD=1`: on a system with Intel GPUs only it is set unless given. If `I_MPI_OFFLOAD=0` is given, unset means 2, while an explicit 1 takes effect as requested (and fails). Where it could not be set, an explicit 1 takes host memory off Intel USM |
 | `LIBXSTREAM_SUBBUFFER` | Sub-buffers for offset kernel-arguments (0 = off, 1 = on); unused where USM is active; default: 0 |
 | `LIBXSTREAM_CACHE` | 0: no kernel cache, i.e., the vendor's compiled-kernel cache is off (`CUDA_CACHE_DISABLE=1` and `NEO_CACHE_PERSISTENT=0`, unless set); default: the vendor's cache |

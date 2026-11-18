@@ -66,27 +66,20 @@ LIBXS_PRAGMA_DIAG_POP()
  * 48 and 18.51 at 64, and at n=8192 takes 96.33, 93.36 and 96.86 at 16, 32 and
  * 64: too small and there are more chunks than the overlap can hide, too large
  * and the first copy has nothing to overlap with. A coarser copy preferred a
- * larger window (64 MB won before the grain became a knob), so the two are not
- * independent - retune them together.
+ * larger window (64 MB won before the copy was handed out in blocks), so window
+ * and block (LIBXS_MEMCPY_NT_GRAIN) are not independent - retune them together.
  */
 #if !defined(LIBXSTREAM_MEM_STAGE)
 # define LIBXSTREAM_MEM_STAGE (32 << 20)
 #endif
-/** Default threads of the staging copy; LIBXSTREAM_STAGE_NT overrides it. */
+/**
+ * Most threads of the staging copy, which takes half of the OpenMP threads up to
+ * this; LIBXSTREAM_STAGE_NT sets the count. The copy saturates early, and every
+ * thread more is one the driver lacks to feed the transfer: on 26 vCPUs, 12 beat
+ * all 26 by 16-24% at n=2048-8192 fp64, while 2x56 cores keep the 32 tuned there.
+ */
 #if !defined(LIBXSTREAM_MEM_STAGE_NT)
 # define LIBXSTREAM_MEM_STAGE_NT 32
-#endif
-/**
- * Block of the staging copy; LIBXSTREAM_STAGE_GRAIN overrides it in KB. Blocks
- * are handed out round-robin, so a grain finer than one share per thread lets
- * the fast threads absorb more of the copy. This is what the copy is actually
- * sensitive to: at n=4096 fp64 the drop-in call takes 20.0 ms at one
- * block per thread and 18.7 ms at 16-32 KB, at both 16 and 32 threads, and the
- * finer grain also removes most of the sensitivity to the thread count (64
- * threads go 22.8 -> 19.4).
- */
-#if !defined(LIBXSTREAM_MEM_STAGE_GRAIN)
-# define LIBXSTREAM_MEM_STAGE_GRAIN (32 << 10)
 #endif
 /**
  * Host ranges libxstream_mem_host_pin can hold. Small on purpose: the list is
@@ -508,9 +501,8 @@ typedef struct libxstream_opencl_config_t {
   int pin;
   /** Staging window per thread in Bytes (LIBXSTREAM_STAGE, in MB). */
   size_t stage;
-  /** Threads of the staging copy, and the block each of them takes at a time. */
+  /** Threads of the staging copy (LIBXSTREAM_STAGE_NT, else see LIBXSTREAM_MEM_STAGE_NT). */
   int stage_nt;
-  size_t stage_grain;
   /** Host ranges declared by libxstream_mem_host_pin (base and extent). */
   const char *pinptr[LIBXSTREAM_MAXNPINS];
   size_t pinsize[LIBXSTREAM_MAXNPINS];

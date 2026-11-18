@@ -1430,25 +1430,15 @@ static void libxstream_mem_stage_copy(void* dst, const void* src, size_t nbytes)
   const int max_threads = omp_get_max_threads();
   const int want = libxstream_opencl_config.stage_nt;
   const int nthreads = (want < max_threads ? want : max_threads);
-  /**
-   * One block per iteration, round-robin, so the grain alone decides the
-   * distribution: never coarser than one share per thread.
-   */
-  const size_t share = (nbytes + (size_t)nthreads - 1) / (size_t)nthreads;
-  const size_t grain = (libxstream_opencl_config.stage_grain < share
-    ? libxstream_opencl_config.stage_grain : share);
-  const int nblocks = (int)(0 != grain ? ((nbytes + grain - 1) / grain) : 0);
-  int i;
-# pragma omp parallel for num_threads(nthreads) schedule(static, 1)
-  for (i = 0; i < nblocks; ++i) {
-    const size_t offset = grain * (size_t)i;
-    if (offset < nbytes) {
-      const size_t n = ((nbytes - offset) < grain ? (nbytes - offset) : grain);
-      memcpy((char*)dst + offset, (const char*)src + offset, n);
-    }
-  }
+  /* only the transfer reads the window: streaming stores skip loading it into the cache */
+# if (201307/*v4.0*/ <= _OPENMP)
+#   pragma omp parallel num_threads(nthreads) proc_bind(spread)
+# else
+#   pragma omp parallel num_threads(nthreads)
+# endif
+  libxs_memcpy_nt_task(dst, src, nbytes, omp_get_thread_num(), omp_get_num_threads());
 #else
-  memcpy(dst, src, nbytes);
+  libxs_memcpy_nt(dst, src, nbytes);
 #endif
 }
 

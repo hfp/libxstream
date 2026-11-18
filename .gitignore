@@ -17,6 +17,7 @@ __pycache__
 /*.md
 /.*
 *.x
+*.tasklist
 install
 build
 site
