@@ -195,9 +195,10 @@ for SPEC in ${GPUS}; do
     export POCL_CACHE_DIR=${CACHE}
     if [ 2 = "${WGMMA}" ]; then
       export POCL_CACHE_DIR=${CACHE}-${NAME}
+      # unpatched, the fifth generation spins on mbarriers nothing arrives at, hence a step budget,
+      # which ends the run by an abort: without a core file, and without the shell reporting it
       # shellcheck disable=SC2086
-      # unpatched, the fifth generation spins on mbarriers nothing arrives at, hence a step budget
-      env ${SETENV} VGPU_MAX_STEPS="${PRIME_STEPS:-20000000}" "${BIN}/ozaki.x" "${N}" > "${PRIME}" 2>&1
+      { (ulimit -c 0 && exec env ${SETENV} VGPU_MAX_STEPS="${PRIME_STEPS:-20000000}" "${BIN}/ozaki.x" "${N}" > "${PRIME}" 2>&1); } 2> /dev/null
       SPLICED=0
       while read -r PTX; do
         if "${BIN}/ozaki_splice.x" "${PTX}" "${PTX}" >> "${PRIME}" 2>&1; then SPLICED=$((SPLICED + 1)); fi
