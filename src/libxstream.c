@@ -1467,6 +1467,13 @@ LIBXSTREAM_API int libxstream_opencl_device_pageable(void)
         if (0 > ordinal || EXIT_SUCCESS != attr(&pageable, 88 /*cudaDevAttrPageableMemoryAccess*/, ordinal)) {
           pageable = -1;
         }
+        else if (0 != pageable) { /* so does HMM on a discrete part: ATS means coherent */
+          int ats = 0;
+          if (EXIT_SUCCESS != attr(&ats, 100 /*cudaDevAttrPageableMemoryAccessUsesHostPageTables*/, ordinal)) {
+            pageable = -1;
+          }
+          else pageable = ats;
+        }
         if (0 > libxstream_opencl_config.verbosity || 2 < libxstream_opencl_config.verbosity) {
           fprintf(stderr, "INFO ACC/OpenCL: OpenCL device %i maps to CUDA ordinal %i of %i\n",
             libxstream_opencl_config.device_id, ordinal, ndevices);
