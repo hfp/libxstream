@@ -162,8 +162,8 @@ static void grid_opencl_init(void)
     if (NULL == env || 3 != sscanf(env, "%i,%i,%i", tile, tile + 1, tile + 2) || 0 >= tile[0] || 0 >= tile[1] ||
         0 >= tile[2])
     {
-      tile[0] = 4;
-      tile[1] = 8;
+      tile[0] = 8;
+      tile[1] = 4;
       tile[2] = 4;
     }
     { /* the preferred sub-group size fills one hardware thread */

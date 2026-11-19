@@ -15,6 +15,11 @@
 #include "grid_cab_cxyz.h"
 #include "grid_blocks.h"
 
+/* address space of the read-only tables in the hot loops (global or constant) */
+#if !defined(CONSTANT)
+#  define CONSTANT global
+#endif
+
 
 static inline void cab_add(cab_store* cab, const orbital a, const orbital b, const double value)
 {
@@ -84,7 +89,7 @@ __kernel void grid_collocate_coef(const int ntasks, __global const double* restr
 
 
 /* Polynomial in dz of a run of coefficients (Horner) */
-static inline double grid_run(__global const double* restrict c, const int m, const double dz)
+static inline double grid_run(CONSTANT const double* restrict c, const int m, const double dz)
 {
   double s = c[m];
   int lz;
@@ -94,7 +99,7 @@ static inline double grid_run(__global const double* restrict c, const int m, co
 
 
 /* As grid_run, in single precision (a row of the tail) */
-static inline float grid_run_f32(__global const double* restrict c, const int m, const float dz)
+static inline float grid_run_f32(CONSTANT const double* restrict c, const int m, const float dz)
 {
   float s = (float)c[m];
   int lz;
@@ -103,7 +108,7 @@ static inline float grid_run_f32(__global const double* restrict c, const int m,
 }
 
 
-static inline double grid_point(__global const double* restrict c, const int lp, const double zetp,
+static inline double grid_point(CONSTANT const double* restrict c, const int lp, const double zetp,
   const double r2, const double dx, const double dy, const double dz)
 {
   double sum = 0.0, px = 1.0;
@@ -124,11 +129,12 @@ static inline double grid_point(__global const double* restrict c, const int lp,
 
 /* A row: C_xyz contracted into C_x (y and z), then the points by Horner in x times the Gaussian along x
  * (table). Inlined with a constant lp (switch), the loops unroll: the runtime loops cost more than the math. */
-static inline void grid_row64(const int lp, __global const double* restrict c, const double eyz, const double ryz,
-  const double r2max, const double dy, const double dz, const double h0, __global const double* restrict gx,
-  const double s0, const int x0, const int n0, __global const int* restrict bt, double* acc)
+static inline void grid_row64(const int lp, CONSTANT const double* restrict c, const double eyz, const double ryz,
+  const double r2max, const double dy, const double dz, const double h0, CONSTANT const double* restrict gx,
+  const double s0, const int x0, const int n0, CONSTANT const int* restrict bt, double* acc)
 {
-  double cx[LP1];
+  const double rem = r2max - ryz;
+  double cx[LP1], dx;
   int lx, ly, j, u0, k = 0;
   UNROLL_AUTO for (lx = 0; lx <= lp; ++lx) {
     double sy = 0.0, py = eyz;
@@ -140,27 +146,33 @@ static inline void grid_row64(const int lp, __global const double* restrict c, c
     cx[lx] = sy;
   }
   u0 = grid_image(x0, bt[0], n0);
+  dx = (u0 - s0) * h0;
   UNROLL_AUTO for (j = 0; j < TX; ++j) {
-    if (0 != j && ++u0 == bt[0] + n0) u0 = bt[0];
-    if (x0 + j < n0 && u0 <= bt[3]) {
-      const double dx = (u0 - s0) * h0;
-      if (dx * dx + ryz < r2max) {
-        double p = cx[lp];
-        UNROLL_AUTO for (lx = lp - 1; 0 <= lx; --lx) p = p * dx + cx[lx];
-        acc[j] += gx[u0 - bt[0]] * p;
+    if (0 != j) { /* incremental: one add on the FP64 pipe instead of three operations */
+      if (++u0 == bt[0] + n0) {
+        u0 = bt[0];
+        dx = (u0 - s0) * h0;
       }
+      else dx += h0;
+    }
+    if (x0 + j < n0 && u0 <= bt[3] && dx * dx < rem) {
+      double p = cx[lp];
+      UNROLL_AUTO for (lx = lp - 1; 0 <= lx; --lx) p = p * dx + cx[lx];
+      acc[j] += gx[u0 - bt[0]] * p;
     }
   }
 }
 
 
 /* As grid_row64 in single precision (tail): the error of single precision is below the truncation */
-static inline void grid_row32(const int lp, __global const double* restrict c, const double eyz, const double ryz,
-  const double r2max, const double dy, const double dz, const double h0, __global const double* restrict gx,
-  const double s0, const int x0, const int n0, __global const int* restrict bt, double* acc)
+static inline void grid_row32(const int lp, CONSTANT const double* restrict c, const double eyz, const double ryz,
+  const double r2max, const double dy, const double dz, const double h0, CONSTANT const double* restrict gx,
+  const double s0, const int x0, const int n0, CONSTANT const int* restrict bt, double* acc)
 {
   const float dyf = (float)dy, dzf = (float)dz;
+  const double rem = r2max - ryz;
   float cx[LP1];
+  double dx;
   int lx, ly, j, u0, k = 0;
   UNROLL_AUTO for (lx = 0; lx <= lp; ++lx) {
     float sy = 0.0f, py = (float)eyz;
@@ -172,11 +184,17 @@ static inline void grid_row32(const int lp, __global const double* restrict c, c
     cx[lx] = sy;
   }
   u0 = grid_image(x0, bt[0], n0);
+  dx = (u0 - s0) * h0;
   UNROLL_AUTO for (j = 0; j < TX; ++j) {
-    if (0 != j && ++u0 == bt[0] + n0) u0 = bt[0];
+    if (0 != j) {
+      if (++u0 == bt[0] + n0) {
+        u0 = bt[0];
+        dx = (u0 - s0) * h0;
+      }
+      else dx += h0;
+    }
     if (x0 + j < n0 && u0 <= bt[3]) {
-      const double dx = (u0 - s0) * h0;
-      if (dx * dx + ryz < r2max) {
+      if (dx * dx < rem) {
         const float dxf = (float)dx;
         float p = cx[lp];
         UNROLL_AUTO for (lx = lp - 1; 0 <= lx; --lx) p = p * dxf + cx[lx];
@@ -205,10 +223,10 @@ static inline void grid_row32(const int lp, __global const double* restrict c, c
 __kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_tile(
   const int n0, const int n1, const int n2, const double16 dh, const int tile_base,
   __global const int* restrict tile_start, __global const int* restrict tile_task,
-  __global const double* restrict geo, __global const int* restrict box,
-  __global const int* restrict cinfo, __global const double* restrict coef,
-  __global double* restrict grid, const int grid_offset, __global const double* restrict gauss,
-  __global const int* restrict gofs)
+  CONSTANT const double* restrict geo, CONSTANT const int* restrict box,
+  CONSTANT const int* restrict cinfo, CONSTANT const double* restrict coef,
+  __global double* restrict grid, const int grid_offset, CONSTANT const double* restrict gauss,
+  CONSTANT const int* restrict gofs)
 {
   const int x0 = (int)get_group_id(0) * TX, g1 = (int)get_global_id(1), g2 = (int)get_global_id(2);
   const int tile = tile_base + ((int)get_group_id(2) * (int)get_num_groups(1) + (int)get_group_id(1)) *
@@ -221,16 +239,16 @@ __kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_ti
     for (i = tile_start[tile]; i < end; ++i) {
       const int tail = (0 > tile_task[i]); /* uniform per work-group: the whole tile is in the tail */
       const int t = (0 == tail ? tile_task[i] : ~tile_task[i]);
-      __global const double* const gt = geo + GRID_OPENCL_NG * t;
-      __global const int* const bt = box + GRID_OPENCL_NB * t;
-      __global const double* const c = coef + cinfo[2 * t];
+      CONSTANT const double* const gt = geo + GRID_OPENCL_NG * t;
+      CONSTANT const int* const bt = box + GRID_OPENCL_NB * t;
+      CONSTANT const double* const c = coef + cinfo[2 * t];
       const int lp = cinfo[2 * t + 1];
       const double s0 = gt[0], s1 = gt[1], s2 = gt[2], zetp = gt[3], r2max = gt[4];
       int u0, u1, u2;
       if (0 != GRID_ORTHO && bt[3] - bt[0] < n0) { /* along x at most one image: table of the Gaussian */
-        __global const double* const gx = gauss + gofs[t];
-        __global const double* const gy = gx + (bt[3] - bt[0] + 1);
-        __global const double* const gz = gy + (bt[4] - bt[1] + 1);
+        CONSTANT const double* const gx = gauss + gofs[t];
+        CONSTANT const double* const gy = gx + (bt[3] - bt[0] + 1);
+        CONSTANT const double* const gz = gy + (bt[4] - bt[1] + 1);
         const double h0 = dh.s0;
         for (u2 = grid_image(g2, bt[2], n2); u2 <= bt[5]; u2 += n2) {
           const double dz = (u2 - s2) * dh.s8;

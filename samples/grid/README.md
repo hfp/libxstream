@@ -76,7 +76,7 @@ backend.
 
 | Environment | Default | Description                                         |
 |-------------|---------|-----------------------------------------------------|
-| GRID_TILE   | `4,8,4` | Points of a tile (x,y,z) owned by a work-group      |
+| GRID_TILE   | `8,4,4` | Points of a tile (x,y,z) owned by a work-group      |
 | GRID_ENGINE | auto    | Lanes of an engine (power of two), default: sub-group size |
 | GRID_ROWS   | `8`     | Rows per lane before a task gets more lanes         |
 | GRID_SLOTS  | `8`     | Engines per compute unit                            |
