@@ -8,6 +8,7 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #include <libxstream/libxstream_opencl.h>
+#include <libxs/libxs_reg.h>
 #include <offload/offload_library.h>
 #include <offload/offload_runtime.h>
 #include <grid/gpu/grid_gpu_task_list.h>
@@ -34,25 +35,29 @@
 #  error "OpenCL kernel source code not found!"
 #endif
 
-/* tile of grid points owned by a work-group, TY x TZ rows of TX points */
-#if !defined(GRID_OPENCL_TX)
-#  define GRID_OPENCL_TX 4
-#endif
-#if !defined(GRID_OPENCL_TY)
-#  define GRID_OPENCL_TY 8
-#endif
-#if !defined(GRID_OPENCL_TZ)
-#  define GRID_OPENCL_TZ 4
-#endif
-/* work-items per task when integrating */
-#define GRID_OPENCL_WG 64
-#define GRID_OPENCL_MAXKERNELS 64
 
+/* Key of a code version (memset-initialized: compared bytewise) */
+typedef struct {
+  int kind; /* function of collocate, or -1 minus the flags of integrate */
+  int ortho, lmax, tile[3];
+  int engine, rows; /* integrate only */
+} grid_opencl_key_t;
 
 typedef struct {
-  int kind, ortho, lmax; /* kind: function of collocate, or -1 minus the flags of integrate */
   cl_kernel first, second; /* collocate: coefficients, tiles; integrate: coefficients, blocks */
+  int engine; /* integrate: lanes of an engine, narrower than GRID_ENGINE if local memory is short */
 } grid_opencl_kernels_t;
+
+/* Tunables resolved once, and the code versions built so far */
+typedef struct {
+  libxs_registry_t* registry;
+  int tile[3]; /* GRID_TILE: points of a tile owned by a work-group, TY x TZ rows of TX points */
+  int engine; /* GRID_ENGINE: lanes of an engine taking tasks from the queue (power of two) */
+  int rows; /* GRID_ROWS: rows per lane before a task gets more lanes */
+  int slots; /* GRID_SLOTS: engines per compute unit */
+  int nunits; /* compute units */
+  size_t localmem; /* local memory per work-group */
+} grid_opencl_config_t;
 
 typedef struct {
   int npts[3], ntiles[3], tile_base;
@@ -61,6 +66,7 @@ typedef struct {
 
 typedef struct {
   grid_cpu_task_list* cpu; /* integrate, distributed grids, no device */
+  int tile[3];
   offloadStream_t stream;
   grid_opencl_level_t* levels;
   int ntasks, nlevels, natoms, ortho, lmax, delegate, nsegs;
@@ -68,10 +74,13 @@ typedef struct {
   int *level_start, *seg_atoms; /* host: tasks per level, atoms (and whether the same) per segment */
   double* fv; /* host: forces and virial per segment */
   int *tint_dev, *box_dev, *cinfo_dev, *tile_start_dev, *tile_task_dev;
-  int *level_task_dev, *seg_start_dev, *seg_task_dev;
+  int *level_task_dev, *seg_start_dev, *seg_task_dev, *queue_dev;
   double *tdbl_dev, *geo_dev, *sphi_dev, *coef_dev, *fv_dev;
   size_t ncoef;
 } grid_opencl_task_list_t;
+
+
+static grid_opencl_config_t grid_opencl_config;
 
 
 static inline void cab_add(cab_store* cab, const orbital a, const orbital b, const double value)
@@ -138,21 +147,72 @@ static int grid_opencl_arg(cl_kernel kernel, cl_uint index, const void* ptr, int
 }
 
 
-/* Kernels are built once per (kind, ortho, lmax) and kept: CP2K recreates task lists every step. */
-static const grid_opencl_kernels_t* grid_opencl_kernels(const int kind, const int ortho, const int lmax)
+static void grid_opencl_init(void)
 {
-  static grid_opencl_kernels_t cache[GRID_OPENCL_MAXKERNELS];
-  static int ncache = 0, warned = 0;
-  const grid_opencl_kernels_t* result = NULL;
-  int i;
-  for (i = 0; i < ncache && NULL == result; ++i) {
-    if (cache[i].kind == kind && cache[i].ortho == ortho && cache[i].lmax == lmax) result = &cache[i];
+  LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_main);
+  if (NULL == grid_opencl_config.registry) {
+    const char* const env = getenv("GRID_TILE");
+    int* const tile = grid_opencl_config.tile;
+    if (NULL == env || 3 != sscanf(env, "%i,%i,%i", tile, tile + 1, tile + 2) || 0 >= tile[0] || 0 >= tile[1] ||
+        0 >= tile[2])
+    {
+      tile[0] = 4;
+      tile[1] = 8;
+      tile[2] = 4;
+    }
+    { /* the preferred sub-group size fills one hardware thread */
+      const char* const env_engine = getenv("GRID_ENGINE");
+      const int sg = (int)libxstream_opencl_config.device.wgsize[2];
+      int engine = (NULL != env_engine ? atoi(env_engine) : sg);
+      if (0 >= engine || 64 < engine || 0 != (engine & (engine - 1))) engine = 16;
+      grid_opencl_config.engine = engine;
+    }
+    {
+      const char* const env_rows = getenv("GRID_ROWS");
+      const char* const env_slots = getenv("GRID_SLOTS");
+      const int rows = (NULL != env_rows ? atoi(env_rows) : 0), slots = (NULL != env_slots ? atoi(env_slots) : 0);
+      const cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
+      cl_uint nunits = 0;
+      cl_ulong localmem = 0;
+      if (EXIT_SUCCESS != clGetDeviceInfo(device, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(cl_ulong), &localmem, NULL)) {
+        localmem = 0;
+      }
+      grid_opencl_config.localmem = (size_t)localmem;
+      grid_opencl_config.rows = (0 < rows ? rows : 8);
+      grid_opencl_config.slots = (0 < slots ? slots : 8);
+      if (EXIT_SUCCESS != clGetDeviceInfo(device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &nunits, NULL)) {
+        nunits = 0;
+      }
+      grid_opencl_config.nunits = (0 < (int)nunits ? (int)nunits : 1);
+    }
+    grid_opencl_config.registry = libxs_registry_create();
   }
-  if (NULL == result && GRID_OPENCL_MAXKERNELS > ncache) {
+  LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_main);
+}
+
+
+/* Code versions are built once per key and kept: CP2K recreates task lists every step. */
+static const grid_opencl_kernels_t* grid_opencl_kernels(const int kind, const int ortho, const int lmax, const int tile[3])
+{
+  libxs_registry_t* const registry = grid_opencl_config.registry;
+  static int warned = 0;
+  const grid_opencl_kernels_t* result;
+  grid_opencl_key_t key;
+  memset(&key, 0, sizeof(key));
+  key.kind = kind;
+  key.ortho = ortho;
+  key.lmax = lmax;
+  memcpy(key.tile, tile, sizeof(key.tile));
+  if (0 > kind) {
+    key.engine = grid_opencl_config.engine;
+    key.rows = grid_opencl_config.rows;
+  }
+  result = (const grid_opencl_kernels_t*)libxs_registry_get(registry, &key, sizeof(key), libxs_registry_lock(registry));
+  if (NULL == result) {
     const char* const source = (0 <= kind ? OPENCL_KERNELS_SOURCE_COLLOCATE : OPENCL_KERNELS_SOURCE_INTEGRATE);
     const char* const name1 = (0 <= kind ? "grid_collocate_coef" : "grid_integrate_coef");
     const char* const name2 = (0 <= kind ? "grid_collocate_tile" : "grid_integrate_hab");
-    cl_kernel first = NULL, second = NULL;
+    grid_opencl_kernels_t kernels = {NULL, NULL, 0};
     char params[512];
     int ok;
     if (0 <= kind) {
@@ -160,41 +220,40 @@ static const grid_opencl_kernels_t* grid_opencl_kernels(const int kind, const in
       const int l1 = lmax + imax(ld.la_max_diff, ld.lb_max_diff);
       snprintf(params, sizeof(params),
         "-DGRID_FUNC=%i -DGRID_ORTHO=%i -DNPAB=%i -DNCAB=%i -DLMAX1=%i -DLP1=%i -DTX=%i -DTY=%i -DTZ=%i", kind,
-        ortho, ncoset(lmax), ncoset(l1), l1 + 1, 2 * l1 + 1, GRID_OPENCL_TX, GRID_OPENCL_TY, GRID_OPENCL_TZ);
+        ortho, ncoset(lmax), ncoset(l1), l1 + 1, 2 * l1 + 1, tile[0], tile[1], tile[2]);
     }
     else {
       const int flags = -1 - kind;
       const process_ldiffs ld = process_get_ldiffs(0 != (1 & flags), 0 != (2 & flags), 0 != (4 & flags));
-      const int la = lmax + ld.la_max_diff, lb = lmax + ld.lb_max_diff;
+      const int la = lmax + ld.la_max_diff, lb = lmax + ld.lb_max_diff, lp1 = la + lb + 1;
+      const size_t ncoef = (size_t)lp1 * (lp1 + 1) * (lp1 + 2) / 6;
+      int engine = key.engine;
+      while (1 < engine && grid_opencl_config.localmem < sizeof(double) * ncoef * engine + 1024) engine >>= 1;
+      kernels.engine = engine;
       snprintf(params, sizeof(params),
         "-DGRID_ORTHO=%i -DFORCES=%i -DVIRIAL=%i -DTAU=%i -DNPAB=%i -DNCA=%i -DNCB=%i -DLMAX1A=%i -DLMAX1B=%i "
-        "-DLP1=%i -DWG=%i",
+        "-DLP1=%i -DENGINE=%i -DROWS=%i",
         ortho, 1 & flags, (2 & flags) >> 1, (4 & flags) >> 2, ncoset(lmax), ncoset(la), ncoset(lb), la + 1, lb + 1,
-        la + lb + 1, GRID_OPENCL_WG);
+        lp1, engine, key.rows);
     }
     ok = libxstream_opencl_kernel(0 /*source*/, source, name1, params, NULL /*options*/, NULL /*try*/,
-      NULL /*try_ok*/, NULL /*exts*/, 0, &first);
+      NULL /*try_ok*/, NULL /*exts*/, 0, &kernels.first);
     if (EXIT_SUCCESS == ok) {
       ok = libxstream_opencl_kernel(0 /*source*/, source, name2, params, NULL /*options*/, NULL /*try*/,
-        NULL /*try_ok*/, NULL /*exts*/, 0, &second);
+        NULL /*try_ok*/, NULL /*exts*/, 0, &kernels.second);
     }
-    if (EXIT_SUCCESS == ok) {
-      cache[ncache].kind = kind;
-      cache[ncache].ortho = ortho;
-      cache[ncache].lmax = lmax;
-      cache[ncache].first = first;
-      cache[ncache].second = second;
-      result = &cache[ncache++];
-    }
-    else {
-      if (NULL != first) clReleaseKernel(first);
+    if (EXIT_SUCCESS != ok) {
+      if (NULL != kernels.first) clReleaseKernel(kernels.first);
+      kernels.first = kernels.second = NULL; /* registered as well: no second attempt */
       if (0 == warned) {
         fprintf(stderr, "WARNING GRID/OpenCL: kernels failed to build, the host takes over\n");
         warned = 1;
       }
     }
+    result = (const grid_opencl_kernels_t*)libxs_registry_set(
+      registry, &key, sizeof(key), &kernels, sizeof(kernels), libxs_registry_lock(registry));
   }
-  return result;
+  return (NULL != result && NULL != result->first) ? result : NULL;
 }
 
 
@@ -207,7 +266,6 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
   grid_gpu_task_list** ptr)
 {
   grid_opencl_task_list_t* const tl = (grid_opencl_task_list_t*)calloc(1, sizeof(grid_opencl_task_list_t));
-  const int size[3] = {GRID_OPENCL_TX, GRID_OPENCL_TY, GRID_OPENCL_TZ};
   int *tint = NULL, *box = NULL, *tile_start = NULL, *tile_task = NULL, *sphi_offset = NULL;
   int *level_task = NULL, *seg_key = NULL, *seg_start = NULL;
   double *tdbl = NULL, *geo = NULL, *sphi = NULL, *d2 = NULL;
@@ -216,6 +274,8 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
   if (NULL != *ptr) grid_gpu_free_task_list(*ptr);
   offload_init();
   offload_activate_chosen_device();
+  grid_opencl_init();
+  memcpy(tl->tile, grid_opencl_config.tile, sizeof(tl->tile));
   grid_cpu_create_task_list(ortho, ntasks, nlevels, natoms, nkinds, nblocks, block_offsets,
     (const double(*)[3])atom_positions, atom_kinds, basis_sets, level_list, iatom_list, jatom_list, iset_list,
     jset_list, ipgf_list, jpgf_list, border_mask_list, block_num_list, radius_list, (const double(*)[3])rab_list,
@@ -236,7 +296,7 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
         tl->delegate = 1; /* distributed grid */
       }
       lv->npts[k] = npts_local[3 * level + k];
-      lv->ntiles[k] = (lv->npts[k] + size[k] - 1) / size[k];
+      lv->ntiles[k] = (lv->npts[k] + tl->tile[k] - 1) / tl->tile[k];
       maxtiles = imax(maxtiles, lv->ntiles[k]);
     }
     for (k = 0; k < 9; ++k) lv->dh.s[k] = dh[9 * level + k];
@@ -358,7 +418,7 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
         if (0 < gt[4]) {
           int t0, t1, t2;
           for (j = 0; j < 3; ++j) {
-            grid_opencl_reach(bt[j], bt[3 + j], gt[j], 0 != tl->ortho ? fabs(dl[4 * j]) : 0.0, lv->npts[j], size[j],
+            grid_opencl_reach(bt[j], bt[3 + j], gt[j], 0 != tl->ortho ? fabs(dl[4 * j]) : 0.0, lv->npts[j], tl->tile[j],
               lv->ntiles[j], d2 + j * maxtiles);
           }
           for (t2 = 0; t2 < lv->ntiles[2]; ++t2) {
@@ -417,6 +477,7 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
     tl->seg_start_dev = (int*)grid_opencl_upload(seg_start, sizeof(int) * (tl->nsegs + 1));
     tl->seg_task_dev = (int*)grid_opencl_upload(seg_key, sizeof(int) * ntasks);
     offloadMalloc((void**)&tl->fv_dev, sizeof(double) * 24 * (0 < tl->nsegs ? tl->nsegs : 1));
+    offloadMalloc((void**)&tl->queue_dev, sizeof(int));
     tl->tint_dev = (int*)grid_opencl_upload(tint, sizeof(int) * GRID_OPENCL_NI * ntasks);
     tl->tdbl_dev = (double*)grid_opencl_upload(tdbl, sizeof(double) * GRID_OPENCL_ND * ntasks);
     tl->geo_dev = (double*)grid_opencl_upload(geo, sizeof(double) * GRID_OPENCL_NG * ntasks);
@@ -461,6 +522,7 @@ void grid_gpu_free_task_list(grid_gpu_task_list* ptr)
       offloadFree(tl->seg_start_dev);
       offloadFree(tl->seg_task_dev);
       offloadFree(tl->fv_dev);
+      offloadFree(tl->queue_dev);
       if (NULL != tl->coef_dev) offloadFree(tl->coef_dev);
       offloadStreamDestroy(tl->stream);
     }
@@ -479,13 +541,13 @@ void grid_gpu_collocate_task_list(const grid_gpu_task_list* ptr, const enum grid
   const offload_buffer* pab_blocks, offload_buffer** grids)
 {
   grid_opencl_task_list_t* const tl = (grid_opencl_task_list_t*)ptr;
-  const grid_opencl_kernels_t* const kernels = (0 == tl->delegate ? grid_opencl_kernels(func, tl->ortho, tl->lmax)
+  const grid_opencl_kernels_t* const kernels = (0 == tl->delegate ? grid_opencl_kernels(func, tl->ortho, tl->lmax, tl->tile)
                                                                    : NULL);
   assert(NULL != tl && tl->nlevels == nlevels);
   if (NULL != kernels && NULL != pab_blocks->device_buffer) {
     const prepare_ldiffs ld = prepare_get_ldiffs(func);
     libxstream_stream_t* const stream = (libxstream_stream_t*)tl->stream;
-    const size_t local[3] = {1, GRID_OPENCL_TY, GRID_OPENCL_TZ};
+    const size_t local[3] = {1, (size_t)tl->tile[1], (size_t)tl->tile[2]};
     const cl_int ntasks = tl->ntasks;
     size_t ncoef = 0, global[3];
     cl_int pab_offset = 0, grid_offset = 0, n[3];
@@ -566,13 +628,13 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
 {
   grid_opencl_task_list_t* const tl = (grid_opencl_task_list_t*)ptr;
   const int flags = (NULL != forces ? 1 : 0) | (NULL != virial ? 2 : 0) | (compute_tau ? 4 : 0);
-  const grid_opencl_kernels_t* const kernels = (0 == tl->delegate ? grid_opencl_kernels(-1 - flags, tl->ortho, tl->lmax)
+  const grid_opencl_kernels_t* const kernels = (0 == tl->delegate ? grid_opencl_kernels(-1 - flags, tl->ortho, tl->lmax, tl->tile)
                                                                    : NULL);
   assert(NULL != tl && tl->nlevels == nlevels && NULL != hab_blocks);
   if (NULL != kernels && NULL != hab_blocks->device_buffer && (NULL == pab_blocks || NULL != pab_blocks->device_buffer)) {
     const process_ldiffs ld = process_get_ldiffs(NULL != forces, NULL != virial, compute_tau);
     libxstream_stream_t* const stream = (libxstream_stream_t*)tl->stream;
-    const size_t local = GRID_OPENCL_WG;
+    const size_t local = (size_t)kernels->engine;
     const cl_int ntasks = tl->ntasks, nsegs = tl->nsegs;
     const void* const pab = (NULL != pab_blocks ? (const void*)pab_blocks->device_buffer : (const void*)tl->sphi_dev);
     size_t ncoef = 0, global;
@@ -599,7 +661,8 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
     }
     for (level = 0; level < nlevels; ++level) {
       const grid_opencl_level_t* const lv = &tl->levels[level];
-      const cl_int task_base = tl->level_start[level];
+      const cl_int task_base = tl->level_start[level], nlevel = tl->level_start[level + 1] - task_base;
+      const int nengines = imin(grid_opencl_config.slots * grid_opencl_config.nunits, nlevel);
       for (i = 0; i < 3; ++i) n[i] = lv->npts[i];
       if (grids[level]->host_buffer != grids[level]->device_buffer) {
         offloadMemcpyAsyncHtoD(grids[level]->device_buffer, grids[level]->host_buffer,
@@ -610,15 +673,18 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
       result |= clSetKernelArg(kernels->first, 2, sizeof(cl_int), &n[2]);
       result |= clSetKernelArg(kernels->first, 3, sizeof(cl_double16), &lv->dh);
       result |= clSetKernelArg(kernels->first, 4, sizeof(cl_int), &task_base);
-      result |= grid_opencl_arg(kernels->first, 5, tl->level_task_dev, NULL);
-      result |= grid_opencl_arg(kernels->first, 6, tl->geo_dev, NULL);
-      result |= grid_opencl_arg(kernels->first, 7, tl->box_dev, NULL);
-      result |= grid_opencl_arg(kernels->first, 8, tl->cinfo_dev, NULL);
-      result |= grid_opencl_arg(kernels->first, 9, grids[level]->device_buffer, &grid_offset);
-      result |= clSetKernelArg(kernels->first, 10, sizeof(cl_int), &grid_offset);
-      result |= grid_opencl_arg(kernels->first, 11, tl->coef_dev, NULL);
-      global = (size_t)(tl->level_start[level + 1] - task_base) * local;
+      result |= clSetKernelArg(kernels->first, 5, sizeof(cl_int), &nlevel);
+      result |= grid_opencl_arg(kernels->first, 6, tl->level_task_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 7, tl->geo_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 8, tl->box_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 9, tl->cinfo_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 10, grids[level]->device_buffer, &grid_offset);
+      result |= clSetKernelArg(kernels->first, 11, sizeof(cl_int), &grid_offset);
+      result |= grid_opencl_arg(kernels->first, 12, tl->coef_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 13, tl->queue_dev, NULL);
+      global = (size_t)nengines * local; /* persistent engines: the queue distributes the tasks */
       if (0 < global) {
+        offloadMemsetAsync(tl->queue_dev, 0, sizeof(int), tl->stream);
         result |= libxstream_opencl_launch_work(stream, kernels->first, 1, NULL, &global, &local, 0, NULL, NULL, 0, 0);
       }
     }
