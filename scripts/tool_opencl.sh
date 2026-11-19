@@ -90,16 +90,19 @@ process() {
     if [ ! "${INCLUDE}" ]; then
       INCLUDE=$(${SED} -n "s/#[[:space:]]*include[[:space:]][[:space:]]*</</;s/[[:space:]]*$//;/^[[:space:]]*<.*>/p" <<<"${LINE}")
     fi
+    FILE=""
     if [ "${INCLUDE}" ]; then
       CLINC=$(${SED} "s/[\"<>]//g" <<<"${INCLUDE}")
       FILE=$(process_find "${CLINC}" "$1")
       if [ "${FILE}" ]; then
         process_pre "${FILE}" "$2" | process "${FILE}" "$2"
-      else
+      elif [ "<" != "${INCLUDE:0:1}" ]; then
         >&2 echo "WARNING: header file ${CLINC} not found!"
         #exit 1
       fi
-    else
+    fi
+    # an unresolved system header stays: under a guard it costs nothing, else the kernel build names it
+    if [ ! "${FILE}" ] && { [ ! "${INCLUDE}" ] || [ "<" = "${INCLUDE:0:1}" ]; }; then
       ${SED} <<<"${LINE}" \
         -e '/^[[:space:]]*$/d' -e 's/[[:space:]]*$//' \
         -e 's/[[:space:]]*\\/ \\\\/g' -e 's/"/\\"/g' \
