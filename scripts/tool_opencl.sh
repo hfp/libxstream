@@ -69,7 +69,7 @@ process_find() { # resolve include: $1=include-path, $2=parent-file
   fi
   # try -I search paths, then with leading directories dropped (longest match first):
   # an include relative to the source tree misses in an installed layout otherwise
-  local IPATH SUFFIX=${CLINC}
+  local IPATH SUFFIX=${CLINC} IFS=$' \t\n' # the caller splits lines: the paths are separated by spaces
   while [ "${SUFFIX}" ]; do
     for IPATH in ${INCPATHS}; do
       FILE=${IPATH}/${SUFFIX}
