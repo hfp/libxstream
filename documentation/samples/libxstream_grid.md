@@ -3,7 +3,8 @@
 CP2K's grid library collocates products of Gaussians onto real-space grids and
 integrates potentials against them. This directory builds CP2K's grid miniapp
 and unit test from a CP2K source tree, outside of that tree, with every backend
-the build supports: reference, CPU, DGEMM, and CUDA if `nvcc` is found.
+the build supports: reference, CPU, DGEMM, and as GPU backend either CUDA if
+`nvcc` is found or LIBXSTREAM's OpenCL backend (`grid_opencl.c`).
 
 ## Build
 
@@ -21,6 +22,7 @@ tree, nothing is built. Make variables:
 | BLAS_LIBS | `-lblas`       | BLAS for the DGEMM backend                   |
 | CUDA      | auto           | 0: no CUDA backend even if `nvcc` is found   |
 | CUDA_ARCH | `sm_70`        | Architecture given to `nvcc`                 |
+| OPENCL    | auto           | 0: no OpenCL backend (needs LIBXS)           |
 
 ## Test
 
@@ -31,7 +33,7 @@ make test
 Runs CP2K's unit test, records each of CP2K's sample tasks as task list
 (collocate and integrate) with the reference backend, and replays every task
 list with the backends in `TESTBACKENDS` (default: `ref cpu`, and `gpu` with
-CUDA). `TESTARG` is the number of repetitions of each replay (default: 3).
+CUDA or OpenCL). `TESTARG` is the number of repetitions of each replay (default: 3).
 
 ## Task Lists
 
@@ -60,3 +62,11 @@ the spherical cutoff of the DGEMM and GPU backends as CP2K's input does by
 default. The results do not depend on the number of repetitions. The miniapp
 also takes CP2K's `.task` files (a single task, `--batch` repeats it), and
 `--dump <calls>` records task lists from such a run.
+
+## OpenCL Backend
+
+`grid_opencl.c` implements CP2K's GPU backend with OpenCL, which CP2K enables
+with `-D__OFFLOAD_OPENCL_GRID`. A task contributes to the points within its
+radius plus one grid spacing about the center of the product. Each work-group owns a tile of points and sums the tile's
+tasks in a fixed order, hence the result is reproducible without atomics.
+Integration, distributed grids, and tasks with a border mask use CP2K's CPU backend.

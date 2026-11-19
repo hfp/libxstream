@@ -11,6 +11,9 @@ BLAS_LIBS ?= -lblas
 NVCC ?= $(shell which nvcc 2>/dev/null)
 CUDA ?= $(if $(NVCC),1,0)
 CUDA_ARCH ?= sm_70
+# OpenCL backend (grid_opencl.c) as the GPU backend unless CUDA is used (OPENCL=0 disables it)
+LIBXSROOT ?= $(wildcard $(abspath $(DEPDIR)/../libxs))
+OPENCL ?= $(if $(and $(LIBXSROOT),$(filter 0,$(CUDA))),1,0)
 # arguments of the test target: cycles of each replay
 TESTARG ?= 3
 
@@ -32,8 +35,17 @@ ifneq (0,$(CUDA))
   GRIDFLAGS += -D__OFFLOAD_CUDA $(if $(CUDA_PATH),-I$(CUDA_PATH)/include)
   LIBS += $(if $(CUDA_PATH),-L$(CUDA_PATH)/lib64) -lcudart -lcuda -lcublas
 endif
+ifneq (0,$(OPENCL))
+  # header-only LIBXS and LIBXSTREAM, which need POSIX beyond C11
+  GRIDFLAGS := $(patsubst -std=c11,-std=gnu11,$(GRIDFLAGS)) -D__LIBXSTREAM -DLIBXSTREAM_SOURCE \
+    -D__OFFLOAD_OPENCL_GRID -I$(DEPDIR) -I$(LIBXSROOT) -I$(SRCDIR) -I$(abspath $(BLDDIR))
+  LIBS += -lOpenCL -ldl -lpthread
+  CLOBJECTS := $(BLDDIR)/grid_opencl.o
+  CLKERNELS := $(wildcard $(ROOTDIR)/kernels/*.cl)
+  CLHEADER := $(BLDDIR)/grid_kernels.h
+endif
 OBJECTS := $(patsubst $(SRCDIR)/%.c,$(BLDDIR)/%.o,$(SOURCES)) \
-  $(patsubst $(SRCDIR)/%.cu,$(BLDDIR)/%-cu.o,$(CUSOURCES))
+  $(patsubst $(SRCDIR)/%.cu,$(BLDDIR)/%-cu.o,$(CUSOURCES)) $(CLOBJECTS)
 HEADERS := $(wildcard $(GRIDDIR)/*.h $(GRIDDIR)/*/*.h $(SRCDIR)/offload/*.h \
   $(SRCDIR)/mpiwrap/*.h)
 MINIAPP := $(OUTDIR)/grid_miniapp.x
@@ -65,9 +77,18 @@ $(BLDDIR)/%-cu.o: $(SRCDIR)/%.cu $(HEADERS) $(ROOTDIR)/Makefile
 	$(NVCC) -O3 -arch $(CUDA_ARCH) -Xcompiler "$(CFLAGS) $(OMPFLAG)" \
 		-D__OFFLOAD_CUDA -c $< -o $@
 
+# kernels with CP2K's headers inlined, whose include guards are kept since headers repeat
+$(CLHEADER): $(CLKERNELS) $(ROOTDIR)/grid_opencl.h $(DEPDIR)/scripts/tool_opencl.sh $(HEADERS)
+	@mkdir -p $(dir $@)
+	$(DEPDIR)/scripts/tool_opencl.sh -k -I $(GRIDDIR)/common $(CLKERNELS) $@
+
+$(BLDDIR)/grid_opencl.o: $(ROOTDIR)/grid_opencl.c $(ROOTDIR)/grid_opencl.h $(CLHEADER) $(HEADERS) $(ROOTDIR)/Makefile
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(GRIDFLAGS) -c $< -o $@
+
 # CP2K's unit test, then each sample task recorded as task list (collocate and
 # integrate) by the reference backend and replayed by every other backend
-TESTBACKENDS ?= ref cpu $(if $(filter-out 0,$(CUDA)),gpu)
+TESTBACKENDS ?= ref cpu $(if $(filter-out 0,$(CUDA) $(OPENCL)),gpu)
 TESTDIR := $(BLDDIR)/tasklists
 .PHONY: test
 test: miniapp
