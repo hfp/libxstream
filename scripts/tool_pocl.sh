@@ -78,12 +78,14 @@ fetch "https://github.com/pocl/pocl/archive/refs/tags/v${POCL_VERSION}.tar.gz" \
 tar -xzf "${WORK}/pocl.tar.gz" -C "${WORK}" || exit 1
 SRC=${WORK}/pocl-${POCL_VERSION}
 
-# Clang 18 and 19 accept the .sync intrinsics of the SM 7.0 library only with
-# a PTX version as a target feature, which PoCL does not pass. The flag cannot
-# come in through KERNEL_CL_FLAGS, since the CPU library is built with it too.
+# The .sync intrinsics of the SM 7.0 library need PTX 6.4. Clang derives the
+# PTX version from the CUDA installation it finds and falls back to PTX 4.2
+# without one in its search paths, which PREFIX/cuda is not, hence the version
+# is stated (as proposed upstream). The flag cannot come in through
+# KERNEL_CL_FLAGS, since the CPU library is built with it too.
 CUDALIB=${SRC}/lib/kernel/cuda/CMakeLists.txt
 if ! awk '/^make_kernel_bc\(KERNEL_BC_SM70_PTX64 / {
-      print "list(APPEND CLANG_FLAGS \"-Xclang\" \"-target-feature\" \"-Xclang\" \"+ptx64\")"; ++n }
+      print "list(APPEND CLANG_FLAGS \"--cuda-feature=+ptx64\")"; ++n }
     { print } END { exit (1 == n ? 0 : 1) }' "${CUDALIB}" > "${CUDALIB}.new"; then
   echo "ERROR: PoCL ${POCL_VERSION} does not build the SM 7.0 library as expected"
   exit 1
