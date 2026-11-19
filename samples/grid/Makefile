@@ -78,9 +78,10 @@ $(BLDDIR)/%-cu.o: $(SRCDIR)/%.cu $(HEADERS) $(ROOTDIR)/Makefile
 		-D__OFFLOAD_CUDA -c $< -o $@
 
 # kernels with CP2K's headers inlined, whose include guards are kept since headers repeat
-$(CLHEADER): $(CLKERNELS) $(ROOTDIR)/grid_opencl.h $(DEPDIR)/scripts/tool_opencl.sh $(HEADERS)
+$(CLHEADER): $(CLKERNELS) $(ROOTDIR)/grid_opencl.h $(wildcard $(ROOTDIR)/kernels/*.h $(DEPDIR)/libxstream/opencl/*.h) \
+            $(DEPDIR)/scripts/tool_opencl.sh $(HEADERS)
 	@mkdir -p $(dir $@)
-	$(DEPDIR)/scripts/tool_opencl.sh -k -I $(GRIDDIR)/common $(CLKERNELS) $@
+	$(DEPDIR)/scripts/tool_opencl.sh -k -I $(DEPDIR)/libxstream -I $(GRIDDIR)/common $(CLKERNELS) $@
 
 $(BLDDIR)/grid_opencl.o: $(ROOTDIR)/grid_opencl.c $(ROOTDIR)/grid_opencl.h $(CLHEADER) $(HEADERS) $(ROOTDIR)/Makefile
 	@mkdir -p $(dir $@)

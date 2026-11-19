@@ -9,6 +9,7 @@
 ******************************************************************************/
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 
+#include <opencl/libxstream_common.h>
 #include "../grid_opencl.h"
 #include "grid_cab_cxyz.h"
 #include "grid_process_vab.h"
@@ -45,10 +46,12 @@ static inline int grid_width(const int nitems)
 }
 
 
-/* Adds one item (a row, or a point of a general cell) to the partial C_xyz of a lane */
+/* Adds one item (a row, or a point of a general cell) to the partial C_xyz of a lane. Inlined with a constant
+ * lp (switch), the loops unroll and the arrays stay in registers: a runtime bound puts them on the stack. */
 static inline void grid_item(const int r, const int lp, const int n0, const int n1, const int n2,
   const double16 dh, const double s0, const double s1, const double s2, const double zetp, const double r2max,
-  const double q, __global const int* restrict bt, __global const double* restrict grid, __local double* restrict part)
+  __global const double* restrict gx, __global const int* restrict bt, __global const double* restrict grid,
+  __local double* restrict part)
 {
   const int ny = bt[4] - bt[1] + 1;
   double m[LP1], ty[LP1], tz[LP1];
@@ -58,28 +61,27 @@ static inline void grid_item(const int r, const int lp, const int n0, const int 
   const double h0 = dh.s0, dy = (u1 - s1) * dh.s4, dz = (u2 - s2) * dh.s8, ryz = dy * dy + dz * dz;
   if (ryz < r2max) {
     __global const double* const row = grid + ((size_t)grid_wrap(u2, n2) * n1 + grid_wrap(u1, n1)) * n0;
-    const double d0 = (bt[0] - s0) * h0;
-    double ex = exp(-zetp * (d0 * d0 + ryz)), rx = exp(-zetp * (2.0 * d0 * h0 + h0 * h0)), py = 1.0, pz = 1.0;
-    int u0, g = grid_wrap(bt[0], n0);
-    for (k = 0; k <= lp; ++k) m[k] = 0.0;
-    for (u0 = bt[0]; u0 <= bt[3]; ++u0) { /* the Gaussian along the row by recurrence */
-      const double dx = (u0 - s0) * h0;
-      if (0 == ((u0 - bt[0]) & 31) && u0 != bt[0]) { /* restart: the recurrence drifts on long rows */
-        ex = exp(-zetp * (dx * dx + ryz));
-        rx = exp(-zetp * (2.0 * dx * h0 + h0 * h0));
+    __global const double* const gy = gx + (bt[3] - bt[0] + 1);
+    __global const double* const gz = gy + (bt[4] - bt[1] + 1);
+    double py = gy[u1 - bt[1]] * gz[u2 - bt[2]], pz = 1.0;
+    const double w = sqrt(r2max - ryz) / h0; /* chord of the row: the inner loop needs no mask */
+    int ulo = max(bt[0], (int)ceil(s0 - w) - 1), uhi = min(bt[3], (int)floor(s0 + w) + 1), u0, g;
+    double dx;
+    while (ulo <= uhi && (ulo - s0) * h0 * ((ulo - s0) * h0) + ryz >= r2max) ++ulo;
+    while (ulo <= uhi && (uhi - s0) * h0 * ((uhi - s0) * h0) + ryz >= r2max) --uhi;
+    g = grid_wrap(ulo, n0);
+    dx = (ulo - s0) * h0;
+    UNROLL_AUTO for (k = 0; k <= lp; ++k) m[k] = 0.0;
+    for (u0 = ulo; u0 <= uhi; ++u0) {
+      double p = row[g] * gx[u0 - bt[0]];
+      UNROLL_AUTO for (k = 0; k <= lp; ++k) {
+        m[k] += p;
+        p *= dx;
       }
-      if (dx * dx + ryz < r2max) {
-        double p = row[g] * ex;
-        for (k = 0; k <= lp; ++k) {
-          m[k] += p;
-          p *= dx;
-        }
-      }
-      ex *= rx;
-      rx *= q;
+      dx += h0;
       if (++g == n0) g = 0;
     }
-    for (k = 0; k <= lp; ++k) { /* the Gaussian along y and z is part of the moments */
+    UNROLL_AUTO for (k = 0; k <= lp; ++k) {
       ty[k] = py;
       tz[k] = pz;
       py *= dy;
@@ -98,7 +100,7 @@ static inline void grid_item(const int r, const int lp, const int n0, const int 
   if (r2 < r2max) {
     const size_t g = ((size_t)grid_wrap(u2, n2) * n1 + grid_wrap(u1, n1)) * n0 + grid_wrap(u0, n0);
     double p = grid[g] * exp(-zetp * r2), py = 1.0, pz = 1.0;
-    for (k = 0; k <= lp; ++k) {
+    UNROLL_AUTO for (k = 0; k <= lp; ++k) {
       m[k] = p;
       ty[k] = py;
       tz[k] = pz;
@@ -111,14 +113,23 @@ static inline void grid_item(const int r, const int lp, const int n0, const int 
 #endif
   if (0 != valid) {
     k = 0;
-    for (lx = 0; lx <= lp; ++lx) {
-      for (ly = 0; ly <= lp - lx; ++ly) {
+    UNROLL_AUTO for (lx = 0; lx <= lp; ++lx) {
+      UNROLL_AUTO for (ly = 0; ly <= lp - lx; ++ly) {
         const double mxy = m[lx] * ty[ly];
-        for (lz = 0; lz <= lp - lx - ly; ++lz) part[k++] += mxy * tz[lz];
+        UNROLL_AUTO for (lz = 0; lz <= lp - lx - ly; ++lz) part[k++] += mxy * tz[lz];
       }
     }
   }
 }
+
+
+#define GRID_ICASE(N) \
+  case N: \
+    for (r = lane - myoff; r < nitems && 0 < gt[4]; r += myw) { \
+      grid_item(r, N, n0, n1, n2, dh, gt[0], gt[1], gt[2], gt[3], gt[4], gauss + gofs[mytask], bt, grid + grid_offset, \
+        mine); \
+    } \
+    break;
 
 
 /**
@@ -133,7 +144,7 @@ __kernel __attribute__((reqd_work_group_size(ENGINE, 1, 1))) void grid_integrate
   __global const int* restrict level_task, __global const double* restrict geo,
   __global const int* restrict box, __global const int* restrict cinfo,
   __global const double* restrict grid, const int grid_offset, __global double* restrict coef,
-  __global int* restrict queue)
+  __global int* restrict queue, __global const double* restrict gauss, __global const int* restrict gofs)
 {
   __local double part[ENGINE * NCOEF];
   __local int chunk_task[ENGINE], chunk_width[ENGINE], chunk_base;
@@ -166,8 +177,56 @@ __kernel __attribute__((reqd_work_group_size(ENGINE, 1, 1))) void grid_integrate
           const int nx = (0 != GRID_ORTHO ? 1 : (bt[3] - bt[0] + 1));
           const int nitems = nx * (bt[4] - bt[1] + 1) * (bt[5] - bt[2] + 1);
           int r;
-          for (r = lane - myoff; r < nitems && 0 < gt[4]; r += myw) {
-            grid_item(r, lp, n0, n1, n2, dh, gt[0], gt[1], gt[2], gt[3], gt[4], gt[6], bt, grid + grid_offset, mine);
+          switch (lp) { /* uniform for the lanes of a task, and mostly for a pack (neighbouring tasks) */
+            GRID_ICASE(0)
+#if 1 < LP1
+            GRID_ICASE(1)
+#endif
+#if 2 < LP1
+            GRID_ICASE(2)
+#endif
+#if 3 < LP1
+            GRID_ICASE(3)
+#endif
+#if 4 < LP1
+            GRID_ICASE(4)
+#endif
+#if 5 < LP1
+            GRID_ICASE(5)
+#endif
+#if 6 < LP1
+            GRID_ICASE(6)
+#endif
+#if 7 < LP1
+            GRID_ICASE(7)
+#endif
+#if 8 < LP1
+            GRID_ICASE(8)
+#endif
+#if 9 < LP1
+            GRID_ICASE(9)
+#endif
+#if 10 < LP1
+            GRID_ICASE(10)
+#endif
+#if 11 < LP1
+            GRID_ICASE(11)
+#endif
+#if 12 < LP1
+            GRID_ICASE(12)
+#endif
+#if 13 < LP1
+            GRID_ICASE(13)
+#endif
+#if 14 < LP1
+            GRID_ICASE(14)
+#endif
+#if 15 < LP1
+            GRID_ICASE(15)
+#endif
+#if 16 < LP1
+#  error "lp > 15"
+#endif
           }
         }
         barrier(CLK_LOCAL_MEM_FENCE);

@@ -46,6 +46,7 @@ typedef struct {
 
 typedef struct {
   cl_kernel first, second, third; /* collocate: coefficients, tiles; integrate: coefficients, tasks, blocks */
+  cl_kernel gauss; /* Gaussian of each task along the axes of its box (both programs carry it) */
   int engine; /* integrate: lanes of an engine, narrower than GRID_ENGINE if local memory is short */
 } grid_opencl_kernels_t;
 
@@ -76,7 +77,9 @@ typedef struct {
   int *level_start, *seg_atoms; /* host: tasks per level, atoms (and whether the same) per segment */
   double* fv; /* host: forces and virial per segment */
   int *tint_dev, *box_dev, *cinfo_dev, *tile_start_dev, *tile_task_dev;
-  int *level_task_dev, *seg_start_dev, *seg_task_dev, *queue_dev, *hoff_dev;
+  int *level_task_dev, *seg_start_dev, *seg_task_dev, *queue_dev, *hoff_dev, *gofs_dev;
+  double* gauss_dev; /* Gaussian per task along each axis of its box (orthorhombic), computed on first use */
+  int gauss_ready;
   double *tdbl_dev, *geo_dev, *sphi_dev, *coef_dev, *fv_dev;
   double *hab_task_dev, *fv_task_dev; /* integrate: primitive hab, forces and virial per task (allocated on use) */
   size_t ncoef, nhab;
@@ -184,7 +187,7 @@ static void grid_opencl_init(void)
       grid_opencl_config.rows = (0 < rows ? rows : 8);
       grid_opencl_config.slots = (0 < slots ? slots : 8);
       { const char* const env_fp32 = getenv("GRID_FP32");
-        grid_opencl_config.fp32 = (NULL != env_fp32 ? LIBXS_MIN(atoi(env_fp32), 24) : 16);
+        grid_opencl_config.fp32 = (NULL != env_fp32 ? LIBXS_MIN(atoi(env_fp32), 24) : -1);
       }
       if (EXIT_SUCCESS != clGetDeviceInfo(device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &nunits, NULL)) {
         nunits = 0;
@@ -219,7 +222,7 @@ static const grid_opencl_kernels_t* grid_opencl_kernels(const int kind, const in
     const char* const source = (0 <= kind ? OPENCL_KERNELS_SOURCE_COLLOCATE : OPENCL_KERNELS_SOURCE_INTEGRATE);
     const char* const name1 = (0 <= kind ? "grid_collocate_coef" : "grid_integrate_coef");
     const char* const name2 = (0 <= kind ? "grid_collocate_tile" : "grid_integrate_task");
-    grid_opencl_kernels_t kernels = {NULL, NULL, NULL, 0};
+    grid_opencl_kernels_t kernels = {NULL, NULL, NULL, NULL, 0};
     char params[512];
     int ok;
     if (0 <= kind) {
@@ -253,10 +256,15 @@ static const grid_opencl_kernels_t* grid_opencl_kernels(const int kind, const in
       ok = libxstream_opencl_kernel(0 /*source*/, source, "grid_integrate_hab", params, NULL /*options*/,
         NULL /*try*/, NULL /*try_ok*/, NULL /*exts*/, 0, &kernels.third);
     }
+    if (EXIT_SUCCESS == ok) {
+      ok = libxstream_opencl_kernel(0 /*source*/, source, "grid_gauss", params, NULL /*options*/, NULL /*try*/,
+        NULL /*try_ok*/, NULL /*exts*/, 0, &kernels.gauss);
+    }
     if (EXIT_SUCCESS != ok) {
       if (NULL != kernels.first) clReleaseKernel(kernels.first);
       if (NULL != kernels.second) clReleaseKernel(kernels.second);
-      kernels.first = kernels.second = kernels.third = NULL; /* registered as well: no second attempt */
+      if (NULL != kernels.third) clReleaseKernel(kernels.third);
+      kernels.first = kernels.second = kernels.third = kernels.gauss = NULL; /* registered: no second attempt */
       if (0 == warned) {
         fprintf(stderr, "WARNING GRID/OpenCL: kernels failed to build, the host takes over\n");
         warned = 1;
@@ -266,6 +274,27 @@ static const grid_opencl_kernels_t* grid_opencl_kernels(const int kind, const in
       registry, &key, sizeof(key), &kernels, sizeof(kernels), libxs_registry_lock(registry));
   }
   return (NULL != result && NULL != result->first) ? result : NULL;
+}
+
+
+/* Gaussian tables of the tasks, once per task list (orthorhombic) */
+static int grid_opencl_gauss(grid_opencl_task_list_t* tl, const grid_opencl_kernels_t* kernels)
+{
+  int result = EXIT_SUCCESS;
+  if (0 == tl->gauss_ready && 0 != tl->ortho && 0 < tl->ntasks) {
+    const cl_int ntasks = tl->ntasks;
+    const size_t global = (size_t)ntasks;
+    result |= clSetKernelArg(kernels->gauss, 0, sizeof(cl_int), &ntasks);
+    result |= grid_opencl_arg(kernels->gauss, 1, tl->geo_dev, NULL);
+    result |= grid_opencl_arg(kernels->gauss, 2, tl->box_dev, NULL);
+    result |= grid_opencl_arg(kernels->gauss, 3, tl->tdbl_dev, NULL);
+    result |= grid_opencl_arg(kernels->gauss, 4, tl->gofs_dev, NULL);
+    result |= grid_opencl_arg(kernels->gauss, 5, tl->gauss_dev, NULL);
+    result |= libxstream_opencl_launch_work(
+      (libxstream_stream_t*)tl->stream, kernels->gauss, 1, NULL, &global, NULL, 0, NULL, NULL, 0, 0);
+  }
+  tl->gauss_ready = 1;
+  return result;
 }
 
 
@@ -388,6 +417,7 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
         td[3 + k] = ra[k] + rab[k];
         td[6 + k] = ra[k] + f * rab[k];
         td[12 + k] = rab[k];
+        td[15 + k] = dh[9 * (level_list[i] - 1) + 4 * k]; /* spacing along the axis (orthorhombic) */
       }
       td[9] = zeta;
       td[10] = zetb;
@@ -403,10 +433,7 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
       gt[4] = cutoff * cutoff;
       /* Gaussian at most 2^(24-m) of its value at the radius: single precision errs below the truncation */
       gt[5] = LIBXS_MAX(radius_list[i] * radius_list[i] - (24 - grid_opencl_config.fp32) * log(2.0) / zetp, 0.0);
-      { /* ratio of successive ratios of the Gaussian along x (recurrence) */
-        const double h0 = dh[9 * (level_list[i] - 1)];
-        gt[6] = exp(-2.0 * zetp * h0 * h0);
-      }
+
       for (k = 0; k < 9; ++k) dh_max = fmax(dh_max, fabs(dh[9 * (level_list[i] - 1) + k]));
       if (2.0 * radius_list[i] < dh_max) gt[4] = 0.0; /* as CPU: skip a task narrower than the grid */
     }
@@ -504,6 +531,16 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
       tl->nhab += (size_t)ncoset(tl->lab[2 * i]) * ncoset(tl->lab[2 * i + 1]);
     }
     tl->hoff_dev = (int*)grid_opencl_upload(level_task, sizeof(int) * ntasks);
+    { /* offsets of the Gaussian tables, reusing level_task */
+      size_t ngauss = 0;
+      for (i = 0; i < ntasks; ++i) {
+        const int* const bt = box + GRID_OPENCL_NB * i;
+        level_task[i] = (int)ngauss;
+        if (0 != tl->ortho) ngauss += (size_t)(bt[3] - bt[0] + 1) + (bt[4] - bt[1] + 1) + (bt[5] - bt[2] + 1);
+      }
+      tl->gofs_dev = (int*)grid_opencl_upload(level_task, sizeof(int) * ntasks);
+      offloadMalloc((void**)&tl->gauss_dev, sizeof(double) * (0 < ngauss ? ngauss : 1));
+    }
     tl->tint_dev = (int*)grid_opencl_upload(tint, sizeof(int) * GRID_OPENCL_NI * ntasks);
     tl->tdbl_dev = (double*)grid_opencl_upload(tdbl, sizeof(double) * GRID_OPENCL_ND * ntasks);
     tl->geo_dev = (double*)grid_opencl_upload(geo, sizeof(double) * GRID_OPENCL_NG * ntasks);
@@ -550,6 +587,8 @@ void grid_gpu_free_task_list(grid_gpu_task_list* ptr)
       offloadFree(tl->fv_dev);
       offloadFree(tl->queue_dev);
       offloadFree(tl->hoff_dev);
+      offloadFree(tl->gofs_dev);
+      offloadFree(tl->gauss_dev);
       if (NULL != tl->hab_task_dev) offloadFree(tl->hab_task_dev);
       if (NULL != tl->fv_task_dev) offloadFree(tl->fv_task_dev);
       if (NULL != tl->coef_dev) offloadFree(tl->coef_dev);
@@ -600,6 +639,7 @@ void grid_gpu_collocate_task_list(const grid_gpu_task_list* ptr, const enum grid
     if (pab_blocks->host_buffer != pab_blocks->device_buffer) {
       offloadMemcpyAsyncHtoD(pab_blocks->device_buffer, pab_blocks->host_buffer, pab_blocks->size, tl->stream);
     }
+    result |= grid_opencl_gauss(tl, kernels);
     if (0 < ntasks) {
       result |= clSetKernelArg(kernels->first, 0, sizeof(cl_int), &ntasks);
       result |= grid_opencl_arg(kernels->first, 1, pab_blocks->device_buffer, &pab_offset);
@@ -631,6 +671,8 @@ void grid_gpu_collocate_task_list(const grid_gpu_task_list* ptr, const enum grid
       result |= grid_opencl_arg(kernels->second, 10, tl->coef_dev, NULL);
       result |= grid_opencl_arg(kernels->second, 11, grids[level]->device_buffer, &grid_offset);
       result |= clSetKernelArg(kernels->second, 12, sizeof(cl_int), &grid_offset);
+      result |= grid_opencl_arg(kernels->second, 13, tl->gauss_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 14, tl->gofs_dev, NULL);
       if (0 < global[0] && 0 < global[1] && 0 < global[2]) {
         result |= libxstream_opencl_launch_work(stream, kernels->second, 3, NULL, global, local, 0, NULL, NULL, 0, 0);
       }
@@ -688,6 +730,7 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
     if (NULL != pab_blocks && 0 != flags % 4 && pab_blocks->host_buffer != pab_blocks->device_buffer) {
       offloadMemcpyAsyncHtoD(pab_blocks->device_buffer, pab_blocks->host_buffer, pab_blocks->size, tl->stream);
     }
+    result |= grid_opencl_gauss(tl, kernels);
     for (level = 0; level < nlevels; ++level) {
       const grid_opencl_level_t* const lv = &tl->levels[level];
       const cl_int task_base = tl->level_start[level], nlevel = tl->level_start[level + 1] - task_base;
@@ -711,6 +754,8 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
       result |= clSetKernelArg(kernels->first, 11, sizeof(cl_int), &grid_offset);
       result |= grid_opencl_arg(kernels->first, 12, tl->coef_dev, NULL);
       result |= grid_opencl_arg(kernels->first, 13, tl->queue_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 14, tl->gauss_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 15, tl->gofs_dev, NULL);
       global = (size_t)nengines * local; /* persistent engines: the queue distributes the tasks */
       if (0 < global) {
         offloadMemsetAsync(tl->queue_dev, 0, sizeof(int), tl->stream);
