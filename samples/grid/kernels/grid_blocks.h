@@ -33,7 +33,7 @@ static inline void grid_load_pab(__global const double* restrict blocks, __globa
 
 /* Adds the primitive hab[jco][ico] of a task to its block: sphib hab sphia^T */
 static inline void grid_store_hab(__global double* restrict blocks, __global const double* restrict sphi,
-  __global const int* restrict ti, const double* hab, double* w)
+  __global const int* restrict ti, __global const double* restrict hab, double* w)
 {
   const int ncoa = ncoset(ti[0]), ncob = ncoset(ti[2]);
   int s, t;

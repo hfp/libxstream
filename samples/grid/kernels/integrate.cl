@@ -202,80 +202,74 @@ __kernel __attribute__((reqd_work_group_size(ENGINE, 1, 1))) void grid_integrate
 }
 
 
-/* One work-item per segment (tasks of one block and set pair): it owns that part of the
- * block, and its forces and virial are merged by the host in segment order. */
-__kernel void grid_integrate_hab(const int nsegs, __global const int* restrict seg_start,
-  __global const int* restrict seg_task, __global const double* restrict pab_blocks, const int pab_offset,
-  __global const double* restrict sphi, __global const int* restrict tint,
-  __global const double* restrict tdbl, __global const int* restrict cinfo,
-  __global const double* restrict coef, __global double* restrict hab_blocks, const int hab_offset,
-  __global double* restrict fv)
+/* One work-item per task: cab, the primitive hab, forces and virial into the task's scratch */
+__kernel void grid_integrate_task(const int ntasks, __global const double* restrict pab_blocks, const int pab_offset,
+  __global const double* restrict sphi, __global const int* restrict tint, __global const double* restrict tdbl,
+  __global const int* restrict cinfo, __global const double* restrict coef, __global const int* restrict hoff,
+  __global double* restrict hab_task, __global double* restrict fv_task)
 {
-  const int iseg = (int)get_global_id(0);
-  if (iseg < nsegs) {
+  const int t = (int)get_global_id(0);
+  if (t < ntasks) {
     const process_ldiffs ld = process_get_ldiffs(0 != FORCES, 0 != VIRIAL, 0 != TAU);
-    double f[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, va[9], vb[9];
-    double pab[NPAB * NPAB], hab[NPAB * NPAB], w[NPAB], cabd[NCA * NCB];
+    __global const int* const ti = tint + GRID_OPENCL_NI * t;
+    __global const double* const td = tdbl + GRID_OPENCL_ND * t;
+    __global const double* const c = coef + cinfo[2 * t];
+    __global double* const hab = hab_task + hoff[t];
+    const int la_max = ti[0], la_min = ti[1], lb_max = ti[2], lb_min = ti[3];
+    const int la_max_local = la_max + ld.la_max_diff, lb_max_local = lb_max + ld.lb_max_diff;
+    const int la_min_local = imax(0, la_min + ld.la_min_diff);
+    const int lb_min_local = imax(0, lb_min + ld.lb_min_diff);
+    const int ncoa = ncoset(la_max), ncob = ncoset(lb_max), n1 = ncoset(la_max_local);
+    const int lp = la_max_local + lb_max_local, lp1 = lp + 1;
+    const double zeta = td[9], zetb = td[10], prefactor = td[11] / (0 != ti[13] ? 1.0 : 2.0);
+    double pab[NPAB * NPAB], w[NPAB], cabd[NCA * NCB], f[6], va[9], vb[9];
     double alpha[3 * LMAX1A * LMAX1B * LP1], cxyz[LP1 * LP1 * LP1], tx[LP1], txy[LP1 * LP1];
-    int i, j, k;
-    for (k = 0; k < 9; ++k) va[k] = vb[k] = 0.0;
-    for (k = seg_start[iseg]; k < seg_start[iseg + 1]; ++k) {
-      const int t = seg_task[k];
-      __global const int* const ti = tint + GRID_OPENCL_NI * t;
-      __global const double* const td = tdbl + GRID_OPENCL_ND * t;
-      __global const double* const c = coef + cinfo[2 * t];
-      const int la_max = ti[0], la_min = ti[1], lb_max = ti[2], lb_min = ti[3];
-      const int la_max_local = la_max + ld.la_max_diff, lb_max_local = lb_max + ld.lb_max_diff;
-      const int la_min_local = imax(0, la_min + ld.la_min_diff);
-      const int lb_min_local = imax(0, lb_min + ld.lb_min_diff);
-      const int ncoa = ncoset(la_max), ncob = ncoset(lb_max), n1 = ncoset(la_max_local);
-      const int lp = la_max_local + lb_max_local, lp1 = lp + 1;
-      const double zeta = td[9], zetb = td[10], prefactor = td[11] / (0 != ti[13] ? 1.0 : 2.0);
-      double ra[3], rb[3], rp[3], rab[3];
-      cab_store cab;
-      int la, lb, ax, ay, bx, by, lx, ly, lz, n = 0;
-      for (i = 0; i < 3; ++i) {
-        ra[i] = td[i];
-        rb[i] = td[3 + i];
-        rp[i] = td[6 + i];
-        rab[i] = td[12 + i];
+    double ra[3], rb[3], rp[3], rab[3];
+    cab_store cab;
+    int i, j, la, lb, ax, ay, bx, by, lx, ly, lz, n = 0;
+    for (i = 0; i < 6; ++i) f[i] = 0.0;
+    for (i = 0; i < 9; ++i) va[i] = vb[i] = 0.0;
+    for (i = 0; i < 3; ++i) {
+      ra[i] = td[i];
+      rb[i] = td[3 + i];
+      rp[i] = td[6 + i];
+      rab[i] = td[12 + i];
+    }
+    for (i = 0; i < lp1 * lp1 * lp1; ++i) cxyz[i] = 0.0;
+    for (lx = 0; lx <= lp; ++lx) {
+      for (ly = 0; ly <= lp - lx; ++ly) {
+        for (lz = 0; lz <= lp - lx - ly; ++lz) cxyz[(lz * lp1 + ly) * lp1 + lx] = c[n++];
       }
-      for (i = 0; i < lp1 * lp1 * lp1; ++i) cxyz[i] = 0.0;
-      for (lx = 0; lx <= lp; ++lx) {
-        for (ly = 0; ly <= lp - lx; ++ly) {
-          for (lz = 0; lz <= lp - lx - ly; ++lz) cxyz[(lz * lp1 + ly) * lp1 + lx] = c[n++];
-        }
-      }
-      for (i = 0; i < n1 * ncoset(lb_max_local); ++i) cabd[i] = 0.0;
-      grid_cab_alpha(la_max_local, lb_max_local, ra, rb, rp, alpha);
-      grid_cxyz_to_cab(la_max_local, la_min_local, lb_max_local, lb_min_local, prefactor, alpha, cxyz, cabd, tx, txy);
-      cab.n1 = n1;
-      cab.data = cabd;
-      if (0 != FORCES || 0 != VIRIAL) grid_load_pab(pab_blocks + pab_offset, sphi, ti, pab, w);
-      for (i = 0; i < ncoa * ncob; ++i) hab[i] = 0.0;
-      for (la = la_min; la <= la_max; ++la) {
-        for (ax = 0; ax <= la; ++ax) {
-          for (ay = 0; ay <= la - ax; ++ay) {
-            const orbital a = {{ax, ay, la - ax - ay}};
-            for (lb = lb_min; lb <= lb_max; ++lb) {
-              for (bx = 0; bx <= lb; ++bx) {
-                for (by = 0; by <= lb - bx; ++by) {
-                  const orbital b = {{bx, by, lb - bx - by}};
-                  hab[idx(b) * ncoa + idx(a)] += get_hab(a, b, zeta, zetb, &cab, 0 != TAU);
-                  if (0 != FORCES) {
-                    const double pabval = pab[idx(b) * ncoa + idx(a)];
-                    for (i = 0; i < 3; ++i) {
-                      f[i] += pabval * get_force_a(a, b, i, zeta, zetb, &cab, 0 != TAU);
-                      f[3 + i] += pabval * get_force_b(a, b, i, zeta, zetb, rab, &cab, 0 != TAU);
-                    }
+    }
+    for (i = 0; i < n1 * ncoset(lb_max_local); ++i) cabd[i] = 0.0;
+    grid_cab_alpha(la_max_local, lb_max_local, ra, rb, rp, alpha);
+    grid_cxyz_to_cab(la_max_local, la_min_local, lb_max_local, lb_min_local, prefactor, alpha, cxyz, cabd, tx, txy);
+    cab.n1 = n1;
+    cab.data = cabd;
+    if (0 != FORCES || 0 != VIRIAL) grid_load_pab(pab_blocks + pab_offset, sphi, ti, pab, w);
+    for (i = 0; i < ncoa * ncob; ++i) hab[i] = 0.0;
+    for (la = la_min; la <= la_max; ++la) {
+      for (ax = 0; ax <= la; ++ax) {
+        for (ay = 0; ay <= la - ax; ++ay) {
+          const orbital a = {{ax, ay, la - ax - ay}};
+          for (lb = lb_min; lb <= lb_max; ++lb) {
+            for (bx = 0; bx <= lb; ++bx) {
+              for (by = 0; by <= lb - bx; ++by) {
+                const orbital b = {{bx, by, lb - bx - by}};
+                hab[idx(b) * ncoa + idx(a)] += get_hab(a, b, zeta, zetb, &cab, 0 != TAU);
+                if (0 != FORCES) {
+                  const double pabval = pab[idx(b) * ncoa + idx(a)];
+                  for (i = 0; i < 3; ++i) {
+                    f[i] += pabval * get_force_a(a, b, i, zeta, zetb, &cab, 0 != TAU);
+                    f[3 + i] += pabval * get_force_b(a, b, i, zeta, zetb, rab, &cab, 0 != TAU);
                   }
-                  if (0 != VIRIAL) {
-                    const double pabval = pab[idx(b) * ncoa + idx(a)];
-                    for (i = 0; i < 3; ++i) {
-                      for (j = 0; j < 3; ++j) {
-                        va[3 * i + j] += pabval * get_virial_a(a, b, i, j, zeta, zetb, &cab, 0 != TAU);
-                        vb[3 * i + j] += pabval * get_virial_b(a, b, i, j, zeta, zetb, rab, &cab, 0 != TAU);
-                      }
+                }
+                if (0 != VIRIAL) {
+                  const double pabval = pab[idx(b) * ncoa + idx(a)];
+                  for (i = 0; i < 3; ++i) {
+                    for (j = 0; j < 3; ++j) {
+                      va[3 * i + j] += pabval * get_virial_a(a, b, i, j, zeta, zetb, &cab, 0 != TAU);
+                      vb[3 * i + j] += pabval * get_virial_b(a, b, i, j, zeta, zetb, rab, &cab, 0 != TAU);
                     }
                   }
                 }
@@ -284,12 +278,39 @@ __kernel void grid_integrate_hab(const int nsegs, __global const int* restrict s
           }
         }
       }
-      grid_store_hab(hab_blocks + hab_offset, sphi, ti, hab, w);
     }
-    for (k = 0; k < 6; ++k) fv[24 * iseg + k] = f[k];
-    for (k = 0; k < 9; ++k) {
-      fv[24 * iseg + 6 + k] = va[k];
-      fv[24 * iseg + 15 + k] = vb[k];
+    if (0 != FORCES || 0 != VIRIAL) {
+      __global double* const fv = fv_task + 24 * (size_t)t;
+      for (i = 0; i < 6; ++i) fv[i] = f[i];
+      for (i = 0; i < 9; ++i) {
+        fv[6 + i] = va[i];
+        fv[15 + i] = vb[i];
+      }
     }
+  }
+}
+
+
+/* One work-item per segment (tasks of one block and set pair): it owns that part of the
+ * block, adds the tasks in order, and sums their forces and virial in order as well. */
+__kernel void grid_integrate_hab(const int nsegs, __global const int* restrict seg_start,
+  __global const int* restrict seg_task, __global const double* restrict sphi, __global const int* restrict tint,
+  __global const int* restrict hoff, __global const double* restrict hab_task,
+  __global const double* restrict fv_task, __global double* restrict hab_blocks, const int hab_offset,
+  __global double* restrict fv)
+{
+  const int iseg = (int)get_global_id(0);
+  if (iseg < nsegs) {
+    double sum[24], w[NPAB];
+    int i, k;
+    for (i = 0; i < 24; ++i) sum[i] = 0.0;
+    for (k = seg_start[iseg]; k < seg_start[iseg + 1]; ++k) {
+      const int t = seg_task[k];
+      grid_store_hab(hab_blocks + hab_offset, sphi, tint + GRID_OPENCL_NI * t, hab_task + hoff[t], w);
+      if (0 != FORCES || 0 != VIRIAL) {
+        for (i = 0; i < 24; ++i) sum[i] += fv_task[24 * (size_t)t + i];
+      }
+    }
+    for (i = 0; i < 24; ++i) fv[24 * iseg + i] = sum[i];
   }
 }
