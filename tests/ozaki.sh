@@ -85,7 +85,7 @@ cases() {
   local TAG=${VAR#LIBXSTREAM_}
   TAG=${TAG,,}
   for N in ${SIZES}; do
-    for LEVEL in $(seq "$2" "${TOP}"); do
+    for LEVEL in $(seq "$2" "$((4 < TOP ? 4 : TOP))"); do
       local SEL="${VAR}=${LEVEL}"
       if [ -z "${VAR}" ]; then SEL=""; TAG="generic"; LEVEL=""; fi
       if [ "LIBXSTREAM_NV" = "${VAR}" ] && [ 4 = "${LEVEL}" ]; then SEL="${SEL} OZAKI_WGMMA=0"; fi
@@ -110,6 +110,15 @@ cases() {
       echo "oz2sym_wgmmabulk2_n${N}_double|OZAKI=2 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${BULK}|${N}"
       echo "oz2bf16_wgmmabulk2_n${N}_double|OZAKI=2 OZAKI_BF16=1 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${BULK}|${N}"
       echo "oz2int8_wgmmabulk2wide_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${BULK} ${WIDE}|${N}"
+    fi
+    # level 5 takes the fifth generation by default (no OZAKI_TCGEN05): named _nv5_, which the
+    # check below expects to report it
+    if [ 5 = "${TOP}" ] && [ -n "${TC}" ]; then
+      if [ 1 = "${TCI}" ]; then
+        echo "oz2int8_${TAG}5_n${N}_double|OZAKI=2 ${VAR}=5|${N}"
+        echo "oz2sym_${TAG}5_n${N}_double|OZAKI=2 OZAKI_SYMRES=1 ${VAR}=5|${N}"
+      fi
+      echo "oz2bf16_${TAG}5_n${N}_double|OZAKI=2 OZAKI_BF16=1 OZAKI_SYMRES=1 ${VAR}=5|${N}"
     fi
     if [ -n "${TC}" ] && [ 1 = "${TCI}" ]; then
       echo "oz2int8_tcgen05_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_TCGEN05=${TC}|${N}"
@@ -150,8 +159,9 @@ for SPEC in ${GPUS}; do
     elif [ -n "$(value nv "${CONFIG}")" ]; then
       VAR=LIBXSTREAM_NV FIRST=1 TOP=$(value nv "${CONFIG}")
       if [ 1 = "$(value wgmma "${CONFIG}")" ]; then WG=1; fi
-      # the fifth generation is opt-in and not probed, hence the device's compute capability
-      # (nvidia-smi, first GPU): tensor memory from 10.0 to before 12.0, kind::i8 on 10.0 and 11.0
+      # the fifth generation is not probed, hence the device's compute capability (nvidia-smi,
+      # first GPU): tensor memory from 10.0 to before 12.0, kind::i8 on 10.0 and 11.0; it is the
+      # default at level 5 (10.0 to 10.2), which TOP then is
       CC=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2> /dev/null | head -n1 | tr -d ' .')
       if [ -n "${CC}" ] && [ 100 -le "${CC}" ] && [ 120 -gt "${CC}" ]; then TC=1; fi
       if [ 100 = "${CC}" ] || [ 110 = "${CC}" ]; then TCI=1; fi
@@ -195,6 +205,7 @@ for SPEC in ${GPUS}; do
     LOG=${LOGS}/logs/run-${TARGET}-${NAME}.log
     PRIME=${LOGS}/logs/prime-${TARGET}-${NAME}.log
     TCGEN05=$(value OZAKI_TCGEN05 "${SETENV}")
+    if [[ "${NAME}" == *_nv5_* ]]; then TCGEN05=${TCGEN05:-1}; fi
     # the fifth generation takes the warp-group geometry, which the configuration names as such
     WGMMA=$(value OZAKI_WGMMA "${SETENV}")
     WGMMA=${WGMMA:-${TCGEN05}}

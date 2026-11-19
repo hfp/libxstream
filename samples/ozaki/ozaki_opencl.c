@@ -1359,13 +1359,16 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
      */
     { const char *const env_wgmma = getenv("OZAKI_WGMMA");
       /**
-       * OZAKI_TCGEN05 takes the warp-group geometry with the fifth-generation instructions,
-       * off unless requested: 1 patches in-process like OZAKI_WGMMA=1 but without its probe
-       * (which validates wgmma), 2 is the program as built, for a runtime that does not
-       * hand out its PTX (see ozaki_splice.x).
+       * OZAKI_TCGEN05 takes the warp-group geometry with the fifth-generation instructions:
+       * 1 patches in-process like OZAKI_WGMMA=1 but without its probe (which validates
+       * wgmma), 2 is the program as built, for a runtime that does not hand out its PTX (see
+       * ozaki_splice.x). Default from LIBXSTREAM_NV=5 on, i.e., where it was validated (B200,
+       * GB200: bit-identical to mma.sync, 3.2-5.8x faster kernels); LIBXSTREAM_NV=4 leaves it
+       * to a request, and an explicit OZAKI_WGMMA=0 still means no warp-group MMA at all.
        */
       const char *const env_tc = getenv("OZAKI_TCGEN05");
-      const int tc_req = (NULL != env_tc) ? atoi(env_tc) : 0;
+      const int tc_req = (NULL != env_tc) ? atoi(env_tc)
+        : ((5 <= nv && (NULL == env_wgmma || 0 != atoi(env_wgmma))) ? 1 : 0);
       /* 2: the program as the device compiler built it, neither probed nor patched */
       const int wgmma_req = (0 != tc_req) ? tc_req : ((NULL != env_wgmma) ? atoi(env_wgmma) : 1);
       wgmma = (0 != wgmma_req && 4 <= nv && 0 != ctx->nv_mma && 0 != gpu && 32 == sg &&

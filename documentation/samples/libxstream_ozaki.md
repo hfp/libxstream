@@ -153,7 +153,7 @@ The complex variables take effect through the LIBXS interceptor
 | Variable               | Default | Description                                                                                              |
 |------------------------|---------|----------------------------------------------------------------------------------------------------------|
 | OZAKI_WGMMA            | (auto)  | Sch.2: warp-group MMA. On where reachable (see below)                                                    |
-| OZAKI_TCGEN05          | 0       | Sch.2: tensor-memory MMA (Blackwell, Rubin), 1 or 2 as for OZAKI_WGMMA (see below)                       |
+| OZAKI_TCGEN05          | NV=5    | Sch.2: tensor-memory MMA (Blackwell, Rubin), 1 or 2 as for OZAKI_WGMMA (see below)                       |
 | OZAKI_WGMMA_BULK       | 0       | Sch.2 wgmma: B by bulk copies (1), and mbarriers instead of the barrier per round (2)                    |
 | OZAKI_WGMMA_N          | 256     | Warp-group tile width, 64, 128 or 256                                                                    |
 | OZAKI_WGMMA_M          | 128     | Warp-group tile rows: 64 = one warp group, 128 = two, 256 = four (with OZAKI_WGMMA_N of 128 or less)     |
@@ -192,8 +192,10 @@ bound.
 `OZAKI_TCGEN05=1` takes the warp-group tile with the fifth-generation
 instructions (`tcgen05`, accumulators in tensor memory, A from registers
 through tensor memory, B by bulk copies). int8 needs `sm_100a` (not
-`sm_103a`), `OZAKI_BF16=1` runs on every part with tensor memory. It is off
-by default and not probed: a failed patch refuses the kernel.
+`sm_103a`), `OZAKI_BF16=1` runs on every part with tensor memory. It is on
+by default at `LIBXSTREAM_NV=5` (compute capability 10.0 to 10.2, e.g., B200
+and GB200) and a request below; it is not probed: a failed patch refuses the
+kernel. `LIBXSTREAM_NV=4` or `OZAKI_WGMMA=0` turns the default off.
 `OZAKI_TCGEN05=2` uses the program as built, like `OZAKI_WGMMA=2`.
 
 `OZAKI_BKMAJOR=1` applies to the `mma.sync` and dp4a paths, not to
