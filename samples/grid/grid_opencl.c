@@ -41,6 +41,7 @@ typedef struct {
   int kind; /* function of collocate, or -1 minus the flags of integrate */
   int ortho, lmax, tile[3];
   int engine, rows; /* integrate only */
+  int fp32;
 } grid_opencl_key_t;
 
 typedef struct {
@@ -55,6 +56,7 @@ typedef struct {
   int engine; /* GRID_ENGINE: lanes of an engine taking tasks from the queue (power of two) */
   int rows; /* GRID_ROWS: rows per lane before a task gets more lanes */
   int slots; /* GRID_SLOTS: engines per compute unit */
+  int fp32; /* GRID_FP32: margin in bits below the truncation for single precision in the tails (<0: off) */
   int nunits; /* compute units */
   size_t localmem; /* local memory per work-group */
 } grid_opencl_config_t;
@@ -181,6 +183,9 @@ static void grid_opencl_init(void)
       grid_opencl_config.localmem = (size_t)localmem;
       grid_opencl_config.rows = (0 < rows ? rows : 8);
       grid_opencl_config.slots = (0 < slots ? slots : 8);
+      { const char* const env_fp32 = getenv("GRID_FP32");
+        grid_opencl_config.fp32 = (NULL != env_fp32 ? LIBXS_MIN(atoi(env_fp32), 24) : 16);
+      }
       if (EXIT_SUCCESS != clGetDeviceInfo(device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &nunits, NULL)) {
         nunits = 0;
       }
@@ -204,6 +209,7 @@ static const grid_opencl_kernels_t* grid_opencl_kernels(const int kind, const in
   key.ortho = ortho;
   key.lmax = lmax;
   memcpy(key.tile, tile, sizeof(key.tile));
+  key.fp32 = (0 <= kind && 0 <= grid_opencl_config.fp32 ? 1 : 0); /* integrate: measured slower (registers) */
   if (0 > kind) {
     key.engine = grid_opencl_config.engine;
     key.rows = grid_opencl_config.rows;
@@ -220,8 +226,8 @@ static const grid_opencl_kernels_t* grid_opencl_kernels(const int kind, const in
       const prepare_ldiffs ld = prepare_get_ldiffs((enum grid_func)kind);
       const int l1 = lmax + imax(ld.la_max_diff, ld.lb_max_diff);
       snprintf(params, sizeof(params),
-        "-DGRID_FUNC=%i -DGRID_ORTHO=%i -DNPAB=%i -DNCAB=%i -DLMAX1=%i -DLP1=%i -DTX=%i -DTY=%i -DTZ=%i", kind,
-        ortho, ncoset(lmax), ncoset(l1), l1 + 1, 2 * l1 + 1, tile[0], tile[1], tile[2]);
+        "-DGRID_FUNC=%i -DGRID_ORTHO=%i -DNPAB=%i -DNCAB=%i -DLMAX1=%i -DLP1=%i -DTX=%i -DTY=%i -DTZ=%i -DFP32=%i",
+        kind, ortho, ncoset(lmax), ncoset(l1), l1 + 1, 2 * l1 + 1, tile[0], tile[1], tile[2], key.fp32);
     }
     else {
       const int flags = -1 - kind;
@@ -395,6 +401,12 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
       }
       gt[3] = zetp;
       gt[4] = cutoff * cutoff;
+      /* Gaussian at most 2^(24-m) of its value at the radius: single precision errs below the truncation */
+      gt[5] = LIBXS_MAX(radius_list[i] * radius_list[i] - (24 - grid_opencl_config.fp32) * log(2.0) / zetp, 0.0);
+      { /* ratio of successive ratios of the Gaussian along x (recurrence) */
+        const double h0 = dh[9 * (level_list[i] - 1)];
+        gt[6] = exp(-2.0 * zetp * h0 * h0);
+      }
       for (k = 0; k < 9; ++k) dh_max = fmax(dh_max, fabs(dh[9 * (level_list[i] - 1) + k]));
       if (2.0 * radius_list[i] < dh_max) gt[4] = 0.0; /* as CPU: skip a task narrower than the grid */
     }
@@ -436,7 +448,10 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
                 if (0 <= x2 && z2 + y2 + x2 < gt[4]) {
                   const int t = lv->tile_base + (t2 * lv->ntiles[1] + t1) * lv->ntiles[0] + t0;
                   if (0 == k) ++pos[t];
-                  else tile_task[pos[t]++] = i;
+                  else { /* complement: all points of the tile are in the tail (single precision) */
+                    const int tail = (0 <= grid_opencl_config.fp32 && 0 != tl->ortho && gt[5] <= z2 + y2 + x2);
+                    tile_task[pos[t]++] = (0 == tail ? i : ~i);
+                  }
                 }
               }
             }

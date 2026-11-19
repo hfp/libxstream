@@ -87,7 +87,19 @@ static inline double grid_run(__global const double* restrict c, const int m, co
 {
   double s = c[m];
   int lz;
+#pragma unroll
   for (lz = m - 1; 0 <= lz; --lz) s = s * dz + c[lz];
+  return s;
+}
+
+
+/* As grid_run, in single precision (a row of the tail) */
+static inline float grid_run_f32(__global const double* restrict c, const int m, const float dz)
+{
+  float s = (float)c[m];
+  int lz;
+#pragma unroll
+  for (lz = m - 1; 0 <= lz; --lz) s = s * dz + (float)c[lz];
   return s;
 }
 
@@ -111,6 +123,114 @@ static inline double grid_point(__global const double* restrict c, const int lp,
 }
 
 
+/* A row: C_xyz contracted into C_x (y and z), then the points by Horner in x with the Gaussian along x by
+ * recurrence. Inlined with a constant lp (switch), the loops unroll: the runtime loops cost more than the math. */
+static inline void grid_row64(const int lp, __global const double* restrict c, const double zetp, const double ryz,
+  const double r2max, const double dy, const double dz, const double h0, const double q, const double s0, const int x0,
+  const int n0, __global const int* restrict bt, double* acc)
+{
+  double cx[LP1], ex = 0.0, rx = 0.0;
+  int lx, ly, j, u0, k = 0, have = 0;
+#pragma unroll
+  for (lx = 0; lx <= lp; ++lx) {
+    double sy = 0.0, py = 1.0;
+#pragma unroll
+    for (ly = 0; ly <= lp - lx; ++ly) {
+      sy += grid_run(c + k, lp - lx - ly, dz) * py;
+      k += lp - lx - ly + 1;
+      py *= dy;
+    }
+    cx[lx] = sy;
+  }
+  u0 = grid_image(x0, bt[0], n0);
+#pragma unroll
+  for (j = 0; j < TX; ++j) {
+    if (0 != j && ++u0 == bt[0] + n0) {
+      u0 = bt[0];
+      have = 0;
+    }
+    if (x0 + j < n0 && u0 <= bt[3]) {
+      const double dx = (u0 - s0) * h0;
+      if (0 == have) { /* the Gaussian along y and z joins the start of the recurrence */
+        ex = exp(-zetp * (dx * dx + ryz));
+        rx = exp(-zetp * (2.0 * dx * h0 + h0 * h0));
+        have = 1;
+      }
+      else {
+        ex *= rx;
+        rx *= q;
+      }
+      if (dx * dx + ryz < r2max) {
+        double p = cx[lp];
+#pragma unroll
+        for (lx = lp - 1; 0 <= lx; --lx) p = p * dx + cx[lx];
+        acc[j] += ex * p;
+      }
+    }
+    else have = 0;
+  }
+}
+
+
+/* As grid_row64 in single precision (tail): the error of single precision is below the truncation */
+static inline void grid_row32(const int lp, __global const double* restrict c, const double zetp, const double ryz,
+  const double r2max, const double dy, const double dz, const double h0, const double q, const double s0, const int x0,
+  const int n0,
+  __global const int* restrict bt, double* acc)
+{
+  const float zf = (float)zetp, hf = (float)h0, dyf = (float)dy, dzf = (float)dz;
+  const float qf = (float)q;
+  float cx[LP1], ex = 0.0f, rx = 0.0f;
+  int lx, ly, j, u0, k = 0, have = 0;
+#pragma unroll
+  for (lx = 0; lx <= lp; ++lx) {
+    float sy = 0.0f, py = 1.0f;
+#pragma unroll
+    for (ly = 0; ly <= lp - lx; ++ly) {
+      sy += grid_run_f32(c + k, lp - lx - ly, dzf) * py;
+      k += lp - lx - ly + 1;
+      py *= dyf;
+    }
+    cx[lx] = sy;
+  }
+  u0 = grid_image(x0, bt[0], n0);
+#pragma unroll
+  for (j = 0; j < TX; ++j) {
+    if (0 != j && ++u0 == bt[0] + n0) {
+      u0 = bt[0];
+      have = 0;
+    }
+    if (x0 + j < n0 && u0 <= bt[3]) {
+      const double dx = (u0 - s0) * h0;
+      const float dxf = (float)dx;
+      if (0 == have) {
+        ex = exp(-zf * (dxf * dxf + (float)ryz));
+        rx = exp(-zf * (2.0f * dxf * hf + hf * hf));
+        have = 1;
+      }
+      else {
+        ex *= rx;
+        rx *= qf;
+      }
+      if (dx * dx + ryz < r2max) {
+        float p = cx[lp];
+#pragma unroll
+        for (lx = lp - 1; 0 <= lx; --lx) p = p * dxf + cx[lx];
+        acc[j] += (double)(ex * p);
+      }
+    }
+    else have = 0;
+  }
+}
+
+
+#define GRID_CASE(N) \
+  case N: \
+    if (0 == tail) grid_row64(N, c, zetp, ryz, r2max, dy, dz, h0, q, s0, x0, n0, bt, acc); \
+    else grid_row32(N, c, zetp, ryz, r2max, dy, dz, h0, q, s0, x0, n0, bt, acc); \
+    break;
+
+
 /* A work-item owns a row of TX points (no atomics), and the order of the tile's list fixes the sum */
 __kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_tile(
   const int n0, const int n1, const int n2, const double16 dh, const int tile_base,
@@ -128,7 +248,8 @@ __kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_ti
   if (g1 < n1 && g2 < n2) {
     const int end = tile_start[tile + 1];
     for (i = tile_start[tile]; i < end; ++i) {
-      const int t = tile_task[i];
+      const int tail = (0 > tile_task[i]); /* uniform per work-group: the whole tile is in the tail */
+      const int t = (0 == tail ? tile_task[i] : ~tile_task[i]);
       __global const double* const gt = geo + GRID_OPENCL_NG * t;
       __global const int* const bt = box + GRID_OPENCL_NB * t;
       __global const double* const c = coef + cinfo[2 * t];
@@ -136,49 +257,62 @@ __kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_ti
       const double s0 = gt[0], s1 = gt[1], s2 = gt[2], zetp = gt[3], r2max = gt[4];
       int u0, u1, u2;
       if (0 != GRID_ORTHO && bt[3] - bt[0] < n0) { /* along x at most one image: recurrence of exp */
-        const double h0 = dh.s0, q = exp(-2.0 * zetp * h0 * h0);
+        const double h0 = dh.s0, q = gt[6];
         for (u2 = grid_image(g2, bt[2], n2); u2 <= bt[5]; u2 += n2) {
           const double dz = (u2 - s2) * dh.s8;
           for (u1 = grid_image(g1, bt[1], n1); u1 <= bt[4]; u1 += n1) {
             const double dy = (u1 - s1) * dh.s4, ryz = dy * dy + dz * dz;
-            if (ryz < r2max) {
-              const double eyz = exp(-zetp * ryz);
-              double cx[LP1], ex = 0.0, rx = 0.0;
-              int lx, ly, k = 0, have = 0;
-              for (lx = 0; lx <= lp; ++lx) {
-                double sy = 0.0, py = eyz;
-                for (ly = 0; ly <= lp - lx; ++ly) {
-                  sy += grid_run(c + k, lp - lx - ly, dz) * py;
-                  k += lp - lx - ly + 1;
-                  py *= dy;
-                }
-                cx[lx] = sy;
-              }
-              u0 = grid_image(x0, bt[0], n0);
-#pragma unroll
-              for (j = 0; j < TX; ++j) {
-                if (0 != j && ++u0 == bt[0] + n0) {
-                  u0 = bt[0];
-                  have = 0;
-                }
-                if (x0 + j < n0 && u0 <= bt[3]) {
-                  const double dx = (u0 - s0) * h0;
-                  if (0 == have) {
-                    ex = exp(-zetp * dx * dx);
-                    rx = exp(-zetp * (2.0 * dx * h0 + h0 * h0));
-                    have = 1;
-                  }
-                  else {
-                    ex *= rx;
-                    rx *= q;
-                  }
-                  if (dx * dx + ryz < r2max) {
-                    double p = cx[lp];
-                    for (lx = lp - 1; 0 <= lx; --lx) p = p * dx + cx[lx];
-                    acc[j] += ex * p;
-                  }
-                }
-                else have = 0;
+            if (ryz < r2max) { /* lp is uniform per task: a case per lp unrolls the row */
+              switch (lp) {
+                GRID_CASE(0)
+#if 1 < LP1
+                GRID_CASE(1)
+#endif
+#if 2 < LP1
+                GRID_CASE(2)
+#endif
+#if 3 < LP1
+                GRID_CASE(3)
+#endif
+#if 4 < LP1
+                GRID_CASE(4)
+#endif
+#if 5 < LP1
+                GRID_CASE(5)
+#endif
+#if 6 < LP1
+                GRID_CASE(6)
+#endif
+#if 7 < LP1
+                GRID_CASE(7)
+#endif
+#if 8 < LP1
+                GRID_CASE(8)
+#endif
+#if 9 < LP1
+                GRID_CASE(9)
+#endif
+#if 10 < LP1
+                GRID_CASE(10)
+#endif
+#if 11 < LP1
+                GRID_CASE(11)
+#endif
+#if 12 < LP1
+                GRID_CASE(12)
+#endif
+#if 13 < LP1
+                GRID_CASE(13)
+#endif
+#if 14 < LP1
+                GRID_CASE(14)
+#endif
+#if 15 < LP1
+                GRID_CASE(15)
+#endif
+#if 16 < LP1
+#  error "lp > 15"
+#endif
               }
             }
           }

@@ -13,7 +13,7 @@
 /* per-task records shared by grid_opencl.c and the kernels */
 #define GRID_OPENCL_NI 14
 #define GRID_OPENCL_ND 15
-#define GRID_OPENCL_NG 5
+#define GRID_OPENCL_NG 7
 #define GRID_OPENCL_NB 6
 
 /* CP2K's grid_prepare_pab.h expects the includer to define the store */
@@ -25,9 +25,10 @@ typedef struct {
 /* first image of the unwrapped range [lo, ...] that maps to grid index g */
 static inline int grid_image(const int g, const int lo, const int n)
 {
-  int r = (g - lo) % n;
-  if (0 > r) r += n;
-  return lo + r;
+  int u = g; /* no integer division: boxes start within a few periods of the grid */
+  while (u < lo) u += n;
+  while (lo <= u - n) u -= n;
+  return u;
 }
 
 #endif /*GRID_OPENCL_H*/

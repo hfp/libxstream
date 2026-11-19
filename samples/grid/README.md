@@ -80,3 +80,4 @@ backend.
 | GRID_ENGINE | auto    | Lanes of an engine (power of two), default: sub-group size |
 | GRID_ROWS   | `8`     | Rows per lane before a task gets more lanes         |
 | GRID_SLOTS  | `8`     | Engines per compute unit                            |
+| GRID_FP32   | `16`    | Margin (bits) for single precision in the tails of collocation, <0: off |

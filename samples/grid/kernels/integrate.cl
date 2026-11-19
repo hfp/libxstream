@@ -48,7 +48,7 @@ static inline int grid_width(const int nitems)
 /* Adds one item (a row, or a point of a general cell) to the partial C_xyz of a lane */
 static inline void grid_item(const int r, const int lp, const int n0, const int n1, const int n2,
   const double16 dh, const double s0, const double s1, const double s2, const double zetp, const double r2max,
-  __global const int* restrict bt, __global const double* restrict grid, __local double* restrict part)
+  const double q, __global const int* restrict bt, __global const double* restrict grid, __local double* restrict part)
 {
   const int ny = bt[4] - bt[1] + 1;
   double m[LP1], ty[LP1], tz[LP1];
@@ -58,14 +58,14 @@ static inline void grid_item(const int r, const int lp, const int n0, const int 
   const double h0 = dh.s0, dy = (u1 - s1) * dh.s4, dz = (u2 - s2) * dh.s8, ryz = dy * dy + dz * dz;
   if (ryz < r2max) {
     __global const double* const row = grid + ((size_t)grid_wrap(u2, n2) * n1 + grid_wrap(u1, n1)) * n0;
-    const double q = exp(-2.0 * zetp * h0 * h0), d0 = (bt[0] - s0) * h0;
-    double ex = exp(-zetp * d0 * d0), rx = exp(-zetp * (2.0 * d0 * h0 + h0 * h0)), py, pz = 1.0;
+    const double d0 = (bt[0] - s0) * h0;
+    double ex = exp(-zetp * (d0 * d0 + ryz)), rx = exp(-zetp * (2.0 * d0 * h0 + h0 * h0)), py = 1.0, pz = 1.0;
     int u0, g = grid_wrap(bt[0], n0);
     for (k = 0; k <= lp; ++k) m[k] = 0.0;
     for (u0 = bt[0]; u0 <= bt[3]; ++u0) { /* the Gaussian along the row by recurrence */
       const double dx = (u0 - s0) * h0;
       if (0 == ((u0 - bt[0]) & 31) && u0 != bt[0]) { /* restart: the recurrence drifts on long rows */
-        ex = exp(-zetp * dx * dx);
+        ex = exp(-zetp * (dx * dx + ryz));
         rx = exp(-zetp * (2.0 * dx * h0 + h0 * h0));
       }
       if (dx * dx + ryz < r2max) {
@@ -79,8 +79,7 @@ static inline void grid_item(const int r, const int lp, const int n0, const int 
       rx *= q;
       if (++g == n0) g = 0;
     }
-    py = exp(-zetp * ryz);
-    for (k = 0; k <= lp; ++k) {
+    for (k = 0; k <= lp; ++k) { /* the Gaussian along y and z is part of the moments */
       ty[k] = py;
       tz[k] = pz;
       py *= dy;
@@ -168,7 +167,7 @@ __kernel __attribute__((reqd_work_group_size(ENGINE, 1, 1))) void grid_integrate
           const int nitems = nx * (bt[4] - bt[1] + 1) * (bt[5] - bt[2] + 1);
           int r;
           for (r = lane - myoff; r < nitems && 0 < gt[4]; r += myw) {
-            grid_item(r, lp, n0, n1, n2, dh, gt[0], gt[1], gt[2], gt[3], gt[4], bt, grid + grid_offset, mine);
+            grid_item(r, lp, n0, n1, n2, dh, gt[0], gt[1], gt[2], gt[3], gt[4], gt[6], bt, grid + grid_offset, mine);
           }
         }
         barrier(CLK_LOCAL_MEM_FENCE);
