@@ -33,10 +33,16 @@
 #  error "OpenCL kernel source code not found!"
 #endif
 
-/* tile of grid points owned by a work-group */
-#define GRID_OPENCL_TX 8
-#define GRID_OPENCL_TY 8
-#define GRID_OPENCL_TZ 4
+/* tile of grid points owned by a work-group, TY x TZ rows of TX points */
+#if !defined(GRID_OPENCL_TX)
+#  define GRID_OPENCL_TX 4
+#endif
+#if !defined(GRID_OPENCL_TY)
+#  define GRID_OPENCL_TY 8
+#endif
+#if !defined(GRID_OPENCL_TZ)
+#  define GRID_OPENCL_TZ 4
+#endif
 #define GRID_OPENCL_MAXKERNELS 64
 
 
@@ -391,7 +397,7 @@ void grid_gpu_collocate_task_list(const grid_gpu_task_list* ptr, const enum grid
   if (NULL != kernels && NULL != pab_blocks->device_buffer) {
     const prepare_ldiffs ld = prepare_get_ldiffs(func);
     libxstream_stream_t* const stream = (libxstream_stream_t*)tl->stream;
-    const size_t local[3] = {GRID_OPENCL_TX, GRID_OPENCL_TY, GRID_OPENCL_TZ};
+    const size_t local[3] = {1, GRID_OPENCL_TY, GRID_OPENCL_TZ};
     const cl_int ntasks = tl->ntasks;
     size_t ncoef = 0, global[3];
     cl_int pab_offset = 0, grid_offset = 0, n[3];
@@ -431,7 +437,7 @@ void grid_gpu_collocate_task_list(const grid_gpu_task_list* ptr, const enum grid
       const grid_opencl_level_t* const lv = &tl->levels[level];
       for (i = 0; i < 3; ++i) {
         n[i] = lv->npts[i];
-        global[i] = (size_t)lv->ntiles[i] * local[i];
+        global[i] = (size_t)lv->ntiles[i] * local[i]; /* x: one work-item per row of the tile */
       }
       result |= clSetKernelArg(kernels->tile, 0, sizeof(cl_int), &n[0]);
       result |= clSetKernelArg(kernels->tile, 1, sizeof(cl_int), &n[1]);

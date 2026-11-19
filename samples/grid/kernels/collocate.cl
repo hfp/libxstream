@@ -20,7 +20,7 @@ static inline void cab_add(cab_store* cab, const orbital a, const orbital b, con
 }
 
 
-/* C_xyz of a task about the center of the product, triangular (lz, ly, lx ascending) */
+/* C_xyz of a task about the center of the product, triangular (lx, ly, lz ascending) */
 __kernel void grid_collocate_coef(const int ntasks, __global const double* restrict pab_blocks,
   const int pab_offset, __global const double* restrict sphi, __global const int* restrict tint,
   __global const double* restrict tdbl, __global const int* restrict cinfo,
@@ -89,9 +89,9 @@ __kernel void grid_collocate_coef(const int ntasks, __global const double* restr
     for (i = 0; i < lp1 * lp1 * lp1; ++i) cxyz[i] = 0.0;
     grid_cab_alpha(la_max_cab, lb_max_cab, ra, rb, rp, alpha);
     grid_cab_to_cxyz(la_max_cab, la_min_cab, lb_max_cab, lb_min_cab, td[11], alpha, cabd, cxyz, tx, txy);
-    for (lz = 0; lz <= lp; ++lz) {
-      for (ly = 0; ly <= lp - lz; ++ly) {
-        for (lx = 0; lx <= lp - lz - ly; ++lx) c[n++] = cxyz[(lz * lp1 + ly) * lp1 + lx];
+    for (lx = 0; lx <= lp; ++lx) {
+      for (ly = 0; ly <= lp - lx; ++ly) {
+        for (lz = 0; lz <= lp - lx - ly; ++lz) c[n++] = cxyz[(lz * lp1 + ly) * lp1 + lx];
       }
     }
   }
@@ -106,22 +106,51 @@ static inline int grid_image(const int g, const int lo, const int n)
 }
 
 
-/* Each point is owned by one work-item: no atomics, and the order of the tile's list fixes the sum */
-__kernel __attribute__((reqd_work_group_size(TX, TY, TZ))) void grid_collocate_tile(
+/* Polynomial in dz of a run of coefficients (Horner) */
+static inline double grid_run(__global const double* restrict c, const int m, const double dz)
+{
+  double s = c[m];
+  int lz;
+  for (lz = m - 1; 0 <= lz; --lz) s = s * dz + c[lz];
+  return s;
+}
+
+
+static inline double grid_point(__global const double* restrict c, const int lp, const double zetp,
+  const double r2, const double dx, const double dy, const double dz)
+{
+  double sum = 0.0, px = 1.0;
+  int lx, ly, k = 0;
+  for (lx = 0; lx <= lp; ++lx) {
+    double sy = 0.0, py = 1.0;
+    for (ly = 0; ly <= lp - lx; ++ly) {
+      sy += grid_run(c + k, lp - lx - ly, dz) * py;
+      k += lp - lx - ly + 1;
+      py *= dy;
+    }
+    sum += sy * px;
+    px *= dx;
+  }
+  return exp(-zetp * r2) * sum;
+}
+
+
+/* A work-item owns a row of TX points (no atomics), and the order of the tile's list fixes the sum */
+__kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_tile(
   const int n0, const int n1, const int n2, const double16 dh, const int tile_base,
   __global const int* restrict tile_start, __global const int* restrict tile_task,
   __global const double* restrict geo, __global const int* restrict box,
   __global const int* restrict cinfo, __global const double* restrict coef,
   __global double* restrict grid, const int grid_offset)
 {
-  const int g0 = (int)get_global_id(0), g1 = (int)get_global_id(1), g2 = (int)get_global_id(2);
-  if (g0 < n0 && g1 < n1 && g2 < n2) {
-    const int tile = tile_base +
-                     ((int)get_group_id(2) * (int)get_num_groups(1) + (int)get_group_id(1)) *
-                       (int)get_num_groups(0) + (int)get_group_id(0);
+  const int x0 = (int)get_group_id(0) * TX, g1 = (int)get_global_id(1), g2 = (int)get_global_id(2);
+  const int tile = tile_base + ((int)get_group_id(2) * (int)get_num_groups(1) + (int)get_group_id(1)) *
+                                 (int)get_num_groups(0) + (int)get_group_id(0);
+  double acc[TX];
+  int i, j;
+  for (j = 0; j < TX; ++j) acc[j] = 0.0;
+  if (g1 < n1 && g2 < n2) {
     const int end = tile_start[tile + 1];
-    double acc = 0.0;
-    int i;
     for (i = tile_start[tile]; i < end; ++i) {
       const int t = tile_task[i];
       __global const double* const gt = geo + GRID_OPENCL_NG * t;
@@ -130,43 +159,85 @@ __kernel __attribute__((reqd_work_group_size(TX, TY, TZ))) void grid_collocate_t
       const int lp = cinfo[2 * t + 1];
       const double s0 = gt[0], s1 = gt[1], s2 = gt[2], zetp = gt[3], r2max = gt[4];
       int u0, u1, u2;
-      for (u2 = grid_image(g2, bt[2], n2); u2 <= bt[5]; u2 += n2) {
-        const double f2 = u2 - s2;
-        for (u1 = grid_image(g1, bt[1], n1); u1 <= bt[4]; u1 += n1) {
-          const double f1 = u1 - s1;
-          for (u0 = grid_image(g0, bt[0], n0); u0 <= bt[3]; u0 += n0) {
-            const double f0 = u0 - s0;
-#if GRID_ORTHO
-            const double dx = f0 * dh.s0, dy = f1 * dh.s4, dz = f2 * dh.s8;
-#else
-            const double dx = f0 * dh.s0 + f1 * dh.s3 + f2 * dh.s6;
-            const double dy = f0 * dh.s1 + f1 * dh.s4 + f2 * dh.s7;
-            const double dz = f0 * dh.s2 + f1 * dh.s5 + f2 * dh.s8;
-#endif
-            const double r2 = dx * dx + dy * dy + dz * dz;
-            if (r2 < r2max) {
-              double sum = 0.0, pz = 1.0;
-              int lx, ly, lz, k = 0;
-              for (lz = 0; lz <= lp; ++lz) {
-                double sy = 0.0, py = 1.0;
-                for (ly = 0; ly <= lp - lz; ++ly) {
-                  double sx = 0.0, px = 1.0;
-                  for (lx = 0; lx <= lp - lz - ly; ++lx) {
-                    sx += c[k++] * px;
-                    px *= dx;
-                  }
-                  sy += sx * py;
+      if (0 != GRID_ORTHO && bt[3] - bt[0] < n0) { /* along x at most one image: recurrence of exp */
+        const double h0 = dh.s0, q = exp(-2.0 * zetp * h0 * h0);
+        for (u2 = grid_image(g2, bt[2], n2); u2 <= bt[5]; u2 += n2) {
+          const double dz = (u2 - s2) * dh.s8;
+          for (u1 = grid_image(g1, bt[1], n1); u1 <= bt[4]; u1 += n1) {
+            const double dy = (u1 - s1) * dh.s4, ryz = dy * dy + dz * dz;
+            if (ryz < r2max) {
+              const double eyz = exp(-zetp * ryz);
+              double cx[LP1], ex = 0.0, rx = 0.0;
+              int lx, ly, k = 0, have = 0;
+              for (lx = 0; lx <= lp; ++lx) {
+                double sy = 0.0, py = eyz;
+                for (ly = 0; ly <= lp - lx; ++ly) {
+                  sy += grid_run(c + k, lp - lx - ly, dz) * py;
+                  k += lp - lx - ly + 1;
                   py *= dy;
                 }
-                sum += sy * pz;
-                pz *= dz;
+                cx[lx] = sy;
               }
-              acc += exp(-zetp * r2) * sum;
+              u0 = grid_image(x0, bt[0], n0);
+#pragma unroll
+              for (j = 0; j < TX; ++j) {
+                if (0 != j && ++u0 == bt[0] + n0) {
+                  u0 = bt[0];
+                  have = 0;
+                }
+                if (x0 + j < n0 && u0 <= bt[3]) {
+                  const double dx = (u0 - s0) * h0;
+                  if (0 == have) {
+                    ex = exp(-zetp * dx * dx);
+                    rx = exp(-zetp * (2.0 * dx * h0 + h0 * h0));
+                    have = 1;
+                  }
+                  else {
+                    ex *= rx;
+                    rx *= q;
+                  }
+                  if (dx * dx + ryz < r2max) {
+                    double p = cx[lp];
+                    for (lx = lp - 1; 0 <= lx; --lx) p = p * dx + cx[lx];
+                    acc[j] += ex * p;
+                  }
+                }
+                else have = 0;
+              }
+            }
+          }
+        }
+      }
+      else {
+#pragma unroll
+        for (j = 0; j < TX; ++j) {
+          const int g0 = x0 + j;
+          if (g0 < n0) {
+            for (u2 = grid_image(g2, bt[2], n2); u2 <= bt[5]; u2 += n2) {
+              const double f2 = u2 - s2;
+              for (u1 = grid_image(g1, bt[1], n1); u1 <= bt[4]; u1 += n1) {
+                const double f1 = u1 - s1;
+                for (u0 = grid_image(g0, bt[0], n0); u0 <= bt[3]; u0 += n0) {
+                  const double f0 = u0 - s0;
+#if GRID_ORTHO
+                  const double dx = f0 * dh.s0, dy = f1 * dh.s4, dz = f2 * dh.s8;
+#else
+                  const double dx = f0 * dh.s0 + f1 * dh.s3 + f2 * dh.s6;
+                  const double dy = f0 * dh.s1 + f1 * dh.s4 + f2 * dh.s7;
+                  const double dz = f0 * dh.s2 + f1 * dh.s5 + f2 * dh.s8;
+#endif
+                  const double r2 = dx * dx + dy * dy + dz * dz;
+                  if (r2 < r2max) acc[j] += grid_point(c, lp, zetp, r2, dx, dy, dz);
+                }
+              }
             }
           }
         }
       }
     }
-    grid[grid_offset + ((size_t)g2 * n1 + g1) * n0 + g0] = acc;
+#pragma unroll
+    for (j = 0; j < TX; ++j) {
+      if (x0 + j < n0) grid[grid_offset + ((size_t)g2 * n1 + g1) * n0 + x0 + j] = acc[j];
+    }
   }
 }
