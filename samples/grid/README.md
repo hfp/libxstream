@@ -69,4 +69,7 @@ also takes CP2K's `.task` files (a single task, `--batch` repeats it), and
 with `-D__OFFLOAD_OPENCL_GRID`. A task contributes to the points within its
 radius plus one grid spacing about the center of the product. Each work-group owns a tile of points and sums the tile's
 tasks in a fixed order, hence the result is reproducible without atomics.
-Integration, distributed grids, and tasks with a border mask use CP2K's CPU backend.
+Integration uses the same model: a work-group per task reduces the rows of its
+sphere in a fixed order, and each block's part is owned by one work-item, hence
+no atomics either. Distributed grids and tasks with a border mask use CP2K's CPU
+backend.

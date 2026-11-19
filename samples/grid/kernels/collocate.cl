@@ -12,6 +12,7 @@
 #include "../grid_opencl.h"
 #include "grid_prepare_pab.h"
 #include "grid_cab_cxyz.h"
+#include "grid_blocks.h"
 
 
 static inline void cab_add(cab_store* cab, const orbital a, const orbital b, const double value)
@@ -30,15 +31,12 @@ __kernel void grid_collocate_coef(const int ntasks, __global const double* restr
   if (itask < ntasks) {
     __global const int* const ti = tint + GRID_OPENCL_NI * itask;
     __global const double* const td = tdbl + GRID_OPENCL_ND * itask;
-    __global const double* const block = pab_blocks + pab_offset + ti[4];
     const int la_max = ti[0], la_min = ti[1], lb_max = ti[2], lb_min = ti[3];
-    const int ps = ti[5], pt = ti[6], nsgf_seta = ti[7], nsgf_setb = ti[8];
-    const int sphia = ti[9], maxcoa = ti[10], sphib = ti[11], maxcob = ti[12];
     const prepare_ldiffs ld = prepare_get_ldiffs((enum grid_func)GRID_FUNC);
     const int la_max_cab = la_max + ld.la_max_diff, lb_max_cab = lb_max + ld.lb_max_diff;
     const int la_min_cab = imax(la_min + ld.la_min_diff, 0);
     const int lb_min_cab = imax(lb_min + ld.lb_min_diff, 0);
-    const int ncoa = ncoset(la_max), ncob = ncoset(lb_max);
+    const int ncoa = ncoset(la_max);
     const int n1 = ncoset(la_max_cab), ncab = n1 * ncoset(lb_max_cab);
     const int lp = la_max_cab + lb_max_cab, lp1 = lp + 1;
     const double zeta = td[9], zetb = td[10];
@@ -47,22 +45,8 @@ __kernel void grid_collocate_coef(const int ntasks, __global const double* restr
     double ra[3], rb[3], rp[3];
     __global double* const c = coef + cinfo[2 * itask];
     cab_store cab;
-    int i, s, t, lxa, lxb, lya, lyb, lza, lzb, lx, ly, lz, n = 0;
-    for (i = 0; i < ncob * ncoa; ++i) pab[i] = 0.0;
-    for (t = 0; t < nsgf_setb; ++t) {
-      int ico, jco;
-      for (ico = 0; ico < ncoa; ++ico) {
-        double sum = 0.0;
-        for (s = 0; s < nsgf_seta; ++s) {
-          sum += block[s * ps + t * pt] * sphi[sphia + s * maxcoa + ico];
-        }
-        w[ico] = sum;
-      }
-      for (jco = 0; jco < ncob; ++jco) {
-        const double b = sphi[sphib + t * maxcob + jco];
-        for (ico = 0; ico < ncoa; ++ico) pab[jco * ncoa + ico] += b * w[ico];
-      }
-    }
+    int i, lxa, lxb, lya, lyb, lza, lzb, lx, ly, lz, n = 0;
+    grid_load_pab(pab_blocks + pab_offset, sphi, ti, pab, w);
     for (i = 0; i < ncab; ++i) cabd[i] = 0.0;
     cab.n1 = n1;
     cab.data = cabd;
@@ -95,14 +79,6 @@ __kernel void grid_collocate_coef(const int ntasks, __global const double* restr
       }
     }
   }
-}
-
-
-static inline int grid_image(const int g, const int lo, const int n)
-{
-  int r = (g - lo) % n;
-  if (0 > r) r += n;
-  return lo + r;
 }
 
 

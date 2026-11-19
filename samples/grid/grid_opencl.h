@@ -10,9 +10,9 @@
 #ifndef GRID_OPENCL_H
 #define GRID_OPENCL_H
 
-/* per-task records shared by grid_opencl.c and kernels/collocate.cl */
-#define GRID_OPENCL_NI 13
-#define GRID_OPENCL_ND 12
+/* per-task records shared by grid_opencl.c and the kernels */
+#define GRID_OPENCL_NI 14
+#define GRID_OPENCL_ND 15
 #define GRID_OPENCL_NG 5
 #define GRID_OPENCL_NB 6
 
@@ -21,5 +21,13 @@ typedef struct {
   int n1;
   double* data;
 } cab_store;
+
+/* first image of the unwrapped range [lo, ...] that maps to grid index g */
+static inline int grid_image(const int g, const int lo, const int n)
+{
+  int r = (g - lo) % n;
+  if (0 > r) r += n;
+  return lo + r;
+}
 
 #endif /*GRID_OPENCL_H*/

@@ -25,11 +25,12 @@
 #  pragma GCC diagnostic ignored "-Wunused-function"
 #endif
 #include <grid/common/grid_prepare_pab.h>
+#include <grid/common/grid_process_vab.h>
 #if defined(__GNUC__)
 #  pragma GCC diagnostic pop
 #endif
 
-#if !defined(OPENCL_KERNELS_SOURCE_COLLOCATE)
+#if !defined(OPENCL_KERNELS_SOURCE_COLLOCATE) || !defined(OPENCL_KERNELS_SOURCE_INTEGRATE)
 #  error "OpenCL kernel source code not found!"
 #endif
 
@@ -43,12 +44,14 @@
 #if !defined(GRID_OPENCL_TZ)
 #  define GRID_OPENCL_TZ 4
 #endif
+/* work-items per task when integrating */
+#define GRID_OPENCL_WG 64
 #define GRID_OPENCL_MAXKERNELS 64
 
 
 typedef struct {
-  int func, ortho, lmax;
-  cl_kernel coef, tile;
+  int kind, ortho, lmax; /* kind: function of collocate, or -1 minus the flags of integrate */
+  cl_kernel first, second; /* collocate: coefficients, tiles; integrate: coefficients, blocks */
 } grid_opencl_kernels_t;
 
 typedef struct {
@@ -60,10 +63,13 @@ typedef struct {
   grid_cpu_task_list* cpu; /* integrate, distributed grids, no device */
   offloadStream_t stream;
   grid_opencl_level_t* levels;
-  int ntasks, nlevels, natoms, ortho, lmax, delegate;
+  int ntasks, nlevels, natoms, ortho, lmax, delegate, nsegs;
   int *lab, *cinfo; /* host: la_max and lb_max per task, coefficient offset and lp per task */
+  int *level_start, *seg_atoms; /* host: tasks per level, atoms (and whether the same) per segment */
+  double* fv; /* host: forces and virial per segment */
   int *tint_dev, *box_dev, *cinfo_dev, *tile_start_dev, *tile_task_dev;
-  double *tdbl_dev, *geo_dev, *sphi_dev, *coef_dev;
+  int *level_task_dev, *seg_start_dev, *seg_task_dev;
+  double *tdbl_dev, *geo_dev, *sphi_dev, *coef_dev, *fv_dev;
   size_t ncoef;
 } grid_opencl_task_list_t;
 
@@ -71,6 +77,22 @@ typedef struct {
 static inline void cab_add(cab_store* cab, const orbital a, const orbital b, const double value)
 {
   cab->data[idx(b) * cab->n1 + idx(a)] += value;
+}
+
+
+static inline double cab_get(const cab_store* cab, const orbital a, const orbital b)
+{
+  return cab->data[idx(b) * cab->n1 + idx(a)];
+}
+
+
+/* segment order: block, iset, jset, then task */
+static int grid_opencl_cmp(const void* a, const void* b)
+{
+  const int *const x = (const int*)a, *const y = (const int*)b;
+  int i = 0;
+  while (i < 3 && x[i] == y[i]) ++i;
+  return (x[i] < y[i] ? -1 : (x[i] > y[i] ? 1 : 0));
 }
 
 
@@ -116,43 +138,58 @@ static int grid_opencl_arg(cl_kernel kernel, cl_uint index, const void* ptr, int
 }
 
 
-/* Kernels are built once per (func, ortho, lmax) and kept: CP2K recreates task lists every step. */
-static const grid_opencl_kernels_t* grid_opencl_kernels(const int func, const int ortho, const int lmax)
+/* Kernels are built once per (kind, ortho, lmax) and kept: CP2K recreates task lists every step. */
+static const grid_opencl_kernels_t* grid_opencl_kernels(const int kind, const int ortho, const int lmax)
 {
   static grid_opencl_kernels_t cache[GRID_OPENCL_MAXKERNELS];
   static int ncache = 0, warned = 0;
   const grid_opencl_kernels_t* result = NULL;
   int i;
   for (i = 0; i < ncache && NULL == result; ++i) {
-    if (cache[i].func == func && cache[i].ortho == ortho && cache[i].lmax == lmax) result = &cache[i];
+    if (cache[i].kind == kind && cache[i].ortho == ortho && cache[i].lmax == lmax) result = &cache[i];
   }
   if (NULL == result && GRID_OPENCL_MAXKERNELS > ncache) {
-    const prepare_ldiffs ld = prepare_get_ldiffs((enum grid_func)func);
-    const int l1 = lmax + imax(ld.la_max_diff, ld.lb_max_diff);
-    cl_kernel coef = NULL, tile = NULL;
+    const char* const source = (0 <= kind ? OPENCL_KERNELS_SOURCE_COLLOCATE : OPENCL_KERNELS_SOURCE_INTEGRATE);
+    const char* const name1 = (0 <= kind ? "grid_collocate_coef" : "grid_integrate_coef");
+    const char* const name2 = (0 <= kind ? "grid_collocate_tile" : "grid_integrate_hab");
+    cl_kernel first = NULL, second = NULL;
     char params[512];
     int ok;
-    snprintf(params, sizeof(params),
-      "-DGRID_FUNC=%i -DGRID_ORTHO=%i -DNPAB=%i -DNCAB=%i -DLMAX1=%i -DLP1=%i -DTX=%i -DTY=%i -DTZ=%i", func, ortho,
-      ncoset(lmax), ncoset(l1), l1 + 1, 2 * l1 + 1, GRID_OPENCL_TX, GRID_OPENCL_TY, GRID_OPENCL_TZ);
-    ok = libxstream_opencl_kernel(0 /*source*/, OPENCL_KERNELS_SOURCE_COLLOCATE, "grid_collocate_coef", params,
-      NULL /*options*/, NULL /*try*/, NULL /*try_ok*/, NULL /*exts*/, 0, &coef);
+    if (0 <= kind) {
+      const prepare_ldiffs ld = prepare_get_ldiffs((enum grid_func)kind);
+      const int l1 = lmax + imax(ld.la_max_diff, ld.lb_max_diff);
+      snprintf(params, sizeof(params),
+        "-DGRID_FUNC=%i -DGRID_ORTHO=%i -DNPAB=%i -DNCAB=%i -DLMAX1=%i -DLP1=%i -DTX=%i -DTY=%i -DTZ=%i", kind,
+        ortho, ncoset(lmax), ncoset(l1), l1 + 1, 2 * l1 + 1, GRID_OPENCL_TX, GRID_OPENCL_TY, GRID_OPENCL_TZ);
+    }
+    else {
+      const int flags = -1 - kind;
+      const process_ldiffs ld = process_get_ldiffs(0 != (1 & flags), 0 != (2 & flags), 0 != (4 & flags));
+      const int la = lmax + ld.la_max_diff, lb = lmax + ld.lb_max_diff;
+      snprintf(params, sizeof(params),
+        "-DGRID_ORTHO=%i -DFORCES=%i -DVIRIAL=%i -DTAU=%i -DNPAB=%i -DNCA=%i -DNCB=%i -DLMAX1A=%i -DLMAX1B=%i "
+        "-DLP1=%i -DWG=%i",
+        ortho, 1 & flags, (2 & flags) >> 1, (4 & flags) >> 2, ncoset(lmax), ncoset(la), ncoset(lb), la + 1, lb + 1,
+        la + lb + 1, GRID_OPENCL_WG);
+    }
+    ok = libxstream_opencl_kernel(0 /*source*/, source, name1, params, NULL /*options*/, NULL /*try*/,
+      NULL /*try_ok*/, NULL /*exts*/, 0, &first);
     if (EXIT_SUCCESS == ok) {
-      ok = libxstream_opencl_kernel(0 /*source*/, OPENCL_KERNELS_SOURCE_COLLOCATE, "grid_collocate_tile", params,
-        NULL /*options*/, NULL /*try*/, NULL /*try_ok*/, NULL /*exts*/, 0, &tile);
+      ok = libxstream_opencl_kernel(0 /*source*/, source, name2, params, NULL /*options*/, NULL /*try*/,
+        NULL /*try_ok*/, NULL /*exts*/, 0, &second);
     }
     if (EXIT_SUCCESS == ok) {
-      cache[ncache].func = func;
+      cache[ncache].kind = kind;
       cache[ncache].ortho = ortho;
       cache[ncache].lmax = lmax;
-      cache[ncache].coef = coef;
-      cache[ncache].tile = tile;
+      cache[ncache].first = first;
+      cache[ncache].second = second;
       result = &cache[ncache++];
     }
     else {
-      if (NULL != coef) clReleaseKernel(coef);
+      if (NULL != first) clReleaseKernel(first);
       if (0 == warned) {
-        fprintf(stderr, "WARNING GRID/OpenCL: kernels failed to build, collocation runs on the host\n");
+        fprintf(stderr, "WARNING GRID/OpenCL: kernels failed to build, the host takes over\n");
         warned = 1;
       }
     }
@@ -172,6 +209,7 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
   grid_opencl_task_list_t* const tl = (grid_opencl_task_list_t*)calloc(1, sizeof(grid_opencl_task_list_t));
   const int size[3] = {GRID_OPENCL_TX, GRID_OPENCL_TY, GRID_OPENCL_TZ};
   int *tint = NULL, *box = NULL, *tile_start = NULL, *tile_task = NULL, *sphi_offset = NULL;
+  int *level_task = NULL, *seg_key = NULL, *seg_start = NULL;
   double *tdbl = NULL, *geo = NULL, *sphi = NULL, *d2 = NULL;
   int i, k, level, ntiles = 0, maxtiles = 0, nsphi = 0;
   assert(NULL != ptr && NULL != tl);
@@ -248,6 +286,7 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
       int* const ti = tint + GRID_OPENCL_NI * i;
       double* const td = tdbl + GRID_OPENCL_ND * i;
       double* const gt = geo + GRID_OPENCL_NG * i;
+      double dh_max = 0.0;
       tl->lab[2 * i + 0] = la_max;
       tl->lab[2 * i + 1] = lb_max;
       tl->lmax = imax(tl->lmax, imax(la_max, lb_max));
@@ -271,10 +310,12 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
       ti[10] = ib->maxco;
       ti[11] = sphi_offset[jkind] + sgfb * jb->maxco + jpgf * ncoset(lb_max);
       ti[12] = jb->maxco;
+      ti[13] = (iatom == jatom ? 1 : 0);
       for (k = 0; k < 3; ++k) {
         td[k] = ra[k];
         td[3 + k] = ra[k] + rab[k];
         td[6 + k] = ra[k] + f * rab[k];
+        td[12 + k] = rab[k];
       }
       td[9] = zeta;
       td[10] = zetb;
@@ -288,6 +329,8 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
       }
       gt[3] = zetp;
       gt[4] = cutoff * cutoff;
+      for (k = 0; k < 9; ++k) dh_max = fmax(dh_max, fabs(dh[9 * (level_list[i] - 1) + k]));
+      if (2.0 * radius_list[i] < dh_max) gt[4] = 0.0; /* as CPU: skip a task narrower than the grid */
     }
     /* tile lists in task order (deterministic sum), first counted, then filled */
     tile_task = NULL;
@@ -311,10 +354,8 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
         const double* const dl = dh + 9 * (level_list[i] - 1);
         const double* const gt = geo + GRID_OPENCL_NG * i;
         const int* const bt = box + GRID_OPENCL_NB * i;
-        double dh_max = 0.0;
         int j;
-        for (j = 0; j < 9; ++j) dh_max = fmax(dh_max, fabs(dl[j]));
-        if (dh_max <= 2.0 * radius_list[i]) { /* as CPU: skip a task narrower than the grid */
+        if (0 < gt[4]) {
           int t0, t1, t2;
           for (j = 0; j < 3; ++j) {
             grid_opencl_reach(bt[j], bt[3 + j], gt[j], 0 != tl->ortho ? fabs(dl[4 * j]) : 0.0, lv->npts[j], size[j],
@@ -338,7 +379,44 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
       }
       if (0 != k) free(pos);
     }
+    level_task = (int*)malloc(sizeof(int) * (0 < ntasks ? ntasks : 1));
+    seg_key = (int*)malloc(sizeof(int) * 4 * (0 < ntasks ? ntasks : 1));
+    seg_start = (int*)malloc(sizeof(int) * (ntasks + 1));
+    tl->level_start = (int*)calloc(nlevels + 1, sizeof(int));
+    assert(NULL != level_task && NULL != seg_key && NULL != seg_start && NULL != tl->level_start);
+    for (i = 0; i < ntasks; ++i) ++tl->level_start[level_list[i]];
+    for (level = 0; level < nlevels; ++level) tl->level_start[level + 1] += tl->level_start[level];
+    for (level = 0, k = 0; level < nlevels; ++level) {
+      for (i = 0; i < ntasks; ++i) {
+        if (level_list[i] - 1 == level) level_task[k++] = i;
+      }
+    }
+    for (i = 0; i < ntasks; ++i) {
+      seg_key[4 * i + 0] = block_num_list[i];
+      seg_key[4 * i + 1] = iset_list[i];
+      seg_key[4 * i + 2] = jset_list[i];
+      seg_key[4 * i + 3] = i;
+    }
+    qsort(seg_key, ntasks, 4 * sizeof(int), grid_opencl_cmp);
+    for (i = 0; i < ntasks; ++i) {
+      if (0 == i || 0 != memcmp(seg_key + 4 * i, seg_key + 4 * (i - 1), 3 * sizeof(int))) seg_start[tl->nsegs++] = i;
+    }
+    for (i = 0; i < ntasks; ++i) seg_key[i] = seg_key[4 * i + 3]; /* tasks in segment order */
+    seg_start[tl->nsegs] = ntasks;
+    tl->seg_atoms = (int*)malloc(sizeof(int) * 3 * (0 < tl->nsegs ? tl->nsegs : 1));
+    tl->fv = (double*)malloc(sizeof(double) * 24 * (0 < tl->nsegs ? tl->nsegs : 1));
+    assert(NULL != tl->seg_atoms && NULL != tl->fv);
+    for (i = 0; i < tl->nsegs; ++i) {
+      const int t = seg_key[seg_start[i]];
+      tl->seg_atoms[3 * i + 0] = iatom_list[t] - 1;
+      tl->seg_atoms[3 * i + 1] = jatom_list[t] - 1;
+      tl->seg_atoms[3 * i + 2] = (iatom_list[t] == jatom_list[t] ? 1 : 0);
+    }
     offloadStreamCreate(&tl->stream);
+    tl->level_task_dev = (int*)grid_opencl_upload(level_task, sizeof(int) * ntasks);
+    tl->seg_start_dev = (int*)grid_opencl_upload(seg_start, sizeof(int) * (tl->nsegs + 1));
+    tl->seg_task_dev = (int*)grid_opencl_upload(seg_key, sizeof(int) * ntasks);
+    offloadMalloc((void**)&tl->fv_dev, sizeof(double) * 24 * (0 < tl->nsegs ? tl->nsegs : 1));
     tl->tint_dev = (int*)grid_opencl_upload(tint, sizeof(int) * GRID_OPENCL_NI * ntasks);
     tl->tdbl_dev = (double*)grid_opencl_upload(tdbl, sizeof(double) * GRID_OPENCL_ND * ntasks);
     tl->geo_dev = (double*)grid_opencl_upload(geo, sizeof(double) * GRID_OPENCL_NG * ntasks);
@@ -357,6 +435,9 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
   free(tile_start);
   free(tile_task);
   free(d2);
+  free(level_task);
+  free(seg_key);
+  free(seg_start);
   *ptr = (grid_gpu_task_list*)tl;
 }
 
@@ -376,11 +457,18 @@ void grid_gpu_free_task_list(grid_gpu_task_list* ptr)
       offloadFree(tl->tile_start_dev);
       offloadFree(tl->tile_task_dev);
       offloadFree(tl->cinfo_dev);
+      offloadFree(tl->level_task_dev);
+      offloadFree(tl->seg_start_dev);
+      offloadFree(tl->seg_task_dev);
+      offloadFree(tl->fv_dev);
       if (NULL != tl->coef_dev) offloadFree(tl->coef_dev);
       offloadStreamDestroy(tl->stream);
     }
     free(tl->lab);
     free(tl->cinfo);
+    free(tl->level_start);
+    free(tl->seg_atoms);
+    free(tl->fv);
     free(tl->levels);
     free(tl);
   }
@@ -422,16 +510,16 @@ void grid_gpu_collocate_task_list(const grid_gpu_task_list* ptr, const enum grid
       offloadMemcpyAsyncHtoD(pab_blocks->device_buffer, pab_blocks->host_buffer, pab_blocks->size, tl->stream);
     }
     if (0 < ntasks) {
-      result |= clSetKernelArg(kernels->coef, 0, sizeof(cl_int), &ntasks);
-      result |= grid_opencl_arg(kernels->coef, 1, pab_blocks->device_buffer, &pab_offset);
-      result |= clSetKernelArg(kernels->coef, 2, sizeof(cl_int), &pab_offset);
-      result |= grid_opencl_arg(kernels->coef, 3, tl->sphi_dev, NULL);
-      result |= grid_opencl_arg(kernels->coef, 4, tl->tint_dev, NULL);
-      result |= grid_opencl_arg(kernels->coef, 5, tl->tdbl_dev, NULL);
-      result |= grid_opencl_arg(kernels->coef, 6, tl->cinfo_dev, NULL);
-      result |= grid_opencl_arg(kernels->coef, 7, tl->coef_dev, NULL);
+      result |= clSetKernelArg(kernels->first, 0, sizeof(cl_int), &ntasks);
+      result |= grid_opencl_arg(kernels->first, 1, pab_blocks->device_buffer, &pab_offset);
+      result |= clSetKernelArg(kernels->first, 2, sizeof(cl_int), &pab_offset);
+      result |= grid_opencl_arg(kernels->first, 3, tl->sphi_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 4, tl->tint_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 5, tl->tdbl_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 6, tl->cinfo_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 7, tl->coef_dev, NULL);
       global[0] = (size_t)ntasks;
-      result |= libxstream_opencl_launch_work(stream, kernels->coef, 1, NULL, global, NULL, 0, NULL, NULL, 0, 0);
+      result |= libxstream_opencl_launch_work(stream, kernels->first, 1, NULL, global, NULL, 0, NULL, NULL, 0, 0);
     }
     for (level = 0; level < nlevels; ++level) {
       const grid_opencl_level_t* const lv = &tl->levels[level];
@@ -439,21 +527,21 @@ void grid_gpu_collocate_task_list(const grid_gpu_task_list* ptr, const enum grid
         n[i] = lv->npts[i];
         global[i] = (size_t)lv->ntiles[i] * local[i]; /* x: one work-item per row of the tile */
       }
-      result |= clSetKernelArg(kernels->tile, 0, sizeof(cl_int), &n[0]);
-      result |= clSetKernelArg(kernels->tile, 1, sizeof(cl_int), &n[1]);
-      result |= clSetKernelArg(kernels->tile, 2, sizeof(cl_int), &n[2]);
-      result |= clSetKernelArg(kernels->tile, 3, sizeof(cl_double16), &lv->dh);
-      result |= clSetKernelArg(kernels->tile, 4, sizeof(cl_int), &lv->tile_base);
-      result |= grid_opencl_arg(kernels->tile, 5, tl->tile_start_dev, NULL);
-      result |= grid_opencl_arg(kernels->tile, 6, tl->tile_task_dev, NULL);
-      result |= grid_opencl_arg(kernels->tile, 7, tl->geo_dev, NULL);
-      result |= grid_opencl_arg(kernels->tile, 8, tl->box_dev, NULL);
-      result |= grid_opencl_arg(kernels->tile, 9, tl->cinfo_dev, NULL);
-      result |= grid_opencl_arg(kernels->tile, 10, tl->coef_dev, NULL);
-      result |= grid_opencl_arg(kernels->tile, 11, grids[level]->device_buffer, &grid_offset);
-      result |= clSetKernelArg(kernels->tile, 12, sizeof(cl_int), &grid_offset);
+      result |= clSetKernelArg(kernels->second, 0, sizeof(cl_int), &n[0]);
+      result |= clSetKernelArg(kernels->second, 1, sizeof(cl_int), &n[1]);
+      result |= clSetKernelArg(kernels->second, 2, sizeof(cl_int), &n[2]);
+      result |= clSetKernelArg(kernels->second, 3, sizeof(cl_double16), &lv->dh);
+      result |= clSetKernelArg(kernels->second, 4, sizeof(cl_int), &lv->tile_base);
+      result |= grid_opencl_arg(kernels->second, 5, tl->tile_start_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 6, tl->tile_task_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 7, tl->geo_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 8, tl->box_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 9, tl->cinfo_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 10, tl->coef_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 11, grids[level]->device_buffer, &grid_offset);
+      result |= clSetKernelArg(kernels->second, 12, sizeof(cl_int), &grid_offset);
       if (0 < global[0] && 0 < global[1] && 0 < global[2]) {
-        result |= libxstream_opencl_launch_work(stream, kernels->tile, 3, NULL, global, local, 0, NULL, NULL, 0, 0);
+        result |= libxstream_opencl_launch_work(stream, kernels->second, 3, NULL, global, local, 0, NULL, NULL, 0, 0);
       }
       if (grids[level]->host_buffer != grids[level]->device_buffer) {
         offloadMemcpyAsyncDtoH(grids[level]->host_buffer, grids[level]->device_buffer,
@@ -476,8 +564,110 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
   const offload_buffer* pab_blocks, const offload_buffer** grids, offload_buffer* hab_blocks, double* forces,
   double* virial)
 {
-  const grid_opencl_task_list_t* const tl = (const grid_opencl_task_list_t*)ptr;
-  assert(NULL != tl && tl->nlevels == nlevels);
-  grid_cpu_integrate_task_list(tl->cpu, compute_tau, tl->natoms, nlevels, pab_blocks, grids, hab_blocks,
-    (double(*)[3])forces, (double(*)[3])virial);
+  grid_opencl_task_list_t* const tl = (grid_opencl_task_list_t*)ptr;
+  const int flags = (NULL != forces ? 1 : 0) | (NULL != virial ? 2 : 0) | (compute_tau ? 4 : 0);
+  const grid_opencl_kernels_t* const kernels = (0 == tl->delegate ? grid_opencl_kernels(-1 - flags, tl->ortho, tl->lmax)
+                                                                   : NULL);
+  assert(NULL != tl && tl->nlevels == nlevels && NULL != hab_blocks);
+  if (NULL != kernels && NULL != hab_blocks->device_buffer && (NULL == pab_blocks || NULL != pab_blocks->device_buffer)) {
+    const process_ldiffs ld = process_get_ldiffs(NULL != forces, NULL != virial, compute_tau);
+    libxstream_stream_t* const stream = (libxstream_stream_t*)tl->stream;
+    const size_t local = GRID_OPENCL_WG;
+    const cl_int ntasks = tl->ntasks, nsegs = tl->nsegs;
+    const void* const pab = (NULL != pab_blocks ? (const void*)pab_blocks->device_buffer : (const void*)tl->sphi_dev);
+    size_t ncoef = 0, global;
+    cl_int pab_offset = 0, hab_offset = 0, grid_offset = 0, n[3];
+    int result = EXIT_SUCCESS, i, k, level;
+    offload_activate_chosen_device();
+    for (i = 0; i < ntasks; ++i) {
+      const int lp = tl->lab[2 * i] + ld.la_max_diff + tl->lab[2 * i + 1] + ld.lb_max_diff;
+      tl->cinfo[2 * i + 0] = (int)ncoef;
+      tl->cinfo[2 * i + 1] = lp;
+      ncoef += ncoset(lp);
+    }
+    if (tl->ncoef < ncoef || NULL == tl->coef_dev) {
+      if (NULL != tl->coef_dev) {
+        offloadStreamSynchronize(tl->stream);
+        offloadFree(tl->coef_dev);
+      }
+      offloadMalloc((void**)&tl->coef_dev, sizeof(double) * (0 < ncoef ? ncoef : 1));
+      tl->ncoef = ncoef;
+    }
+    if (0 < ntasks) offloadMemcpyAsyncHtoD(tl->cinfo_dev, tl->cinfo, sizeof(int) * 2 * ntasks, tl->stream);
+    if (NULL != pab_blocks && 0 != flags % 4 && pab_blocks->host_buffer != pab_blocks->device_buffer) {
+      offloadMemcpyAsyncHtoD(pab_blocks->device_buffer, pab_blocks->host_buffer, pab_blocks->size, tl->stream);
+    }
+    for (level = 0; level < nlevels; ++level) {
+      const grid_opencl_level_t* const lv = &tl->levels[level];
+      const cl_int task_base = tl->level_start[level];
+      for (i = 0; i < 3; ++i) n[i] = lv->npts[i];
+      if (grids[level]->host_buffer != grids[level]->device_buffer) {
+        offloadMemcpyAsyncHtoD(grids[level]->device_buffer, grids[level]->host_buffer,
+          sizeof(double) * (size_t)n[0] * n[1] * n[2], tl->stream);
+      }
+      result |= clSetKernelArg(kernels->first, 0, sizeof(cl_int), &n[0]);
+      result |= clSetKernelArg(kernels->first, 1, sizeof(cl_int), &n[1]);
+      result |= clSetKernelArg(kernels->first, 2, sizeof(cl_int), &n[2]);
+      result |= clSetKernelArg(kernels->first, 3, sizeof(cl_double16), &lv->dh);
+      result |= clSetKernelArg(kernels->first, 4, sizeof(cl_int), &task_base);
+      result |= grid_opencl_arg(kernels->first, 5, tl->level_task_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 6, tl->geo_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 7, tl->box_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 8, tl->cinfo_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 9, grids[level]->device_buffer, &grid_offset);
+      result |= clSetKernelArg(kernels->first, 10, sizeof(cl_int), &grid_offset);
+      result |= grid_opencl_arg(kernels->first, 11, tl->coef_dev, NULL);
+      global = (size_t)(tl->level_start[level + 1] - task_base) * local;
+      if (0 < global) {
+        result |= libxstream_opencl_launch_work(stream, kernels->first, 1, NULL, &global, &local, 0, NULL, NULL, 0, 0);
+      }
+    }
+    if (0 < hab_blocks->size) offloadMemsetAsync(hab_blocks->device_buffer, 0, hab_blocks->size, tl->stream);
+    if (0 < nsegs) {
+      result |= clSetKernelArg(kernels->second, 0, sizeof(cl_int), &nsegs);
+      result |= grid_opencl_arg(kernels->second, 1, tl->seg_start_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 2, tl->seg_task_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 3, pab, &pab_offset);
+      result |= clSetKernelArg(kernels->second, 4, sizeof(cl_int), &pab_offset);
+      result |= grid_opencl_arg(kernels->second, 5, tl->sphi_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 6, tl->tint_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 7, tl->tdbl_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 8, tl->cinfo_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 9, tl->coef_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 10, hab_blocks->device_buffer, &hab_offset);
+      result |= clSetKernelArg(kernels->second, 11, sizeof(cl_int), &hab_offset);
+      result |= grid_opencl_arg(kernels->second, 12, tl->fv_dev, NULL);
+      global = (size_t)nsegs;
+      result |= libxstream_opencl_launch_work(stream, kernels->second, 1, NULL, &global, NULL, 0, NULL, NULL, 0, 0);
+      if (0 != flags % 4) offloadMemcpyAsyncDtoH(tl->fv, tl->fv_dev, sizeof(double) * 24 * nsegs, tl->stream);
+    }
+    if (0 < hab_blocks->size && hab_blocks->host_buffer != hab_blocks->device_buffer) {
+      offloadMemcpyAsyncDtoH(hab_blocks->host_buffer, hab_blocks->device_buffer, hab_blocks->size, tl->stream);
+    }
+    offloadStreamSynchronize(tl->stream);
+    if (EXIT_SUCCESS != result) {
+      fprintf(stderr, "ERROR GRID/OpenCL: integration failed\n");
+      abort();
+    }
+    if (NULL != forces) memset(forces, 0, sizeof(double) * 3 * tl->natoms);
+    if (NULL != virial) memset(virial, 0, sizeof(double) * 9);
+    for (i = 0; i < nsegs && 0 != flags % 4; ++i) { /* segment order: reproducible */
+      const int* const atoms = tl->seg_atoms + 3 * i;
+      const double* const fv = tl->fv + 24 * i;
+      const double scalef = (0 != atoms[2] ? 1.0 : 2.0);
+      if (NULL != forces) {
+        for (k = 0; k < 3; ++k) {
+          forces[3 * atoms[0] + k] += scalef * fv[k];
+          forces[3 * atoms[1] + k] += scalef * fv[3 + k];
+        }
+      }
+      if (NULL != virial) {
+        for (k = 0; k < 9; ++k) virial[k] += scalef * fv[6 + k] + scalef * fv[15 + k];
+      }
+    }
+  }
+  else {
+    grid_cpu_integrate_task_list(tl->cpu, compute_tau, tl->natoms, nlevels, pab_blocks, grids, hab_blocks,
+      (double(*)[3])forces, (double(*)[3])virial);
+  }
 }
