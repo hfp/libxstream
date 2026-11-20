@@ -18,8 +18,6 @@
 
 /* coefficients of a task at most, and of the partial sums of a lane */
 #define NCOEF (LP1 * (LP1 + 1) * (LP1 + 2) / 6)
-/* items per lane before a task gets more lanes: a point of a general cell is a fraction of a row */
-#define ITEMS (0 != GRID_ORTHO ? ROWS : (8 * ROWS))
 
 #define GRID_ICASE(N) \
   case N: \
@@ -43,16 +41,16 @@ static inline int grid_wrap(const int u, const int n)
 }
 
 
-/* Width of a task (lanes): the smallest power of two with at most ITEMS items per lane */
+/* Width of a task (lanes): the smallest power of two with at most ROWS rows per lane */
 static inline int grid_width(const int nitems)
 {
   int w = 1;
-  while (w < ENGINE && ITEMS * w < nitems) w <<= 1;
+  while (w < ENGINE && ROWS * w < nitems) w <<= 1;
   return w;
 }
 
 
-/* Adds one item (a row, or a point of a general cell) to the partial C_xyz of a lane. Inlined with a constant
+/* Adds a row to the partial C_xyz of a lane (general cells: in lattice coordinates). Inlined with a constant
  * lp (switch), the loops unroll and the arrays stay in registers: a runtime bound puts them on the stack. */
 static inline void grid_item(const int r, const int lp, const int n0, const int n1, const int n2,
   const double16 dh, const double16 dhi, const double s0, const double s1, const double s2, const double zetp,
@@ -92,24 +90,39 @@ static inline void grid_item(const int r, const int lp, const int n0, const int 
     valid = 1;
   }
 #else
-  const int nx = bt[3] - bt[0] + 1;
-  const int u0 = bt[0] + r % nx, u1 = bt[1] + (r / nx) % ny, u2 = bt[2] + r / (nx * ny);
-  const double f0 = u0 - s0, f1 = u1 - s1, f2 = u2 - s2;
-  const double dx = f0 * dh.s0 + f1 * dh.s3 + f2 * dh.s6;
-  const double dy = f0 * dh.s1 + f1 * dh.s4 + f2 * dh.s7;
-  const double dz = f0 * dh.s2 + f1 * dh.s5 + f2 * dh.s8;
-  const double r2 = dx * dx + dy * dy + dz * dz;
+  const int u1 = bt[1] + r % ny, u2 = bt[2] + r / ny;
   const int2 rg = grid_row_range(u1, u2, s0, s1, s2, rmax, bt[6], bt[7], bt[8], dh, dhi);
-  if (rg.x <= u0 && u0 <= rg.y) {
-    const size_t g = ((size_t)grid_wrap(u2, n2) * n1 + grid_wrap(u1, n1)) * n0 + grid_wrap(u0, n0);
-    double p = grid[g] * exp(-zetp * r2), py = 1.0, pz = 1.0;
+  (void)gx; /* no tables: the Gaussian of a general cell does not factor along the axes */
+  if (rg.x <= rg.y) { /* lattice moments along the row, the Gaussian by recurrence (|d|^2 is quadratic in u0) */
+    __global const double* const row = grid + ((size_t)grid_wrap(u2, n2) * n1 + grid_wrap(u1, n1)) * n0;
+    const double f1 = u1 - s1, f2 = u2 - s2, a00 = dh.s0 * dh.s0 + dh.s1 * dh.s1 + dh.s2 * dh.s2;
+    const double wx = f1 * dh.s3 + f2 * dh.s6, wy = f1 * dh.s4 + f2 * dh.s7, wz = f1 * dh.s5 + f2 * dh.s8;
+    const double q = exp(-2.0 * zetp * a00);
+    double ex = 0.0, rx = 0.0, py = 1.0, pz = 1.0;
+    int u0, g = grid_wrap(rg.x, n0);
+    UNROLL_AUTO for (k = 0; k <= lp; ++k) m[k] = 0.0;
+    for (u0 = rg.x; u0 <= rg.y; ++u0) {
+      const double f0 = u0 - s0;
+      double p;
+      if (0 == ((u0 - rg.x) & 31)) { /* start, and restart: the recurrence drifts on long rows */
+        const double dx = f0 * dh.s0 + wx, dy = f0 * dh.s1 + wy, dz = f0 * dh.s2 + wz;
+        ex = exp(-zetp * (dx * dx + dy * dy + dz * dz));
+        rx = exp(-zetp * (2.0 * (dx * dh.s0 + dy * dh.s1 + dz * dh.s2) + a00));
+      }
+      p = row[g] * ex;
+      UNROLL_AUTO for (k = 0; k <= lp; ++k) {
+        m[k] += p;
+        p *= f0;
+      }
+      ex *= rx;
+      rx *= q;
+      if (++g == n0) g = 0;
+    }
     UNROLL_AUTO for (k = 0; k <= lp; ++k) {
-      m[k] = p;
       ty[k] = py;
       tz[k] = pz;
-      p *= dx;
-      py *= dy;
-      pz *= dz;
+      py *= f1;
+      pz *= f2;
     }
     valid = 1;
   }
@@ -155,9 +168,8 @@ __kernel __attribute__((reqd_work_group_size(ENGINE, 1, 1))) void grid_integrate
     if (lane < n) {
       const int t = level_task[task_base + chunk_base + lane];
       __global const int* const bt = box + GRID_OPENCL_NB * t;
-      const int nx = (0 != GRID_ORTHO ? 1 : (bt[3] - bt[0] + 1));
       chunk_task[lane] = t;
-      chunk_width[lane] = grid_width(nx * (bt[4] - bt[1] + 1) * (bt[5] - bt[2] + 1));
+      chunk_width[lane] = grid_width((bt[4] - bt[1] + 1) * (bt[5] - bt[2] + 1));
     }
     barrier(CLK_LOCAL_MEM_FENCE);
     for (j = 0; j <= n; ++j) { /* j == n: flush the last pack once the queue is empty */
@@ -168,8 +180,7 @@ __kernel __attribute__((reqd_work_group_size(ENGINE, 1, 1))) void grid_integrate
           __global const double* const gt = geo + GRID_OPENCL_NG * mytask;
           __global const int* const bt = box + GRID_OPENCL_NB * mytask;
           const int lp = cinfo[2 * mytask + 1];
-          const int nx = (0 != GRID_ORTHO ? 1 : (bt[3] - bt[0] + 1));
-          const int nitems = nx * (bt[4] - bt[1] + 1) * (bt[5] - bt[2] + 1);
+              const int nitems = (bt[4] - bt[1] + 1) * (bt[5] - bt[2] + 1);
           int r;
           switch (lp) { /* uniform for the lanes of a task, and mostly for a pack (neighbouring tasks) */
             GRID_ICASE(0)
@@ -258,7 +269,7 @@ __kernel __attribute__((reqd_work_group_size(ENGINE, 1, 1))) void grid_integrate
 __kernel void grid_integrate_task(const int ntasks, __global const double* restrict pab_blocks, const int pab_offset,
   __global const double* restrict sphi, __global const int* restrict tint, __global const double* restrict tdbl,
   __global const int* restrict cinfo, __global const double* restrict coef, __global const int* restrict hoff,
-  __global double* restrict hab_task, __global double* restrict fv_task)
+  __global double* restrict hab_task, __global double* restrict fv_task, __global const double16* restrict ldh)
 {
   const int t = (int)get_global_id(0);
   if (t < ntasks) {
@@ -288,11 +299,24 @@ __kernel void grid_integrate_task(const int ntasks, __global const double* restr
       rab[i] = td[12 + i];
     }
     for (i = 0; i < lp1 * lp1 * lp1; ++i) cxyz[i] = 0.0;
+#if GRID_ORTHO
     for (lx = 0; lx <= lp; ++lx) {
       for (ly = 0; ly <= lp - lx; ++ly) {
         for (lz = 0; lz <= lp - lx - ly; ++lz) cxyz[(lz * lp1 + ly) * lp1 + lx] = c[n++];
       }
     }
+#else
+    { /* general cells: Cartesian moments from the lattice moments (transpose of the change of variables) */
+      double latt[LP1 * LP1 * LP1], px[LP1 * LP1 * LP1], pxy[LP1 * LP1 * LP1], pxyz[LP1 * LP1 * LP1];
+      double tmp[LP1 * LP1 * LP1];
+      for (lx = 0; lx <= lp; ++lx) {
+        for (ly = 0; ly <= lp - lx; ++ly) {
+          for (lz = 0; lz <= lp - lx - ly; ++lz) latt[(lx * LP1 + ly) * LP1 + lz] = c[n++];
+        }
+      }
+      grid_lattice(lp, lp1, ldh[ti[14]], cxyz, latt, 0, px, pxy, pxyz, tmp);
+    }
+#endif
     for (i = 0; i < n1 * ncoset(lb_max_local); ++i) cabd[i] = 0.0;
     grid_cab_alpha(la_max_local, lb_max_local, ra, rb, rp, alpha);
     grid_cxyz_to_cab(la_max_local, la_min_local, lb_max_local, lb_min_local, prefactor, alpha, cxyz, cabd, tx, txy);

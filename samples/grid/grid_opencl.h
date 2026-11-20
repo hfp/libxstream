@@ -11,7 +11,7 @@
 #define GRID_OPENCL_H
 
 /* per-task records shared by grid_opencl.c and the kernels */
-#define GRID_OPENCL_NI 14
+#define GRID_OPENCL_NI 15
 #define GRID_OPENCL_ND 18
 #define GRID_OPENCL_NG 7
 #define GRID_OPENCL_NB 9

@@ -98,6 +98,80 @@ static inline int2 grid_row_range(const int u1, const int u2, const double s0, c
 }
 
 
+/* Cube of a polynomial in f0, f1, f2 (index (i * LP1 + j) * LP1 + k), degree d times the linear form l */
+static inline void grid_poly_lin(const int d, const double* p, const double l0, const double l1, const double l2,
+  double* q)
+{
+  int i, j, k;
+  for (i = 0; i <= d + 1; ++i) {
+    for (j = 0; j <= d + 1 - i; ++j) {
+      for (k = 0; k <= d + 1 - i - j; ++k) q[(i * LP1 + j) * LP1 + k] = 0.0;
+    }
+  }
+  for (i = 0; i <= d; ++i) {
+    for (j = 0; j <= d - i; ++j) {
+      for (k = 0; k <= d - i - j; ++k) {
+        const double v = p[(i * LP1 + j) * LP1 + k];
+        q[((i + 1) * LP1 + j) * LP1 + k] += v * l0;
+        q[(i * LP1 + j + 1) * LP1 + k] += v * l1;
+        q[(i * LP1 + j) * LP1 + k + 1] += v * l2;
+      }
+    }
+  }
+}
+
+
+/**
+ * Change of variables between Cartesian d and lattice coordinates f (d = f0 a0 + f1 a1 + f2 a2, rows of dh) of a
+ * polynomial of degree lp. cart is a cube [c][b][a] of stride lp1 (d_x^a d_y^b d_z^c), latt a cube of stride LP1.
+ * to_lattice: latt = sum cart_abc L_x^a L_y^b L_z^c (coefficients); else cart_abc = <L_x^a L_y^b L_z^c, latt>
+ * (moments, the transpose). x, xy, xyz, tmp: scratch cubes of LP1**3.
+ */
+static inline void grid_lattice(const int lp, const int lp1, const double16 dh, double* cart, double* latt,
+  const int to_lattice, double* x, double* xy, double* xyz, double* tmp)
+{
+  int a, b, c, i, n;
+  if (0 != to_lattice) {
+    for (i = 0; i < LP1 * LP1 * LP1; ++i) latt[i] = 0.0;
+  }
+  for (i = 0; i < LP1 * LP1 * LP1; ++i) x[i] = 0.0;
+  x[0] = 1.0;
+  for (a = 0; a <= lp; ++a) {
+    for (i = 0; i < LP1 * LP1 * LP1; ++i) xy[i] = x[i];
+    for (b = 0; b <= lp - a; ++b) {
+      for (i = 0; i < LP1 * LP1 * LP1; ++i) xyz[i] = xy[i];
+      for (c = 0; c <= lp - a - b; ++c) {
+        const int d = a + b + c, ic = (c * lp1 + b) * lp1 + a;
+        int ii, jj, kk;
+        double sum = 0.0;
+        for (ii = 0; ii <= d; ++ii) {
+          for (jj = 0; jj <= d - ii; ++jj) {
+            for (kk = 0; kk <= d - ii - jj; ++kk) {
+              n = (ii * LP1 + jj) * LP1 + kk;
+              if (0 != to_lattice) latt[n] += cart[ic] * xyz[n];
+              else sum += xyz[n] * latt[n];
+            }
+          }
+        }
+        if (0 == to_lattice) cart[ic] = sum;
+        if (c < lp - a - b) { /* times d_z = f0 a0z + f1 a1z + f2 a2z */
+          grid_poly_lin(d, xyz, dh.s2, dh.s5, dh.s8, tmp);
+          for (i = 0; i < LP1 * LP1 * LP1; ++i) xyz[i] = tmp[i];
+        }
+      }
+      if (b < lp - a) {
+        grid_poly_lin(a + b, xy, dh.s1, dh.s4, dh.s7, tmp);
+        for (i = 0; i < LP1 * LP1 * LP1; ++i) xy[i] = tmp[i];
+      }
+    }
+    if (a < lp) {
+      grid_poly_lin(a, x, dh.s0, dh.s3, dh.s6, tmp);
+      for (i = 0; i < LP1 * LP1 * LP1; ++i) x[i] = tmp[i];
+    }
+  }
+}
+
+
 /* Gaussian of a task along each axis of its box (orthorhombic): the rows need no exp */
 __kernel void grid_gauss(const int ntasks, __global const double* restrict geo, __global const int* restrict box,
   __global const double* restrict tdbl, __global const int* restrict gofs, __global double* restrict gauss)

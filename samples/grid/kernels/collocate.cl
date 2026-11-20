@@ -31,7 +31,7 @@ static inline void cab_add(cab_store* cab, const orbital a, const orbital b, con
 __kernel void grid_collocate_coef(const int ntasks, __global const double* restrict pab_blocks,
   const int pab_offset, __global const double* restrict sphi, __global const int* restrict tint,
   __global const double* restrict tdbl, __global const int* restrict cinfo,
-  __global double* restrict coef)
+  __global double* restrict coef, __global const double16* restrict ldh)
 {
   const int itask = (int)get_global_id(0);
   if (itask < ntasks) {
@@ -79,11 +79,24 @@ __kernel void grid_collocate_coef(const int ntasks, __global const double* restr
     for (i = 0; i < lp1 * lp1 * lp1; ++i) cxyz[i] = 0.0;
     grid_cab_alpha(la_max_cab, lb_max_cab, ra, rb, rp, alpha);
     grid_cab_to_cxyz(la_max_cab, la_min_cab, lb_max_cab, lb_min_cab, td[11], alpha, cabd, cxyz, tx, txy);
+#if GRID_ORTHO
     for (lx = 0; lx <= lp; ++lx) {
       for (ly = 0; ly <= lp - lx; ++ly) {
         for (lz = 0; lz <= lp - lx - ly; ++lz) c[n++] = cxyz[(lz * lp1 + ly) * lp1 + lx];
       }
     }
+#else
+    { /* general cells: in lattice coordinates, the rows take the orthorhombic form */
+      double latt[LP1 * LP1 * LP1], px[LP1 * LP1 * LP1], pxy[LP1 * LP1 * LP1], pxyz[LP1 * LP1 * LP1];
+      double tmp[LP1 * LP1 * LP1];
+      grid_lattice(lp, lp1, ldh[ti[14]], cxyz, latt, 1, px, pxy, pxyz, tmp);
+      for (lx = 0; lx <= lp; ++lx) {
+        for (ly = 0; ly <= lp - lx; ++ly) {
+          for (lz = 0; lz <= lp - lx - ly; ++lz) c[n++] = latt[(lx * LP1 + ly) * LP1 + lz];
+        }
+      }
+    }
+#endif
   }
 }
 
@@ -201,7 +214,71 @@ static inline void grid_row32(const int lp, CONSTANT const double* restrict c, c
 }
 
 
-#if FP32
+/* A row of a general cell: coefficients in lattice coordinates (f = u - s), contracted with f1, f2, then Horner in
+ * f0 times the Gaussian along the row by recurrence (|d|^2 is quadratic in u0), restarted where the row wraps. */
+static inline void grid_row_gen(const int lp, CONSTANT const double* restrict c, const int2 rg, const double f1,
+  const double f2, const double s0, const double zetp, const double16 dh, const int x0, const int n0, double* acc)
+{
+  const double a00 = dh.s0 * dh.s0 + dh.s1 * dh.s1 + dh.s2 * dh.s2, q = exp(-2.0 * zetp * a00);
+  const double wx = f1 * dh.s3 + f2 * dh.s6, wy = f1 * dh.s4 + f2 * dh.s7, wz = f1 * dh.s5 + f2 * dh.s8;
+  double cx[LP1], ex = 0.0, rx = 0.0;
+  int lx, ly, j, u0, k = 0, have = 0;
+  UNROLL_AUTO for (lx = 0; lx <= lp; ++lx) {
+    double sy = 0.0, py = 1.0;
+    UNROLL_AUTO for (ly = 0; ly <= lp - lx; ++ly) {
+      sy += grid_run(c + k, lp - lx - ly, f2) * py;
+      k += lp - lx - ly + 1;
+      py *= f1;
+    }
+    cx[lx] = sy;
+  }
+  if (rg.y - rg.x < n0) { /* a point has at most one image in the range */
+    u0 = grid_image(x0, rg.x, n0);
+    UNROLL_AUTO for (j = 0; j < TX; ++j) {
+      if (0 != j && ++u0 == rg.x + n0) {
+        u0 = rg.x;
+        have = 0;
+      }
+      if (x0 + j < n0 && u0 <= rg.y) {
+        const double f0 = u0 - s0;
+        double p = cx[lp];
+        if (0 == have) {
+          const double dx = f0 * dh.s0 + wx, dy = f0 * dh.s1 + wy, dz = f0 * dh.s2 + wz;
+          ex = exp(-zetp * (dx * dx + dy * dy + dz * dz));
+          rx = exp(-zetp * (2.0 * (dx * dh.s0 + dy * dh.s1 + dz * dh.s2) + a00));
+          have = 1;
+        }
+        else {
+          ex *= rx;
+          rx *= q;
+        }
+        UNROLL_AUTO for (lx = lp - 1; 0 <= lx; --lx) p = p * f0 + cx[lx];
+        acc[j] += ex * p;
+      }
+      else have = 0;
+    }
+  }
+  else { /* several images per point: the Gaussian per image */
+    UNROLL_AUTO for (j = 0; j < TX; ++j) {
+      if (x0 + j < n0) {
+        for (u0 = grid_image(x0 + j, rg.x, n0); u0 <= rg.y; u0 += n0) {
+          const double f0 = u0 - s0, dx = f0 * dh.s0 + wx, dy = f0 * dh.s1 + wy, dz = f0 * dh.s2 + wz;
+          double p = cx[lp];
+          UNROLL_AUTO for (lx = lp - 1; 0 <= lx; --lx) p = p * f0 + cx[lx];
+          acc[j] += exp(-zetp * (dx * dx + dy * dy + dz * dz)) * p;
+        }
+      }
+    }
+  }
+}
+
+
+#if 0 == GRID_ORTHO
+#  define GRID_CASE(N) \
+    case N: \
+      grid_row_gen(N, c, rg, u1 - s1, u2 - s2, s0, zetp, dh, x0, n0, acc); \
+      break;
+#elif FP32
 #  define GRID_CASE(N) \
     case N: \
       if (0 == tail) grid_row64(N, c, eyz, rg, dy, dz, h0, gx, s0, x0, n0, bt, acc); \
@@ -259,18 +336,21 @@ __kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_ti
       const int lp = cinfo[2 * t + 1];
       const double s0 = gt[0], s1 = gt[1], s2 = gt[2], zetp = gt[3], rmax = gt[6];
       int u0, u1, u2;
-      if (0 != GRID_ORTHO && bt[3] - bt[0] < n0) { /* along x at most one image: table of the Gaussian */
-        CONSTANT const double* const gx = gauss + gofs[t];
+      if (0 == GRID_ORTHO || bt[3] - bt[0] < n0) { /* rows (orthorhombic: along x at most one image) */
+#if GRID_ORTHO
+        CONSTANT const double* const gx = gauss + gofs[t]; /* table of the Gaussian */
         CONSTANT const double* const gy = gx + (bt[3] - bt[0] + 1);
         CONSTANT const double* const gz = gy + (bt[4] - bt[1] + 1);
         const double h0 = dh.s0;
+#endif
         for (u2 = grid_image(g2, bt[2], n2); u2 <= bt[5]; u2 += n2) {
-          const double dz = (u2 - s2) * dh.s8;
           for (u1 = grid_image(g1, bt[1], n1); u1 <= bt[4]; u1 += n1) {
-            const double dy = (u1 - s1) * dh.s4;
             const int2 rg = grid_row_range(u1, u2, s0, s1, s2, rmax, bt[6], bt[7], bt[8], dh, dhi);
             if (rg.x <= rg.y) { /* lp is uniform per task: a case per lp unrolls the row */
+#if GRID_ORTHO
+              const double dz = (u2 - s2) * dh.s8, dy = (u1 - s1) * dh.s4;
               const double eyz = gy[u1 - bt[1]] * gz[u2 - bt[2]];
+#endif
               switch (lp) {
                 GRID_CASE(0)
 #if 1 < LP1
@@ -337,13 +417,7 @@ __kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_ti
                 const int2 rg = grid_row_range(u1, u2, s0, s1, s2, rmax, bt[6], bt[7], bt[8], dh, dhi);
                 for (u0 = grid_image(g0, bt[0], n0); u0 <= bt[3]; u0 += n0) {
                   const double f0 = u0 - s0;
-#if GRID_ORTHO
-                  const double dx = f0 * dh.s0, dy = f1 * dh.s4, dz = f2 * dh.s8;
-#else
-                  const double dx = f0 * dh.s0 + f1 * dh.s3 + f2 * dh.s6;
-                  const double dy = f0 * dh.s1 + f1 * dh.s4 + f2 * dh.s7;
-                  const double dz = f0 * dh.s2 + f1 * dh.s5 + f2 * dh.s8;
-#endif
+                  const double dx = f0 * dh.s0, dy = f1 * dh.s4, dz = f2 * dh.s8; /* orthorhombic */
                   const double r2 = dx * dx + dy * dy + dz * dz;
                   if (rg.x <= u0 && u0 <= rg.y) acc[j] += grid_point(c, lp, zetp, r2, dx, dy, dz);
                 }

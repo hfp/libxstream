@@ -65,9 +65,9 @@ typedef struct {
 
 typedef struct {
   int npts[3], ntiles[3], tile_base;
-  cl_double16 dhi; /* inverse of dh */
+  double dhi[16]; /* inverse of dh (kernel argument double16) */
   int unit_base, nunits, red_base, nred; /* collocate: chunks of the tile lists, tiles of several chunks */
-  cl_double16 dh;
+  double dh[16]; /* plain doubles: cl_double16 is over-aligned for calloc'ed memory (aligned moves fault) */
 } grid_opencl_level_t;
 
 typedef struct {
@@ -84,6 +84,7 @@ typedef struct {
   double* partial_dev; /* partial tiles of the chunks */
   int *level_task_dev, *seg_start_dev, *seg_task_dev, *queue_dev, *hoff_dev, *gofs_dev;
   double* gauss_dev; /* Gaussian per task along each axis of its box (orthorhombic), computed on first use */
+  double* ldh_dev; /* dh per level, 16 doubles each (change of variables of general cells) */
   int gauss_ready;
   double *tdbl_dev, *geo_dev, *sphi_dev, *coef_dev, *fv_dev;
   double *hab_task_dev, *fv_task_dev; /* integrate: primitive hab, forces and virial per task (allocated on use) */
@@ -351,8 +352,8 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
       maxtiles = imax(maxtiles, lv->ntiles[k]);
     }
     for (k = 0; k < 9; ++k) {
-      lv->dh.s[k] = dh[9 * level + k];
-      lv->dhi.s[k] = dh_inv[9 * level + k];
+      lv->dh[k] = dh[9 * level + k];
+      lv->dhi[k] = dh_inv[9 * level + k];
     }
     lv->tile_base = ntiles;
     ntiles += lv->ntiles[0] * lv->ntiles[1] * lv->ntiles[2];
@@ -431,6 +432,7 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
       ti[11] = sphi_offset[jkind] + sgfb * jb->maxco + jpgf * ncoset(lb_max);
       ti[12] = jb->maxco;
       ti[13] = (iatom == jatom ? 1 : 0);
+      ti[14] = level_list[i] - 1;
       for (k = 0; k < 3; ++k) {
         td[k] = ra[k];
         td[3 + k] = ra[k] + rab[k];
@@ -559,6 +561,13 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
     tl->seg_task_dev = (int*)grid_opencl_upload(seg_key, sizeof(int) * ntasks);
     offloadMalloc((void**)&tl->fv_dev, sizeof(double) * 24 * (0 < tl->nsegs ? tl->nsegs : 1));
     offloadMalloc((void**)&tl->queue_dev, sizeof(int));
+    { /* dh per level for the per-task kernels */
+      double* const ldh = (double*)malloc(sizeof(double) * 16 * (0 < nlevels ? nlevels : 1));
+      assert(NULL != ldh);
+      for (level = 0; level < nlevels; ++level) memcpy(ldh + 16 * level, tl->levels[level].dh, sizeof(double) * 16);
+      tl->ldh_dev = (double*)grid_opencl_upload(ldh, sizeof(double) * 16 * nlevels);
+      free(ldh);
+    }
     for (i = 0; i < ntasks; ++i) { /* offsets of the primitive hab per task, reusing level_task */
       level_task[i] = (int)tl->nhab;
       tl->nhab += (size_t)ncoset(tl->lab[2 * i]) * ncoset(tl->lab[2 * i + 1]);
@@ -695,6 +704,7 @@ void grid_gpu_free_task_list(grid_gpu_task_list* ptr)
       offloadFree(tl->hoff_dev);
       offloadFree(tl->gofs_dev);
       offloadFree(tl->gauss_dev);
+      offloadFree(tl->ldh_dev);
       if (NULL != tl->hab_task_dev) offloadFree(tl->hab_task_dev);
       if (NULL != tl->fv_task_dev) offloadFree(tl->fv_task_dev);
       if (NULL != tl->coef_dev) offloadFree(tl->coef_dev);
@@ -755,6 +765,7 @@ void grid_gpu_collocate_task_list(const grid_gpu_task_list* ptr, const enum grid
       result |= grid_opencl_arg(kernels->first, 5, tl->tdbl_dev, NULL);
       result |= grid_opencl_arg(kernels->first, 6, tl->cinfo_dev, NULL);
       result |= grid_opencl_arg(kernels->first, 7, tl->coef_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 8, tl->ldh_dev, NULL);
       global[0] = (size_t)ntasks;
       result |= libxstream_opencl_launch_work(stream, kernels->first, 1, NULL, global, NULL, 0, NULL, NULL, 0, 0);
     }
@@ -767,8 +778,8 @@ void grid_gpu_collocate_task_list(const grid_gpu_task_list* ptr, const enum grid
       result |= clSetKernelArg(kernels->second, 0, sizeof(cl_int), &n[0]);
       result |= clSetKernelArg(kernels->second, 1, sizeof(cl_int), &n[1]);
       result |= clSetKernelArg(kernels->second, 2, sizeof(cl_int), &n[2]);
-      result |= clSetKernelArg(kernels->second, 3, sizeof(cl_double16), &lv->dh);
-      result |= clSetKernelArg(kernels->second, 4, sizeof(cl_double16), &lv->dhi);
+      result |= clSetKernelArg(kernels->second, 3, sizeof(cl_double16), lv->dh);
+      result |= clSetKernelArg(kernels->second, 4, sizeof(cl_double16), lv->dhi);
       result |= clSetKernelArg(kernels->second, 5, sizeof(cl_int), &lv->unit_base);
       result |= grid_opencl_arg(kernels->second, 6, tl->unit_tile_dev, NULL);
       result |= grid_opencl_arg(kernels->second, 7, tl->unit_start_dev, NULL);
@@ -867,8 +878,8 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
       result |= clSetKernelArg(kernels->first, 0, sizeof(cl_int), &n[0]);
       result |= clSetKernelArg(kernels->first, 1, sizeof(cl_int), &n[1]);
       result |= clSetKernelArg(kernels->first, 2, sizeof(cl_int), &n[2]);
-      result |= clSetKernelArg(kernels->first, 3, sizeof(cl_double16), &lv->dh);
-      result |= clSetKernelArg(kernels->first, 4, sizeof(cl_double16), &lv->dhi);
+      result |= clSetKernelArg(kernels->first, 3, sizeof(cl_double16), lv->dh);
+      result |= clSetKernelArg(kernels->first, 4, sizeof(cl_double16), lv->dhi);
       result |= clSetKernelArg(kernels->first, 5, sizeof(cl_int), &task_base);
       result |= clSetKernelArg(kernels->first, 6, sizeof(cl_int), &nlevel);
       result |= grid_opencl_arg(kernels->first, 7, tl->level_task_dev, NULL);
@@ -905,6 +916,7 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
       result |= grid_opencl_arg(kernels->second, 8, tl->hoff_dev, NULL);
       result |= grid_opencl_arg(kernels->second, 9, tl->hab_task_dev, NULL);
       result |= grid_opencl_arg(kernels->second, 10, fv_task, NULL);
+      result |= grid_opencl_arg(kernels->second, 11, tl->ldh_dev, NULL);
       global = (size_t)ntasks;
       result |= libxstream_opencl_launch_work(stream, kernels->second, 1, NULL, &global, NULL, 0, NULL, NULL, 0, 0);
       result |= clSetKernelArg(kernels->third, 0, sizeof(cl_int), &nsegs);
