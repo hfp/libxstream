@@ -38,7 +38,7 @@ endif
 ifneq (0,$(OPENCL))
   # header-only LIBXS and LIBXSTREAM, which need POSIX beyond C11
   GRIDFLAGS := $(patsubst -std=c11,-std=gnu11,$(GRIDFLAGS)) -D__LIBXSTREAM -DLIBXSTREAM_SOURCE \
-    -D__OFFLOAD_OPENCL_GRID -I$(DEPDIR) -I$(LIBXSROOT) -I$(SRCDIR) -I$(abspath $(BLDDIR))
+    -I$(DEPDIR) -I$(LIBXSROOT) -I$(SRCDIR) -I$(abspath $(BLDDIR))
   LIBS += -lOpenCL -ldl -lpthread
   CLOBJECTS := $(BLDDIR)/grid_opencl.o
   CLKERNELS := $(wildcard $(ROOTDIR)/kernels/*.cl)

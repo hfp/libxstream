@@ -65,8 +65,11 @@ also takes CP2K's `.task` files (a single task, `--batch` repeats it), and
 
 ## OpenCL Backend
 
-`grid_opencl.c` implements CP2K's GPU backend with OpenCL, which CP2K enables
-with `-D__OFFLOAD_OPENCL_GRID`. A task contributes to the points within its
+`grid_opencl.c` implements CP2K's GPU backend with OpenCL, which an OpenCL build
+of CP2K uses unless `__NO_OFFLOAD_GRID` is defined. With CMake, `-DCP2K_USE_ACCEL=OPENCL` calls
+`libxstream_add_grid(<target> <grid>)` (unless `CP2K_ENABLE_GRID_GPU=OFF`), which
+generates `grid_kernels.h` from the headers in `<grid>/common` into the
+consumer's build tree. A task contributes to the points within its
 radius plus one grid spacing about the center of the product. Each work-group owns a tile of points and sums the tile's
 tasks in a fixed order, hence the result is reproducible without atomics.
 Integration uses the same model: persistent engines take tasks from a queue and

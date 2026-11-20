@@ -1,6 +1,7 @@
 # Builds the OpenCL machinery of a sample into a consumer's own target:
 #
 # libxstream_add_dbm(<target>)  DBM backend (samples/dbm), e.g., CP2K
+# libxstream_add_grid(<target> <grid>)  GRID backend (samples/grid), e.g., CP2K
 # libxstream_add_smm(<target>)  LIBSMM (samples/smm), e.g., DBCSR
 #
 # Sources, kernels, and parameter files are enumerated here rather than by the
@@ -49,6 +50,34 @@ function(libxstream_add_dbm TARGET)
     INPUTS
     ${kernels})
   target_sources(${TARGET} PRIVATE "${LIBXSTREAM_DBM_DIR}/dbm_opencl.c")
+endfunction()
+
+# the kernels inline the consumer's grid/common headers (-k keeps include guards
+# since headers repeat), hence <grid> is the consumer's grid directory
+function(libxstream_add_grid TARGET GRID)
+  file(
+    GLOB kernels
+    LIST_DIRECTORIES false
+    CONFIGURE_DEPENDS "${LIBXSTREAM_GRID_DIR}/kernels/*.cl")
+  file(
+    GLOB headers
+    LIST_DIRECTORIES false
+    CONFIGURE_DEPENDS "${LIBXSTREAM_GRID_DIR}/kernels/*.h"
+                      "${GRID}/common/*.h")
+  libxstream_add_kernels_(
+    ${TARGET}
+    "${LIBXSTREAM_GRID_DIR}"
+    grid_kernels.h
+    OPTIONS
+    -k
+    -I
+    "${GRID}/common"
+    INPUTS
+    ${kernels}
+    DEPENDS
+    "${LIBXSTREAM_GRID_DIR}/grid_opencl.h"
+    ${headers})
+  target_sources(${TARGET} PRIVATE "${LIBXSTREAM_GRID_DIR}/grid_opencl.c")
 endfunction()
 
 function(libxstream_add_smm TARGET)

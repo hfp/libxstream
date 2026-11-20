@@ -386,6 +386,18 @@ install(
 install(FILES "${LIBXSTREAM_DBM_CL}"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/libxstream/samples/dbm/kernels")
 
+# GRID sample: the consumer generates grid_kernels.h (kernels inline its headers)
+set(LIBXSTREAM_GRID_DIR "${CMAKE_CURRENT_SOURCE_DIR}/samples/grid")
+install(FILES "${LIBXSTREAM_GRID_DIR}/grid_opencl.c"
+              "${LIBXSTREAM_GRID_DIR}/grid_opencl.h"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/libxstream/samples/grid")
+install(
+  DIRECTORY "${LIBXSTREAM_GRID_DIR}/kernels/"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/libxstream/samples/grid/kernels"
+  FILES_MATCHING
+  PATTERN "*.cl"
+  PATTERN "*.h")
+
 # Stencil sample: generate stencil_kernels.h at build time and install sources
 set(LIBXSTREAM_STENCIL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/samples/stencil")
 set(LIBXSTREAM_STENCIL_KERNELS_H
