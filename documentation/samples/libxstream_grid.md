@@ -65,8 +65,22 @@ also takes CP2K's `.task` files (a single task, `--batch` repeats it), and
 
 ## OpenCL Backend
 
-`grid_opencl.c` implements CP2K's GPU backend with OpenCL, which CP2K enables
-with `-D__OFFLOAD_OPENCL_GRID`. A task contributes to the points within its
+`grid_opencl.c` implements CP2K's GPU backend with OpenCL, which an OpenCL build
+of CP2K uses unless `__NO_OFFLOAD_GRID` is defined. With CMake, `-DCP2K_USE_ACCEL=OPENCL` calls
+`libxstream_add_grid(<target> <grid>)` (unless `CP2K_ENABLE_GRID_GPU=OFF`), which
+generates `grid_kernels.h` from the headers in `<grid>/common` into the
+consumer's build tree. A task contributes to the points within its
 radius plus one grid spacing about the center of the product. Each work-group owns a tile of points and sums the tile's
 tasks in a fixed order, hence the result is reproducible without atomics.
-Integration, distributed grids, and tasks with a border mask use CP2K's CPU backend.
+Integration uses the same model: persistent engines take tasks from a queue and
+give each task lanes by its size; a task's lanes reduce its rows in a fixed order, and each block's part is owned by one work-item, hence
+no atomics either. Distributed grids and tasks with a border mask use CP2K's CPU
+backend.
+
+| Environment | Default | Description                                         |
+|-------------|---------|-----------------------------------------------------|
+| GRID_TILE   | `8,4,4` | Points of a tile (x,y,z) owned by a work-group      |
+| GRID_ENGINE | auto    | Lanes of an engine (power of two), default: sub-group size |
+| GRID_ROWS   | `8`     | Rows per lane before a task gets more lanes         |
+| GRID_SLOTS  | `8`     | Engines per compute unit                            |
+| GRID_FP32   | `-1`    | Margin (bits) for single precision in the tails of collocation (16 is safe), <0: off |
