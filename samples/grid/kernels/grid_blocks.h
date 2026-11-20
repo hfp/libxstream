@@ -176,18 +176,19 @@ static inline void grid_lattice(const int lp, const int lp1, const double16 dh, 
 __kernel void grid_gauss(const int ntasks, __global const double* restrict geo, __global const int* restrict box,
   __global const double* restrict tdbl, __global const int* restrict gofs, __global double* restrict gauss)
 {
-  const int t = (int)get_global_id(0);
+  const int t = (int)get_group_id(0); /* work-group per task, work-item per entry */
   if (t < ntasks) {
     __global const double* const gt = geo + GRID_OPENCL_NG * t;
     __global const int* const bt = box + GRID_OPENCL_NB * t;
     __global const double* const td = tdbl + GRID_OPENCL_ND * t;
     __global double* const g = gauss + gofs[t];
-    int axis, u, o = 0;
-    for (axis = 0; axis < 3; ++axis) {
-      for (u = bt[axis]; u <= bt[3 + axis]; ++u) {
-        const double d = (u - gt[axis]) * td[15 + axis];
-        g[o++] = exp(-gt[3] * (d * d));
-      }
+    const int n0 = bt[3] - bt[0] + 1, n01 = n0 + bt[4] - bt[1] + 1, n = n01 + bt[5] - bt[2] + 1;
+    int o;
+    for (o = (int)get_local_id(0); o < n; o += (int)get_local_size(0)) {
+      const int axis = (o < n0 ? 0 : (o < n01 ? 1 : 2));
+      const int u = bt[axis] + o - (0 == axis ? 0 : (1 == axis ? n0 : n01));
+      const double d = (u - gt[axis]) * td[15 + axis];
+      g[o] = exp(-gt[3] * (d * d));
     }
   }
 }

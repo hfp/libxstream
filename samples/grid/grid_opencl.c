@@ -38,6 +38,10 @@
 #if !defined(OPENCL_KERNELS_SOURCE_COLLOCATE) || !defined(OPENCL_KERNELS_SOURCE_INTEGRATE)
 #  error "OpenCL kernel source code not found!"
 #endif
+/* Work-items per task building the Gaussian tables */
+#if !defined(GRID_OPENCL_GAUSS_WG)
+#  define GRID_OPENCL_GAUSS_WG 32
+#endif
 
 
 /* Key of a code version (memset-initialized: compared bytewise) */
@@ -75,7 +79,7 @@ typedef struct {
 } grid_opencl_level_t;
 
 typedef struct {
-  grid_cpu_task_list* cpu; /* integrate, distributed grids, no device */
+  grid_cpu_task_list* cpu; /* distributed grids and border tasks (CPU backend), NULL otherwise */
   int tile[3];
   offloadStream_t stream;
   grid_opencl_level_t* levels;
@@ -306,7 +310,7 @@ static int grid_opencl_gauss(grid_opencl_task_list_t* tl, const grid_opencl_kern
   int result = EXIT_SUCCESS;
   if (0 == tl->gauss_ready && 0 != tl->ortho && 0 < tl->ntasks) {
     const cl_int ntasks = tl->ntasks;
-    const size_t global = (size_t)ntasks;
+    const size_t local = GRID_OPENCL_GAUSS_WG, global = local * ntasks;
     result |= clSetKernelArg(kernels->gauss, 0, sizeof(cl_int), &ntasks);
     result |= grid_opencl_arg(kernels->gauss, 1, tl->geo_dev, NULL);
     result |= grid_opencl_arg(kernels->gauss, 2, tl->box_dev, NULL);
@@ -314,7 +318,7 @@ static int grid_opencl_gauss(grid_opencl_task_list_t* tl, const grid_opencl_kern
     result |= grid_opencl_arg(kernels->gauss, 4, tl->gofs_dev, NULL);
     result |= grid_opencl_arg(kernels->gauss, 5, tl->gauss_dev, NULL);
     result |= libxstream_opencl_launch_work(
-      (libxstream_stream_t*)tl->stream, kernels->gauss, 1, NULL, &global, NULL, 0, NULL, NULL, 0, 0);
+      (libxstream_stream_t*)tl->stream, kernels->gauss, 1, NULL, &global, &local, 0, NULL, NULL, 0, 0);
   }
   tl->gauss_ready = 1;
   return result;
@@ -340,11 +344,6 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
   offload_activate_chosen_device();
   grid_opencl_init();
   memcpy(tl->tile, grid_opencl_config.tile, sizeof(tl->tile));
-  grid_cpu_create_task_list(ortho, ntasks, nlevels, natoms, nkinds, nblocks, block_offsets,
-    (const double(*)[3])atom_positions, atom_kinds, basis_sets, level_list, iatom_list, jatom_list, iset_list,
-    jset_list, ipgf_list, jpgf_list, border_mask_list, block_num_list, radius_list, (const double(*)[3])rab_list,
-    (const int(*)[3])npts_global, (const int(*)[3])npts_local, (const int(*)[3])shift_local,
-    (const int(*)[3])border_width, (const double(*)[3][3])dh, (const double(*)[3][3])dh_inv, &tl->cpu);
   tl->ntasks = ntasks;
   tl->nlevels = nlevels;
   tl->natoms = natoms;
@@ -372,6 +371,13 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
   }
   for (i = 0; i < ntasks; ++i) {
     if (0 != border_mask_list[i]) tl->delegate = 1;
+  }
+  if (0 != tl->delegate) { /* the CPU backend's task list only for what the device does not handle */
+    grid_cpu_create_task_list(ortho, ntasks, nlevels, natoms, nkinds, nblocks, block_offsets,
+      (const double(*)[3])atom_positions, atom_kinds, basis_sets, level_list, iatom_list, jatom_list, iset_list,
+      jset_list, ipgf_list, jpgf_list, border_mask_list, block_num_list, radius_list, (const double(*)[3])rab_list,
+      (const int(*)[3])npts_global, (const int(*)[3])npts_local, (const int(*)[3])shift_local,
+      (const int(*)[3])border_width, (const double(*)[3][3])dh, (const double(*)[3][3])dh_inv, &tl->cpu);
   }
   tl->stream = NULL;
   if (0 == tl->delegate) {
@@ -862,8 +868,12 @@ void grid_gpu_collocate_task_list(const grid_gpu_task_list* ptr, const enum grid
       abort();
     }
   }
-  else {
+  else if (NULL != tl->cpu) {
     grid_cpu_collocate_task_list(tl->cpu, func, nlevels, pab_blocks, grids);
+  }
+  else {
+    fprintf(stderr, "ERROR GRID/OpenCL: no kernels or device buffers for collocation\n");
+    abort();
   }
 }
 
@@ -999,8 +1009,12 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
       }
     }
   }
-  else {
+  else if (NULL != tl->cpu) {
     grid_cpu_integrate_task_list(tl->cpu, compute_tau, tl->natoms, nlevels, pab_blocks, grids, hab_blocks,
       (double(*)[3])forces, (double(*)[3])virial);
+  }
+  else {
+    fprintf(stderr, "ERROR GRID/OpenCL: no kernels or device buffers for integration\n");
+    abort();
   }
 }
