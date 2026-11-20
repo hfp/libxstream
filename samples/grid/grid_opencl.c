@@ -41,7 +41,7 @@ typedef struct {
   int kind; /* function of collocate, or -1 minus the flags of integrate */
   int ortho, lmax, tile[3];
   int engine, rows; /* integrate only */
-  int fp32;
+  int fp32, centred;
 } grid_opencl_key_t;
 
 typedef struct {
@@ -58,12 +58,14 @@ typedef struct {
   int rows; /* GRID_ROWS: rows per lane before a task gets more lanes */
   int slots; /* GRID_SLOTS: engines per compute unit */
   int fp32; /* GRID_FP32: margin in bits below the truncation for single precision in the tails (<0: off) */
+  int centred; /* GRID_CENTRED: points within radius + h of rp (else CP2K's rules, as the CPU backend) */
   int nunits; /* compute units */
   size_t localmem; /* local memory per work-group */
 } grid_opencl_config_t;
 
 typedef struct {
   int npts[3], ntiles[3], tile_base;
+  cl_double16 dhi; /* inverse of dh */
   int unit_base, nunits, red_base, nred; /* collocate: chunks of the tile lists, tiles of several chunks */
   cl_double16 dh;
 } grid_opencl_level_t;
@@ -121,14 +123,14 @@ static int grid_opencl_pmod(const int a, const int n)
 }
 
 
-/* Squared distance from s to the nearest covered point of each tile (-1: not covered), h = 0 if unknown. */
-static void grid_opencl_reach(
-  const int lo, const int hi, const double s, const double h, const int n, const int size, const int ntiles, double* d2)
+/* Squared distance to the nearest covered point of each tile (-1: not covered), h = 0 if unknown. */
+static void grid_opencl_reach(const int lo, const int hi, const double s, const int cell, const int c, const double h,
+  const int n, const int size, const int ntiles, double* d2)
 {
   int u, t;
   for (t = 0; t < ntiles; ++t) d2[t] = -1.0;
-  for (u = lo; u <= hi; ++u) {
-    const double d = (u - s) * h, dd = d * d;
+  for (u = lo; u <= hi; ++u) { /* distance to rp, or to the cell [c, c + 1] holding rp (cell model) */
+    const double d = (0 == cell ? (u - s) : (double)LIBXS_MAX(0, LIBXS_MAX(c - u, u - c - 1))) * h, dd = d * d;
     t = grid_opencl_pmod(u, n) / size;
     if (0 > d2[t] || dd < d2[t]) d2[t] = dd;
   }
@@ -189,6 +191,9 @@ static void grid_opencl_init(void)
       grid_opencl_config.localmem = (size_t)localmem;
       grid_opencl_config.rows = (0 < rows ? rows : 8);
       grid_opencl_config.slots = (0 < slots ? slots : 8);
+      { const char* const env_centred = getenv("GRID_CENTRED");
+        grid_opencl_config.centred = (NULL != env_centred && 0 != atoi(env_centred) ? 1 : 0);
+      }
       { const char* const env_fp32 = getenv("GRID_FP32");
         grid_opencl_config.fp32 = (NULL != env_fp32 ? LIBXS_MIN(atoi(env_fp32), 24) : -1);
       }
@@ -216,6 +221,7 @@ static const grid_opencl_kernels_t* grid_opencl_kernels(const int kind, const in
   key.lmax = lmax;
   memcpy(key.tile, tile, sizeof(key.tile));
   key.fp32 = (0 <= kind && 0 <= grid_opencl_config.fp32 ? 1 : 0); /* integrate: measured slower (registers) */
+  key.centred = grid_opencl_config.centred;
   if (0 > kind) {
     key.engine = grid_opencl_config.engine;
     key.rows = grid_opencl_config.rows;
@@ -232,8 +238,9 @@ static const grid_opencl_kernels_t* grid_opencl_kernels(const int kind, const in
       const prepare_ldiffs ld = prepare_get_ldiffs((enum grid_func)kind);
       const int l1 = lmax + imax(ld.la_max_diff, ld.lb_max_diff);
       snprintf(params, sizeof(params),
-        "-DGRID_FUNC=%i -DGRID_ORTHO=%i -DNPAB=%i -DNCAB=%i -DLMAX1=%i -DLP1=%i -DTX=%i -DTY=%i -DTZ=%i -DFP32=%i",
-        kind, ortho, ncoset(lmax), ncoset(l1), l1 + 1, 2 * l1 + 1, tile[0], tile[1], tile[2], key.fp32);
+        "-DGRID_FUNC=%i -DGRID_ORTHO=%i -DNPAB=%i -DNCAB=%i -DLMAX1=%i -DLP1=%i -DTX=%i -DTY=%i -DTZ=%i -DFP32=%i "
+        "-DCENTRED=%i",
+        kind, ortho, ncoset(lmax), ncoset(l1), l1 + 1, 2 * l1 + 1, tile[0], tile[1], tile[2], key.fp32, key.centred);
     }
     else {
       const int flags = -1 - kind;
@@ -245,9 +252,9 @@ static const grid_opencl_kernels_t* grid_opencl_kernels(const int kind, const in
       kernels.engine = engine;
       snprintf(params, sizeof(params),
         "-DGRID_ORTHO=%i -DFORCES=%i -DVIRIAL=%i -DTAU=%i -DNPAB=%i -DNCA=%i -DNCB=%i -DLMAX1A=%i -DLMAX1B=%i "
-        "-DLP1=%i -DENGINE=%i -DROWS=%i",
+        "-DLP1=%i -DENGINE=%i -DROWS=%i -DCENTRED=%i",
         ortho, 1 & flags, (2 & flags) >> 1, (4 & flags) >> 2, ncoset(lmax), ncoset(la), ncoset(lb), la + 1, lb + 1,
-        lp1, engine, key.rows);
+        lp1, engine, key.rows, key.centred);
     }
     ok = libxstream_opencl_kernel(0 /*source*/, source, name1, params, NULL /*options*/, NULL /*try*/,
       NULL /*try_ok*/, NULL /*exts*/, 0, &kernels.first);
@@ -343,7 +350,10 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
       lv->ntiles[k] = (lv->npts[k] + tl->tile[k] - 1) / tl->tile[k];
       maxtiles = imax(maxtiles, lv->ntiles[k]);
     }
-    for (k = 0; k < 9; ++k) lv->dh.s[k] = dh[9 * level + k];
+    for (k = 0; k < 9; ++k) {
+      lv->dh.s[k] = dh[9 * level + k];
+      lv->dhi.s[k] = dh_inv[9 * level + k];
+    }
     lv->tile_base = ntiles;
     ntiles += lv->ntiles[0] * lv->ntiles[1] * lv->ntiles[2];
   }
@@ -386,7 +396,13 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
       const double *const ra = atom_positions + 3 * iatom, *const rab = rab_list + 3 * i;
       const double rab2 = rab[0] * rab[0] + rab[1] * rab[1] + rab[2] * rab[2];
       const double* const di = dh_inv + 9 * (level_list[i] - 1);
-      const double cutoff = radius_list[i] + grid_sphere_spacing(dh + 9 * (level_list[i] - 1));
+      const double* const dl0 = dh + 9 * (level_list[i] - 1);
+      const int cell = (0 != ortho && 0 == grid_opencl_config.centred);
+      /* radius of the covered points: CP2K's rules (as the CPU backend) unless centred */
+      const double rmax = (0 != grid_opencl_config.centred ? (radius_list[i] + grid_sphere_spacing(dl0))
+                           : (0 != cell ? grid_sphere_radius(grid_sphere_index(radius_list[i],
+                                            fmin(dl0[0], fmin(dl0[4], dl0[8]))), fmin(dl0[0], fmin(dl0[4], dl0[8])))
+                                        : grid_sphere_cutoff(radius_list[i], grid_sphere_spacing(dl0))));
       int* const ti = tint + GRID_OPENCL_NI * i;
       double* const td = tdbl + GRID_OPENCL_ND * i;
       double* const gt = geo + GRID_OPENCL_NG * i;
@@ -427,13 +443,24 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
       td[11] = (iatom == jatom ? 1.0 : 2.0) * exp(-zeta * f * rab2);
       for (k = 0; k < 3; ++k) {
         const double s = td[6] * di[k] + td[7] * di[3 + k] + td[8] * di[6 + k];
-        const double e = cutoff * sqrt(di[k] * di[k] + di[3 + k] * di[3 + k] + di[6 + k] * di[6 + k]);
+        int* const bt = box + GRID_OPENCL_NB * i;
         gt[k] = s;
-        box[GRID_OPENCL_NB * i + k] = (int)ceil(s - e);
-        box[GRID_OPENCL_NB * i + 3 + k] = (int)floor(s + e);
+        if (0 != cell) { /* the cell holding rp (cubecenter), REF's cube bounds */
+          const int c = (int)floor(s), kstart = (int)ceil(-1e-8 - rmax * di[4 * k]);
+          bt[k] = c + kstart;
+          bt[3 + k] = c + 1 - kstart;
+          bt[6 + k] = c;
+        }
+        else {
+          const double e = rmax * sqrt(di[k] * di[k] + di[3 + k] * di[3 + k] + di[6 + k] * di[6 + k]);
+          bt[k] = (int)ceil(s - e);
+          bt[3 + k] = (int)floor(s + e);
+          bt[6 + k] = 0;
+        }
       }
       gt[3] = zetp;
-      gt[4] = cutoff * cutoff;
+      gt[4] = rmax * rmax;
+      gt[6] = rmax;
       /* Gaussian at most 2^(24-m) of its value at the radius: single precision errs below the truncation */
       gt[5] = LIBXS_MAX(radius_list[i] * radius_list[i] - (24 - grid_opencl_config.fp32) * log(2.0) / zetp, 0.0);
 
@@ -464,18 +491,21 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
         const int* const bt = box + GRID_OPENCL_NB * i;
         int j;
         if (0 < gt[4]) {
+          const int cell = (0 != tl->ortho && 0 == grid_opencl_config.centred);
+          const double lim = gt[6] + 1E-6 * fmin(fabs(dl[0]), fmin(fabs(dl[4]), fabs(dl[8]))); /* superset */
+          const double lim2 = lim * lim;
           int t0, t1, t2;
           for (j = 0; j < 3; ++j) {
-            grid_opencl_reach(bt[j], bt[3 + j], gt[j], 0 != tl->ortho ? fabs(dl[4 * j]) : 0.0, lv->npts[j], tl->tile[j],
-              lv->ntiles[j], d2 + j * maxtiles);
+            grid_opencl_reach(bt[j], bt[3 + j], gt[j], cell, bt[6 + j], 0 != tl->ortho ? fabs(dl[4 * j]) : 0.0,
+              lv->npts[j], tl->tile[j], lv->ntiles[j], d2 + j * maxtiles);
           }
           for (t2 = 0; t2 < lv->ntiles[2]; ++t2) {
             const double z2 = d2[2 * maxtiles + t2];
-            for (t1 = 0; t1 < lv->ntiles[1] && 0 <= z2 && z2 < gt[4]; ++t1) {
+            for (t1 = 0; t1 < lv->ntiles[1] && 0 <= z2 && z2 <= lim2; ++t1) {
               const double y2 = d2[maxtiles + t1];
-              for (t0 = 0; t0 < lv->ntiles[0] && 0 <= y2 && z2 + y2 < gt[4]; ++t0) {
+              for (t0 = 0; t0 < lv->ntiles[0] && 0 <= y2 && z2 + y2 <= lim2; ++t0) {
                 const double x2 = d2[t0];
-                if (0 <= x2 && z2 + y2 + x2 < gt[4]) {
+                if (0 <= x2 && z2 + y2 + x2 <= lim2) {
                   const int t = lv->tile_base + (t2 * lv->ntiles[1] + t1) * lv->ntiles[0] + t0;
                   if (0 == k) ++pos[t];
                   else { /* complement: all points of the tile are in the tail (single precision) */
@@ -738,20 +768,21 @@ void grid_gpu_collocate_task_list(const grid_gpu_task_list* ptr, const enum grid
       result |= clSetKernelArg(kernels->second, 1, sizeof(cl_int), &n[1]);
       result |= clSetKernelArg(kernels->second, 2, sizeof(cl_int), &n[2]);
       result |= clSetKernelArg(kernels->second, 3, sizeof(cl_double16), &lv->dh);
-      result |= clSetKernelArg(kernels->second, 4, sizeof(cl_int), &lv->unit_base);
-      result |= grid_opencl_arg(kernels->second, 5, tl->unit_tile_dev, NULL);
-      result |= grid_opencl_arg(kernels->second, 6, tl->unit_start_dev, NULL);
-      result |= grid_opencl_arg(kernels->second, 7, tl->unit_slot_dev, NULL);
-      result |= grid_opencl_arg(kernels->second, 8, tl->tile_task_dev, NULL);
-      result |= grid_opencl_arg(kernels->second, 9, tl->geo_dev, NULL);
-      result |= grid_opencl_arg(kernels->second, 10, tl->box_dev, NULL);
-      result |= grid_opencl_arg(kernels->second, 11, tl->cinfo_dev, NULL);
-      result |= grid_opencl_arg(kernels->second, 12, tl->coef_dev, NULL);
-      result |= grid_opencl_arg(kernels->second, 13, grids[level]->device_buffer, &grid_offset);
-      result |= clSetKernelArg(kernels->second, 14, sizeof(cl_int), &grid_offset);
-      result |= grid_opencl_arg(kernels->second, 15, tl->gauss_dev, NULL);
-      result |= grid_opencl_arg(kernels->second, 16, tl->gofs_dev, NULL);
-      result |= grid_opencl_arg(kernels->second, 17, tl->partial_dev, NULL);
+      result |= clSetKernelArg(kernels->second, 4, sizeof(cl_double16), &lv->dhi);
+      result |= clSetKernelArg(kernels->second, 5, sizeof(cl_int), &lv->unit_base);
+      result |= grid_opencl_arg(kernels->second, 6, tl->unit_tile_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 7, tl->unit_start_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 8, tl->unit_slot_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 9, tl->tile_task_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 10, tl->geo_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 11, tl->box_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 12, tl->cinfo_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 13, tl->coef_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 14, grids[level]->device_buffer, &grid_offset);
+      result |= clSetKernelArg(kernels->second, 15, sizeof(cl_int), &grid_offset);
+      result |= grid_opencl_arg(kernels->second, 16, tl->gauss_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 17, tl->gofs_dev, NULL);
+      result |= grid_opencl_arg(kernels->second, 18, tl->partial_dev, NULL);
       if (0 < global[0]) {
         result |= libxstream_opencl_launch_work(stream, kernels->second, 3, NULL, global, local, 0, NULL, NULL, 0, 0);
       }
@@ -837,18 +868,19 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
       result |= clSetKernelArg(kernels->first, 1, sizeof(cl_int), &n[1]);
       result |= clSetKernelArg(kernels->first, 2, sizeof(cl_int), &n[2]);
       result |= clSetKernelArg(kernels->first, 3, sizeof(cl_double16), &lv->dh);
-      result |= clSetKernelArg(kernels->first, 4, sizeof(cl_int), &task_base);
-      result |= clSetKernelArg(kernels->first, 5, sizeof(cl_int), &nlevel);
-      result |= grid_opencl_arg(kernels->first, 6, tl->level_task_dev, NULL);
-      result |= grid_opencl_arg(kernels->first, 7, tl->geo_dev, NULL);
-      result |= grid_opencl_arg(kernels->first, 8, tl->box_dev, NULL);
-      result |= grid_opencl_arg(kernels->first, 9, tl->cinfo_dev, NULL);
-      result |= grid_opencl_arg(kernels->first, 10, grids[level]->device_buffer, &grid_offset);
-      result |= clSetKernelArg(kernels->first, 11, sizeof(cl_int), &grid_offset);
-      result |= grid_opencl_arg(kernels->first, 12, tl->coef_dev, NULL);
-      result |= grid_opencl_arg(kernels->first, 13, tl->queue_dev, NULL);
-      result |= grid_opencl_arg(kernels->first, 14, tl->gauss_dev, NULL);
-      result |= grid_opencl_arg(kernels->first, 15, tl->gofs_dev, NULL);
+      result |= clSetKernelArg(kernels->first, 4, sizeof(cl_double16), &lv->dhi);
+      result |= clSetKernelArg(kernels->first, 5, sizeof(cl_int), &task_base);
+      result |= clSetKernelArg(kernels->first, 6, sizeof(cl_int), &nlevel);
+      result |= grid_opencl_arg(kernels->first, 7, tl->level_task_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 8, tl->geo_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 9, tl->box_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 10, tl->cinfo_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 11, grids[level]->device_buffer, &grid_offset);
+      result |= clSetKernelArg(kernels->first, 12, sizeof(cl_int), &grid_offset);
+      result |= grid_opencl_arg(kernels->first, 13, tl->coef_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 14, tl->queue_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 15, tl->gauss_dev, NULL);
+      result |= grid_opencl_arg(kernels->first, 16, tl->gofs_dev, NULL);
       global = (size_t)nengines * local; /* persistent engines: the queue distributes the tasks */
       if (0 < global) {
         offloadMemsetAsync(tl->queue_dev, 0, sizeof(int), tl->stream);

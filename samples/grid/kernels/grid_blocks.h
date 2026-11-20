@@ -52,6 +52,52 @@ static inline void grid_store_hab(__global double* restrict blocks, __global con
   }
 }
 
+/**
+ * Range [lo, hi] along x of the row (u1, u2) of a task (empty if lo > hi), i.e., which points the task covers.
+ * Orthorhombic cells (default): points within rmax of the cell holding rp, REF's nested bounds verbatim (cell c).
+ * General cells or CENTRED: points within rmax of rp, REF's quadratic of the general case verbatim.
+ */
+static inline int2 grid_row_range(const int u1, const int u2, const double s0, const double s1, const double s2,
+  const double rmax, const int cx, const int cy, const int cz, const double16 dh, const double16 dhi)
+{
+  int2 r = (int2)(1, 0);
+#if 0 == GRID_ORTHO || 0 != CENTRED
+  const double v0 = (0 - s0) * dh.s0 + (u1 - s1) * dh.s3 + (u2 - s2) * dh.s6;
+  const double v1 = (0 - s0) * dh.s1 + (u1 - s1) * dh.s4 + (u2 - s2) * dh.s7;
+  const double v2 = (0 - s0) * dh.s2 + (u1 - s1) * dh.s5 + (u2 - s2) * dh.s8;
+  double a = 0.0, b = 0.0, c = 0.0, d;
+  a += dh.s0 * dh.s0;
+  b += 2.0 * v0 * dh.s0;
+  c += v0 * v0;
+  a += dh.s1 * dh.s1;
+  b += 2.0 * v1 * dh.s1;
+  c += v1 * v1;
+  a += dh.s2 * dh.s2;
+  b += 2.0 * v2 * dh.s2;
+  c += v2 * v2;
+  d = b * b - 4.0 * a * (c - rmax * rmax);
+  if (0.0 < d) {
+    const double sqrt_d = sqrt(d), inv_2a = 1.0 / (2.0 * a);
+    r.x = (int)ceil((-b - sqrt_d) * inv_2a);
+    r.y = (int)floor((-b + sqrt_d) * inv_2a);
+  }
+#else
+  const int k = u2 - cz, j = u1 - cy;
+  const int kd = (0 >= k ? k : (1 - k)); /* pairs of opposing points share the distance to the cell */
+  const double kr = kd * dh.s8, kremain = rmax * rmax - kr * kr;
+  const int jstart = (int)ceil(-1e-8 - sqrt(fmax(0.0, kremain)) * dhi.s4);
+  if (jstart <= j && j <= 1 - jstart) {
+    const int jd = (0 >= j ? j : (1 - j));
+    const double jr = jd * dh.s4, jremain = kremain - jr * jr;
+    const int istart = (int)ceil(-1e-8 - sqrt(fmax(0.0, jremain)) * dhi.s0);
+    r.x = cx + istart;
+    r.y = cx + 1 - istart;
+  }
+#endif
+  return r;
+}
+
+
 /* Gaussian of a task along each axis of its box (orthorhombic): the rows need no exp */
 __kernel void grid_gauss(const int ntasks, __global const double* restrict geo, __global const int* restrict box,
   __global const double* restrict tdbl, __global const int* restrict gofs, __global double* restrict gauss)

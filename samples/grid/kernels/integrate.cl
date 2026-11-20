@@ -24,8 +24,8 @@
 #define GRID_ICASE(N) \
   case N: \
     for (r = lane - myoff; r < nitems && 0 < gt[4]; r += myw) { \
-      grid_item(r, N, n0, n1, n2, dh, gt[0], gt[1], gt[2], gt[3], gt[4], gauss + gofs[mytask], bt, grid + grid_offset, \
-        mine); \
+      grid_item(r, N, n0, n1, n2, dh, dhi, gt[0], gt[1], gt[2], gt[3], gt[6], gauss + gofs[mytask], bt, \
+        grid + grid_offset, mine); \
     } \
     break;
 
@@ -55,8 +55,8 @@ static inline int grid_width(const int nitems)
 /* Adds one item (a row, or a point of a general cell) to the partial C_xyz of a lane. Inlined with a constant
  * lp (switch), the loops unroll and the arrays stay in registers: a runtime bound puts them on the stack. */
 static inline void grid_item(const int r, const int lp, const int n0, const int n1, const int n2,
-  const double16 dh, const double s0, const double s1, const double s2, const double zetp, const double r2max,
-  __global const double* restrict gx, __global const int* restrict bt, __global const double* restrict grid,
+  const double16 dh, const double16 dhi, const double s0, const double s1, const double s2, const double zetp,
+  const double rmax, __global const double* restrict gx, __global const int* restrict bt, __global const double* restrict grid,
   __local double* restrict part)
 {
   const int ny = bt[4] - bt[1] + 1;
@@ -64,21 +64,17 @@ static inline void grid_item(const int r, const int lp, const int n0, const int 
   int k, lx, ly, lz, valid = 0;
 #if GRID_ORTHO
   const int u1 = bt[1] + r % ny, u2 = bt[2] + r / ny;
-  const double h0 = dh.s0, dy = (u1 - s1) * dh.s4, dz = (u2 - s2) * dh.s8, ryz = dy * dy + dz * dz;
-  if (ryz < r2max) {
+  const double h0 = dh.s0, dy = (u1 - s1) * dh.s4, dz = (u2 - s2) * dh.s8;
+  const int2 rg = grid_row_range(u1, u2, s0, s1, s2, rmax, bt[6], bt[7], bt[8], dh, dhi);
+  if (rg.x <= rg.y) {
     __global const double* const row = grid + ((size_t)grid_wrap(u2, n2) * n1 + grid_wrap(u1, n1)) * n0;
     __global const double* const gy = gx + (bt[3] - bt[0] + 1);
     __global const double* const gz = gy + (bt[4] - bt[1] + 1);
     double py = gy[u1 - bt[1]] * gz[u2 - bt[2]], pz = 1.0;
-    const double w = sqrt(r2max - ryz) / h0; /* chord of the row: the inner loop needs no mask */
-    int ulo = max(bt[0], (int)ceil(s0 - w) - 1), uhi = min(bt[3], (int)floor(s0 + w) + 1), u0, g;
-    double dx;
-    while (ulo <= uhi && (ulo - s0) * h0 * ((ulo - s0) * h0) + ryz >= r2max) ++ulo;
-    while (ulo <= uhi && (uhi - s0) * h0 * ((uhi - s0) * h0) + ryz >= r2max) --uhi;
-    g = grid_wrap(ulo, n0);
-    dx = (ulo - s0) * h0;
+    int u0, g = grid_wrap(rg.x, n0);
+    double dx = (rg.x - s0) * h0;
     UNROLL_AUTO for (k = 0; k <= lp; ++k) m[k] = 0.0;
-    for (u0 = ulo; u0 <= uhi; ++u0) {
+    for (u0 = rg.x; u0 <= rg.y; ++u0) { /* the range of the row: no mask */
       double p = row[g] * gx[u0 - bt[0]];
       UNROLL_AUTO for (k = 0; k <= lp; ++k) {
         m[k] += p;
@@ -103,7 +99,8 @@ static inline void grid_item(const int r, const int lp, const int n0, const int 
   const double dy = f0 * dh.s1 + f1 * dh.s4 + f2 * dh.s7;
   const double dz = f0 * dh.s2 + f1 * dh.s5 + f2 * dh.s8;
   const double r2 = dx * dx + dy * dy + dz * dz;
-  if (r2 < r2max) {
+  const int2 rg = grid_row_range(u1, u2, s0, s1, s2, rmax, bt[6], bt[7], bt[8], dh, dhi);
+  if (rg.x <= u0 && u0 <= rg.y) {
     const size_t g = ((size_t)grid_wrap(u2, n2) * n1 + grid_wrap(u1, n1)) * n0 + grid_wrap(u0, n0);
     double p = grid[g] * exp(-zetp * r2), py = 1.0, pz = 1.0;
     UNROLL_AUTO for (k = 0; k <= lp; ++k) {
@@ -137,8 +134,8 @@ static inline void grid_item(const int r, const int lp, const int n0, const int 
  * on which engine took the task: the queue decides who, never how (deterministic).
  */
 __kernel __attribute__((reqd_work_group_size(ENGINE, 1, 1))) void grid_integrate_coef(
-  const int n0, const int n1, const int n2, const double16 dh, const int task_base, const int ntasks,
-  __global const int* restrict level_task, __global const double* restrict geo,
+  const int n0, const int n1, const int n2, const double16 dh, const double16 dhi, const int task_base,
+  const int ntasks, __global const int* restrict level_task, __global const double* restrict geo,
   __global const int* restrict box, __global const int* restrict cinfo,
   __global const double* restrict grid, const int grid_offset, __global double* restrict coef,
   __global int* restrict queue, __global const double* restrict gauss, __global const int* restrict gofs)
