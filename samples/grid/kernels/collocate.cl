@@ -219,24 +219,42 @@ static inline void grid_row32(const int lp, CONSTANT const double* restrict c, c
 #endif
 
 
-/* A work-item owns a row of TX points (no atomics), and the order of the tile's list fixes the sum */
+/* Position of a tile of the level (tiles ordered x fastest) */
+static inline void grid_tile_origin(const int tile, const int n0, const int n1, int* x0, int* y0, int* z0)
+{
+  const int ntx = (n0 + TX - 1) / TX, nty = (n1 + TY - 1) / TY;
+  *x0 = (tile % ntx) * TX;
+  *y0 = ((tile / ntx) % nty) * TY;
+  *z0 = (tile / (ntx * nty)) * TZ;
+}
+
+
+/**
+ * A work-group takes a unit: a tile and a chunk of its tasks. A work-item owns a row of TX points (no atomics),
+ * and the order of the chunk fixes the sum. A tile of a single chunk writes the grid, else its chunks write
+ * partial tiles which grid_collocate_reduce sums in chunk order (deterministic).
+ */
 __kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_tile(
-  const int n0, const int n1, const int n2, const double16 dh, const int tile_base,
-  __global const int* restrict tile_start, __global const int* restrict tile_task,
+  const int n0, const int n1, const int n2, const double16 dh, const int unit_base,
+  __global const int* restrict unit_tile, __global const int* restrict unit_start,
+  __global const int* restrict unit_slot, __global const int* restrict tile_task,
   CONSTANT const double* restrict geo, CONSTANT const int* restrict box,
   CONSTANT const int* restrict cinfo, CONSTANT const double* restrict coef,
   __global double* restrict grid, const int grid_offset, CONSTANT const double* restrict gauss,
-  CONSTANT const int* restrict gofs)
+  CONSTANT const int* restrict gofs, __global double* restrict partial)
 {
-  const int x0 = (int)get_group_id(0) * TX, g1 = (int)get_global_id(1), g2 = (int)get_global_id(2);
-  const int tile = tile_base + ((int)get_group_id(2) * (int)get_num_groups(1) + (int)get_group_id(1)) *
-                                 (int)get_num_groups(0) + (int)get_group_id(0);
+  const int unit = unit_base + (int)get_group_id(0), ly = (int)get_local_id(1), lz = (int)get_local_id(2);
+  const int slot = unit_slot[unit];
+  int x0, y0, z0, g1, g2;
   double acc[TX];
   int i, j;
+  grid_tile_origin(unit_tile[unit], n0, n1, &x0, &y0, &z0);
+  g1 = y0 + ly;
+  g2 = z0 + lz;
   for (j = 0; j < TX; ++j) acc[j] = 0.0;
   if (g1 < n1 && g2 < n2) {
-    const int end = tile_start[tile + 1];
-    for (i = tile_start[tile]; i < end; ++i) {
+    const int end = unit_start[unit + 1];
+    for (i = unit_start[unit]; i < end; ++i) {
       const int tail = (0 > tile_task[i]); /* uniform per work-group: the whole tile is in the tail */
       const int t = (0 == tail ? tile_task[i] : ~tile_task[i]);
       CONSTANT const double* const gt = geo + GRID_OPENCL_NG * t;
@@ -337,8 +355,36 @@ __kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_ti
         }
       }
     }
+    if (0 > slot) {
+      UNROLL_AUTO for (j = 0; j < TX; ++j) {
+        if (x0 + j < n0) grid[grid_offset + ((size_t)g2 * n1 + g1) * n0 + x0 + j] = acc[j];
+      }
+    }
+    else {
+      __global double* const p = partial + ((size_t)slot * TZ + lz) * TY * TX + ly * TX;
+      UNROLL_AUTO for (j = 0; j < TX; ++j) p[j] = acc[j];
+    }
+  }
+}
+
+
+/* Sums the partial tiles of a tile in chunk order */
+__kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_reduce(
+  const int n0, const int n1, const int n2, const int red_base, __global const int* restrict red_tile,
+  __global const int* restrict red_slot, __global const int* restrict red_n, __global const double* restrict partial,
+  __global double* restrict grid, const int grid_offset)
+{
+  const int r = red_base + (int)get_group_id(0), ly = (int)get_local_id(1), lz = (int)get_local_id(2);
+  const int first = red_slot[r], n = red_n[r];
+  int x0, y0, z0, j, c;
+  grid_tile_origin(red_tile[r], n0, n1, &x0, &y0, &z0);
+  if (y0 + ly < n1 && z0 + lz < n2) {
     UNROLL_AUTO for (j = 0; j < TX; ++j) {
-      if (x0 + j < n0) grid[grid_offset + ((size_t)g2 * n1 + g1) * n0 + x0 + j] = acc[j];
+      if (x0 + j < n0) {
+        double sum = 0.0;
+        for (c = 0; c < n; ++c) sum += partial[((size_t)(first + c) * TZ + lz) * TY * TX + ly * TX + j];
+        grid[grid_offset + ((size_t)(z0 + lz) * n1 + y0 + ly) * n0 + x0 + j] = sum;
+      }
     }
   }
 }
