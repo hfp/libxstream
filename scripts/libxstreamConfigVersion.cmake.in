@@ -1,6 +1,10 @@
 set(PACKAGE_VERSION "@VERSION@")
 
-if(PACKAGE_VERSION VERSION_LESS PACKAGE_FIND_VERSION)
+# the same major version, as the CMake build exports (SameMajorVersion)
+string(REGEX MATCH "^[0-9]+" _package_major "${PACKAGE_VERSION}")
+if(PACKAGE_VERSION VERSION_LESS PACKAGE_FIND_VERSION
+   OR (PACKAGE_FIND_VERSION AND NOT PACKAGE_FIND_VERSION_MAJOR STREQUAL
+                                    _package_major))
   set(PACKAGE_VERSION_COMPATIBLE FALSE)
 else()
   set(PACKAGE_VERSION_COMPATIBLE TRUE)
@@ -8,3 +12,4 @@ else()
     set(PACKAGE_VERSION_EXACT TRUE)
   endif()
 endif()
+unset(_package_major)

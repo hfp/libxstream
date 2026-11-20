@@ -5,7 +5,10 @@
 # from the Makefile path while preserving the same test list and checks used by
 # `make test`.
 
-find_program(LIBXSTREAM_TEST_SHELL NAMES bash sh REQUIRED)
+find_program(LIBXSTREAM_TEST_SHELL NAMES bash sh)
+if(NOT LIBXSTREAM_TEST_SHELL)
+  message(FATAL_ERROR "No shell found (LIBXSTREAM_TEST_SHELL)")
+endif()
 
 set(LIBXSTREAM_TEST_DIR "${PROJECT_BINARY_DIR}/tests")
 file(MAKE_DIRECTORY "${LIBXSTREAM_TEST_DIR}")

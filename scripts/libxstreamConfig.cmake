@@ -56,10 +56,18 @@ find_path(
 
 if(LIBXSTREAM_LIBRARY AND LIBXSTREAM_INCLUDE_DIR)
   if(NOT TARGET libxstream::libxstream)
-    find_package(libxs CONFIG QUIET HINTS "${_libxstream_prefix}")
-    find_package(OpenCL QUIET)
+    # required like the CMake build's config: a missing dependency fails here
+    # rather than when the consumer compiles or links; libxs is also a sibling
+    include(CMakeFindDependencyMacro)
+    if(NOT TARGET libxs::libxs)
+      find_dependency(libxs CONFIG HINTS "${_libxstream_prefix}"
+                      "${_libxstream_prefix}/../libxs")
+    endif()
+    find_dependency(OpenCL)
+    set(_libxstream_libs libxs::libxs OpenCL::OpenCL)
     if(LIBXSTREAM_OMP)
-      find_package(OpenMP REQUIRED COMPONENTS C)
+      find_dependency(OpenMP COMPONENTS C)
+      list(APPEND _libxstream_libs OpenMP::OpenMP_C)
     endif()
     add_library(libxstream::libxstream UNKNOWN IMPORTED)
     # the same PUBLIC definitions as the target a CMake build exports
@@ -67,25 +75,9 @@ if(LIBXSTREAM_LIBRARY AND LIBXSTREAM_INCLUDE_DIR)
       libxstream::libxstream
       PROPERTIES IMPORTED_LOCATION "${LIBXSTREAM_LIBRARY}"
                  INTERFACE_INCLUDE_DIRECTORIES "${LIBXSTREAM_INCLUDE_DIR}"
-                 INTERFACE_COMPILE_DEFINITIONS "__LIBXS;__LIBXSTREAM")
-    if(TARGET libxs::libxs)
-      set_property(
-        TARGET libxstream::libxstream
-        APPEND
-        PROPERTY INTERFACE_LINK_LIBRARIES libxs::libxs)
-    endif()
-    if(TARGET OpenCL::OpenCL)
-      set_property(
-        TARGET libxstream::libxstream
-        APPEND
-        PROPERTY INTERFACE_LINK_LIBRARIES OpenCL::OpenCL)
-    endif()
-    if(TARGET OpenMP::OpenMP_C)
-      set_property(
-        TARGET libxstream::libxstream
-        APPEND
-        PROPERTY INTERFACE_LINK_LIBRARIES OpenMP::OpenMP_C)
-    endif()
+                 INTERFACE_COMPILE_DEFINITIONS "__LIBXS;__LIBXSTREAM"
+                 INTERFACE_LINK_LIBRARIES "${_libxstream_libs}")
+    unset(_libxstream_libs)
   else()
     set_property(TARGET libxstream::libxstream PROPERTY IMPORTED_LOCATION
                                                         "${LIBXSTREAM_LIBRARY}")
@@ -113,13 +105,6 @@ else()
 endif()
 set(LIBXSTREAM_SMM_ACC_SOURCE "${LIBXSTREAM_SMM_DIR}/smm_acc.c")
 
-if(NOT LIBXSTREAM_LIBRARY)
-  find_library(
-    LIBXSTREAM_LIBRARY
-    NAMES xstream
-    HINTS "${_libxstream_libdir}"
-    NO_DEFAULT_PATH)
-endif()
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(libxstream DEFAULT_MSG LIBXSTREAM_LIBRARY)
 unset(_libxstream_prefix)

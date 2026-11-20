@@ -110,7 +110,11 @@ if(NOT EXISTS "${LIBXSTREAM_VERSION_SCRIPT}")
   message(FATAL_ERROR "Missing ${LIBXSTREAM_VERSION_SCRIPT}")
 endif()
 
-find_program(SH_EXECUTABLE NAMES bash sh REQUIRED)
+# not REQUIRED: needs CMake 3.18
+find_program(SH_EXECUTABLE NAMES bash sh)
+if(NOT SH_EXECUTABLE)
+  message(FATAL_ERROR "No shell found (SH_EXECUTABLE)")
+endif()
 
 execute_process(
   COMMAND "${SH_EXECUTABLE}" "${LIBXSTREAM_VERSION_SCRIPT}" libxstream -1
@@ -140,12 +144,11 @@ set_property(
   PROPERTY CMAKE_CONFIGURE_DEPENDS "${LIBXSTREAM_VERSION_FILE}"
            "${LIBXSTREAM_VERSION_SCRIPT}")
 
+# includes name the prefix (<libxstream/...>), as with a GNU Make build
 set(LIBXSTREAM_PUBLIC_INCLUDE_DIRS
     $<BUILD_INTERFACE:${LIBXSTREAM_ROOT_DIR}>
-    $<BUILD_INTERFACE:${LIBXSTREAM_INCLUDE_DIR}>
     $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}>
-    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
-    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/libxstream>)
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 
 set(LIBXSTREAM_PUBLIC_COMPILE_DEFINITIONS __LIBXS __LIBXSTREAM)
 
@@ -318,7 +321,7 @@ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/tune_multiply.py"
 file(
   GLOB LIBXSTREAM_SMM_PARAMS
   LIST_DIRECTORIES false
-  "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/params/*.bin"
+  CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/params/*.bin"
   "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/params/*.csv")
 install(FILES ${LIBXSTREAM_SMM_PARAMS}
         DESTINATION "${CMAKE_INSTALL_DATADIR}/libxstream/samples/smm/params")
@@ -337,6 +340,11 @@ file(
   CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/params/*.bin")
 
 set(LIBXSTREAM_SMM_KERNELS_H "${CMAKE_CURRENT_BINARY_DIR}/smm_kernels.h")
+# headers the kernels of all samples may include (opencl/*.h)
+file(
+  GLOB LIBXSTREAM_OPENCL_H
+  LIST_DIRECTORIES false
+  CONFIGURE_DEPENDS "${LIBXSTREAM_ROOT_DIR}/libxstream/opencl/*.h")
 
 add_custom_command(
   OUTPUT "${LIBXSTREAM_SMM_KERNELS_H}"
@@ -344,6 +352,7 @@ add_custom_command(
     "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_opencl.sh" ${LIBXSTREAM_SMM_CL}
     ${LIBXSTREAM_SMM_CSV} "${LIBXSTREAM_SMM_KERNELS_H}"
   DEPENDS ${LIBXSTREAM_SMM_CL} ${LIBXSTREAM_SMM_CSV} ${LIBXSTREAM_SMM_BIN}
+          ${LIBXSTREAM_OPENCL_H}
           "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_opencl.sh"
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/kernels"
   COMMENT "Generating smm_kernels.h from .cl and .csv sources"
@@ -354,22 +363,22 @@ add_custom_target(smm_kernels_h ALL DEPENDS "${LIBXSTREAM_SMM_KERNELS_H}")
 install(FILES "${LIBXSTREAM_SMM_KERNELS_H}"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/libxstream/samples/smm")
 
-# DBM sample: generate dbm_kernels.h at build time and install sources
+# DBM sample: generate dbm_kernels.h at build time and install sources, with the
+# same kernels and options as libxstream_add_dbm
 set(LIBXSTREAM_DBM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/samples/dbm")
 set(LIBXSTREAM_DBM_KERNELS_H "${CMAKE_CURRENT_BINARY_DIR}/dbm_kernels.h")
-set(LIBXSTREAM_DBM_CL "${LIBXSTREAM_DBM_DIR}/kernels/multiply.cl")
 file(
-  GLOB LIBXSTREAM_DBM_OCL_H
+  GLOB LIBXSTREAM_DBM_CL
   LIST_DIRECTORIES false
-  CONFIGURE_DEPENDS "${LIBXSTREAM_ROOT_DIR}/libxstream/opencl/*.h")
+  CONFIGURE_DEPENDS "${LIBXSTREAM_DBM_DIR}/kernels/*.cl")
 
 add_custom_command(
   OUTPUT "${LIBXSTREAM_DBM_KERNELS_H}"
   COMMAND
-    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_opencl.sh" -p "" -I
-    "${LIBXSTREAM_ROOT_DIR}/libxstream" "${LIBXSTREAM_DBM_CL}"
-    "${LIBXSTREAM_DBM_KERNELS_H}"
-  DEPENDS "${LIBXSTREAM_DBM_CL}" ${LIBXSTREAM_DBM_OCL_H}
+    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_opencl.sh" -p
+    "${LIBXSTREAM_DBM_DIR}/params" -I "${LIBXSTREAM_ROOT_DIR}/libxstream"
+    ${LIBXSTREAM_DBM_CL} "${LIBXSTREAM_DBM_KERNELS_H}"
+  DEPENDS ${LIBXSTREAM_DBM_CL} ${LIBXSTREAM_OPENCL_H}
           "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_opencl.sh"
   WORKING_DIRECTORY "${LIBXSTREAM_DBM_DIR}/kernels"
   COMMENT "Generating dbm_kernels.h from .cl sources"
@@ -383,8 +392,11 @@ install(
         "${LIBXSTREAM_DBM_KERNELS_H}"
   DESTINATION "${CMAKE_INSTALL_DATADIR}/libxstream/samples/dbm")
 
-install(FILES "${LIBXSTREAM_DBM_CL}"
-        DESTINATION "${CMAKE_INSTALL_DATADIR}/libxstream/samples/dbm/kernels")
+install(
+  DIRECTORY "${LIBXSTREAM_DBM_DIR}/kernels/"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/libxstream/samples/dbm/kernels"
+  FILES_MATCHING
+  PATTERN "*.cl")
 
 # GRID sample: the consumer generates grid_kernels.h (kernels inline its headers)
 set(LIBXSTREAM_GRID_DIR "${CMAKE_CURRENT_SOURCE_DIR}/samples/grid")
@@ -412,16 +424,12 @@ file(
   GLOB LIBXSTREAM_STENCIL_CL_ALL
   LIST_DIRECTORIES false
   CONFIGURE_DEPENDS "${LIBXSTREAM_STENCIL_DIR}/kernels/*.cl")
-file(
-  GLOB LIBXSTREAM_STENCIL_OCL_H
-  LIST_DIRECTORIES false
-  CONFIGURE_DEPENDS "${LIBXSTREAM_ROOT_DIR}/libxstream/opencl/*.h")
 
 add_custom_command(
   OUTPUT "${LIBXSTREAM_STENCIL_KERNELS_H}"
   COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_opencl.sh" -p ""
           ${LIBXSTREAM_STENCIL_CL} "${LIBXSTREAM_STENCIL_KERNELS_H}"
-  DEPENDS ${LIBXSTREAM_STENCIL_CL_ALL} ${LIBXSTREAM_STENCIL_OCL_H}
+  DEPENDS ${LIBXSTREAM_STENCIL_CL_ALL} ${LIBXSTREAM_OPENCL_H}
           "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_opencl.sh"
   WORKING_DIRECTORY "${LIBXSTREAM_STENCIL_DIR}/kernels"
   COMMENT "Generating stencil_kernels.h from .cl sources"
@@ -430,9 +438,14 @@ add_custom_command(
 add_custom_target(stencil_kernels_h ALL
                   DEPENDS "${LIBXSTREAM_STENCIL_KERNELS_H}")
 
-set(LIBXSTREAM_STENCIL_SRC "${LIBXSTREAM_STENCIL_DIR}/stencil_opencl.c"
-                           "${LIBXSTREAM_STENCIL_DIR}/stencil_opencl.h")
-
+# the backends (OpenCL, CPU) and what they share, without the driver (stencil.c)
+# and with the generated kernel header rather than one left in the source tree
+file(
+  GLOB LIBXSTREAM_STENCIL_SRC
+  LIST_DIRECTORIES false
+  CONFIGURE_DEPENDS "${LIBXSTREAM_STENCIL_DIR}/stencil_*.c"
+  "${LIBXSTREAM_STENCIL_DIR}/stencil_*.h")
+list(FILTER LIBXSTREAM_STENCIL_SRC EXCLUDE REGEX "/stencil_kernels\\.h$")
 install(FILES ${LIBXSTREAM_STENCIL_SRC} "${LIBXSTREAM_STENCIL_KERNELS_H}"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/libxstream/samples/stencil")
 

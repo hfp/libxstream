@@ -31,7 +31,7 @@ add_custom_command(
     "${PROJECT_SOURCE_DIR}/scripts/tool_opencl.sh" -p ""
     "${ozaki_dir}/kernels/ozaki1.cl" "${ozaki_dir}/kernels/ozaki2.cl"
     "${ozaki_dir}/kernels/gemm3m.cl" "${ozaki_header}"
-  DEPENDS ${ozaki_kernels} ${LIBXSTREAM_STENCIL_OCL_H}
+  DEPENDS ${ozaki_kernels} ${LIBXSTREAM_OPENCL_H}
           "${PROJECT_SOURCE_DIR}/scripts/tool_opencl.sh"
   COMMENT "Generating ozaki_kernels.h from .cl sources"
   VERBATIM)
@@ -58,7 +58,7 @@ add_custom_command(
     "${PROJECT_SOURCE_DIR}/scripts/tool_opencl.sh" -p "" -I
     "${PROJECT_SOURCE_DIR}/libxstream" "${mixes_dir}/kernels/mixes.cl"
     "${mixes_header}"
-  DEPENDS "${mixes_dir}/kernels/mixes.cl" ${LIBXSTREAM_STENCIL_OCL_H}
+  DEPENDS "${mixes_dir}/kernels/mixes.cl" ${LIBXSTREAM_OPENCL_H}
           "${PROJECT_SOURCE_DIR}/scripts/tool_opencl.sh"
   COMMENT "Generating mixes_kernels.h from .cl sources"
   VERBATIM)
