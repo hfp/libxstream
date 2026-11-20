@@ -30,7 +30,7 @@ static inline void cab_add(cab_store* cab, const orbital a, const orbital b, con
 /* C_xyz of a task about the center of the product, triangular (lx, ly, lz ascending) */
 __kernel void grid_collocate_coef(const int ntasks, __global const double* restrict pab_blocks,
   const int pab_offset, __global const double* restrict sphi, __global const int* restrict tint,
-  __global const double* restrict tdbl, __global const int* restrict cinfo,
+  __global const double* restrict tdbl, __global int* restrict cinfo,
   __global double* restrict coef, __global const double16* restrict ldh)
 {
   const int itask = (int)get_global_id(0);
@@ -51,7 +51,7 @@ __kernel void grid_collocate_coef(const int ntasks, __global const double* restr
     double ra[3], rb[3], rp[3];
     __global double* const c = coef + cinfo[2 * itask];
     cab_store cab;
-    int i, lxa, lxb, lya, lyb, lza, lzb, lx, ly, lz, n = 0;
+    int i, lxa, lxb, lya, lyb, lza, lzb, lx, ly, lz, n = 0, nonzero = 0;
     grid_load_pab(pab_blocks + pab_offset, sphi, ti, pab, w);
     for (i = 0; i < ncab; ++i) cabd[i] = 0.0;
     cab.n1 = n1;
@@ -82,7 +82,11 @@ __kernel void grid_collocate_coef(const int ntasks, __global const double* restr
 #if GRID_ORTHO
     for (lx = 0; lx <= lp; ++lx) {
       for (ly = 0; ly <= lp - lx; ++ly) {
-        for (lz = 0; lz <= lp - lx - ly; ++lz) c[n++] = cxyz[(lz * lp1 + ly) * lp1 + lx];
+        for (lz = 0; lz <= lp - lx - ly; ++lz) {
+          const double v = cxyz[(lz * lp1 + ly) * lp1 + lx];
+          nonzero |= (0.0 != v);
+          c[n++] = v;
+        }
       }
     }
 #else
@@ -92,11 +96,17 @@ __kernel void grid_collocate_coef(const int ntasks, __global const double* restr
       grid_lattice(lp, lp1, ldh[ti[14]], cxyz, latt, 1, px, pxy, pxyz, tmp);
       for (lx = 0; lx <= lp; ++lx) {
         for (ly = 0; ly <= lp - lx; ++ly) {
-          for (lz = 0; lz <= lp - lx - ly; ++lz) c[n++] = latt[(lx * LP1 + ly) * LP1 + lz];
+          for (lz = 0; lz <= lp - lx - ly; ++lz) {
+            const double v = latt[(lx * LP1 + ly) * LP1 + lz];
+            nonzero |= (0.0 != v);
+            c[n++] = v;
+          }
         }
       }
     }
 #endif
+    /* zero coefficients in this call (e.g., the block-diagonal atomic guess): the tiles skip the task */
+    if (0 == nonzero) cinfo[2 * itask + 1] = -1;
   }
 }
 
@@ -333,10 +343,10 @@ __kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_ti
       CONSTANT const double* const gt = geo + GRID_OPENCL_NG * t;
       CONSTANT const int* const bt = box + GRID_OPENCL_NB * t;
       CONSTANT const double* const c = coef + cinfo[2 * t];
-      const int lp = cinfo[2 * t + 1];
+      const int lp = cinfo[2 * t + 1]; /* -1: zero coefficients in this call */
       const double s0 = gt[0], s1 = gt[1], s2 = gt[2], zetp = gt[3], rmax = gt[6];
       int u0, u1, u2;
-      if (0 == GRID_ORTHO || bt[3] - bt[0] < n0) { /* rows (orthorhombic: along x at most one image) */
+      if (0 <= lp && (0 == GRID_ORTHO || bt[3] - bt[0] < n0)) { /* rows (orthorhombic: along x at most one image) */
 #if GRID_ORTHO
         CONSTANT const double* const gx = gauss + gofs[t]; /* table of the Gaussian */
         CONSTANT const double* const gy = gx + (bt[3] - bt[0] + 1);
@@ -406,7 +416,7 @@ __kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_ti
           }
         }
       }
-      else {
+      else if (0 <= lp) {
         UNROLL_AUTO for (j = 0; j < TX; ++j) {
           const int g0 = x0 + j;
           if (g0 < n0) {
