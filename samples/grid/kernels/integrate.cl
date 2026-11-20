@@ -18,6 +18,16 @@
 
 /* coefficients of a task at most, and of the partial sums of a lane */
 #define NCOEF (LP1 * (LP1 + 1) * (LP1 + 2) / 6)
+/* items per lane before a task gets more lanes: a point of a general cell is a fraction of a row */
+#define ITEMS (0 != GRID_ORTHO ? ROWS : (8 * ROWS))
+
+#define GRID_ICASE(N) \
+  case N: \
+    for (r = lane - myoff; r < nitems && 0 < gt[4]; r += myw) { \
+      grid_item(r, N, n0, n1, n2, dh, gt[0], gt[1], gt[2], gt[3], gt[4], gauss + gofs[mytask], bt, grid + grid_offset, \
+        mine); \
+    } \
+    break;
 
 
 static inline double cab_get(const cab_store* cab, const orbital a, const orbital b)
@@ -31,10 +41,6 @@ static inline int grid_wrap(const int u, const int n)
   const int r = u % n;
   return (0 > r ? (r + n) : r);
 }
-
-
-/* items per lane before a task gets more lanes: a point of a general cell is a fraction of a row */
-#define ITEMS (0 != GRID_ORTHO ? ROWS : (8 * ROWS))
 
 
 /* Width of a task (lanes): the smallest power of two with at most ITEMS items per lane */
@@ -121,15 +127,6 @@ static inline void grid_item(const int r, const int lp, const int n0, const int 
     }
   }
 }
-
-
-#define GRID_ICASE(N) \
-  case N: \
-    for (r = lane - myoff; r < nitems && 0 < gt[4]; r += myw) { \
-      grid_item(r, N, n0, n1, n2, dh, gt[0], gt[1], gt[2], gt[3], gt[4], gauss + gofs[mytask], bt, grid + grid_offset, \
-        mine); \
-    } \
-    break;
 
 
 /**
