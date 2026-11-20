@@ -49,7 +49,7 @@ typedef struct {
   int kind; /* function of collocate, or -1 minus the flags of integrate */
   int ortho, lmax, tile[3];
   int engine, rows; /* integrate only */
-  int fp32, centred;
+  int fp32, centred, window;
 } grid_opencl_key_t;
 
 typedef struct {
@@ -67,6 +67,7 @@ typedef struct {
   int slots; /* GRID_SLOTS: engines per compute unit */
   int fp32; /* GRID_FP32: margin in bits below the truncation for single precision in the tails (<0: off) */
   int centred; /* GRID_CENTRED: points within radius + h of rp (else CP2K's rules, as the CPU backend) */
+  int window; /* GRID_WINDOW: smooth window over the margin of the centred model (implies GRID_CENTRED) */
   int nunits; /* compute units */
   size_t localmem; /* local memory per work-group */
 } grid_opencl_config_t;
@@ -208,8 +209,9 @@ static void grid_opencl_init(void)
       grid_opencl_config.localmem = (size_t)localmem;
       grid_opencl_config.rows = (0 < rows ? rows : 8);
       grid_opencl_config.slots = (0 < slots ? slots : 8);
-      { const char* const env_centred = getenv("GRID_CENTRED");
-        grid_opencl_config.centred = (NULL != env_centred && 0 != atoi(env_centred) ? 1 : 0);
+      { const char* const env_centred = getenv("GRID_CENTRED"), *const env_window = getenv("GRID_WINDOW");
+        grid_opencl_config.window = (NULL != env_window && 0 != atoi(env_window) ? 1 : 0);
+        grid_opencl_config.centred = (NULL != env_centred && 0 != atoi(env_centred) ? 1 : grid_opencl_config.window);
       }
       { const char* const env_fp32 = getenv("GRID_FP32");
         grid_opencl_config.fp32 = (NULL != env_fp32 ? LIBXS_MIN(atoi(env_fp32), 24) : -1);
@@ -239,6 +241,7 @@ static const grid_opencl_kernels_t* grid_opencl_kernels(const int kind, const in
   memcpy(key.tile, tile, sizeof(key.tile));
   key.fp32 = (0 <= kind && 0 <= grid_opencl_config.fp32 ? 1 : 0); /* integrate: measured slower (registers) */
   key.centred = grid_opencl_config.centred;
+  key.window = grid_opencl_config.window;
   if (0 > kind) {
     key.engine = grid_opencl_config.engine;
     key.rows = grid_opencl_config.rows;
@@ -256,22 +259,24 @@ static const grid_opencl_kernels_t* grid_opencl_kernels(const int kind, const in
       const int l1 = lmax + imax(ld.la_max_diff, ld.lb_max_diff);
       snprintf(params, sizeof(params),
         "-DGRID_FUNC=%i -DGRID_ORTHO=%i -DNPAB=%i -DNCAB=%i -DLMAX1=%i -DLP1=%i -DTX=%i -DTY=%i -DTZ=%i -DFP32=%i "
-        "-DCENTRED=%i",
-        kind, ortho, ncoset(lmax), ncoset(l1), l1 + 1, 2 * l1 + 1, tile[0], tile[1], tile[2], key.fp32, key.centred);
+        "-DCENTRED=%i -DWINDOW=%i",
+        kind, ortho, ncoset(lmax), ncoset(l1), l1 + 1, 2 * l1 + 1, tile[0], tile[1], tile[2], key.fp32, key.centred,
+        key.window);
     }
     else {
       const int flags = -1 - kind;
       const process_ldiffs ld = process_get_ldiffs(0 != (1 & flags), 0 != (2 & flags), 0 != (4 & flags));
       const int la = lmax + ld.la_max_diff, lb = lmax + ld.lb_max_diff, lp1 = la + lb + 1;
-      const size_t ncoef = (size_t)lp1 * (lp1 + 1) * (lp1 + 2) / 6;
+      const size_t ncoef = (size_t)lp1 * (lp1 + 1) * (lp1 + 2) / 6; /* window: single-precision moments of w' too */
+      const size_t width = sizeof(double) + (0 != key.window && 0 != (3 & flags) ? sizeof(float) : 0);
       int engine = key.engine;
-      while (1 < engine && grid_opencl_config.localmem < sizeof(double) * ncoef * engine + 1024) engine >>= 1;
+      while (1 < engine && grid_opencl_config.localmem < width * ncoef * engine + 1024) engine >>= 1;
       kernels.engine = engine;
       snprintf(params, sizeof(params),
         "-DGRID_ORTHO=%i -DFORCES=%i -DVIRIAL=%i -DTAU=%i -DNPAB=%i -DNCA=%i -DNCB=%i -DLMAX1A=%i -DLMAX1B=%i "
-        "-DLP1=%i -DENGINE=%i -DROWS=%i -DCENTRED=%i",
+        "-DLP1=%i -DENGINE=%i -DROWS=%i -DCENTRED=%i -DWINDOW=%i",
         ortho, 1 & flags, (2 & flags) >> 1, (4 & flags) >> 2, ncoset(lmax), ncoset(la), ncoset(lb), la + 1, lb + 1,
-        lp1, engine, key.rows, key.centred);
+        lp1, engine, key.rows, key.centred, key.window);
     }
     ok = libxstream_opencl_kernel(0 /*source*/, source, name1, params, NULL /*options*/, NULL /*try*/,
       NULL /*try_ok*/, NULL /*exts*/, 0, &kernels.first);
@@ -373,6 +378,10 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
     if (0 != border_mask_list[i]) tl->delegate = 1;
   }
   if (0 != tl->delegate) { /* the CPU backend's task list only for what the device does not handle */
+    if (0 != grid_opencl_config.window) { /* the CPU backend has no window: energy and forces would not match */
+      fprintf(stderr, "ERROR GRID/OpenCL: GRID_WINDOW needs grids without distribution and borders\n");
+      abort();
+    }
     grid_cpu_create_task_list(ortho, ntasks, nlevels, natoms, nkinds, nblocks, block_offsets,
       (const double(*)[3])atom_positions, atom_kinds, basis_sets, level_list, iatom_list, jatom_list, iset_list,
       jset_list, ipgf_list, jpgf_list, border_mask_list, block_num_list, radius_list, (const double(*)[3])rab_list,
@@ -483,6 +492,8 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
       gt[3] = zetp;
       gt[4] = rmax * rmax;
       gt[6] = rmax;
+      /* window: 1 within the radius, 0 at rmax (the margin of the centred model holds values below eps) */
+      gt[7] = (0 != grid_opencl_config.window ? 1.0 / (rmax * rmax - radius_list[i] * radius_list[i]) : 0.0);
       /* Gaussian at most 2^(24-m) of its value at the radius: single precision errs below the truncation */
       gt[5] = LIBXS_MAX(radius_list[i] * radius_list[i] - (24 - grid_opencl_config.fp32) * log(2.0) / zetp, 0.0);
 
@@ -893,6 +904,7 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
     const size_t local = (size_t)kernels->engine;
     const cl_int ntasks = tl->ntasks, nsegs = tl->nsegs;
     const void* const pab = (NULL != pab_blocks ? (const void*)pab_blocks->device_buffer : (const void*)tl->sphi_dev);
+    const int nsets = (0 != grid_opencl_config.window && 0 != flags % 4 ? 2 : 1); /* window: moments of w' too */
     size_t ncoef = 0, global;
     cl_int pab_offset = 0, hab_offset = 0, grid_offset = 0, n[3];
     int result = EXIT_SUCCESS, i, k, level;
@@ -901,7 +913,7 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
       const int lp = tl->lab[2 * i] + ld.la_max_diff + tl->lab[2 * i + 1] + ld.lb_max_diff;
       tl->cinfo[2 * i + 0] = (int)ncoef;
       tl->cinfo[2 * i + 1] = lp;
-      ncoef += ncoset(lp);
+      ncoef += (size_t)nsets * ncoset(lp);
     }
     if (tl->ncoef < ncoef || NULL == tl->coef_dev) {
       if (NULL != tl->coef_dev) {

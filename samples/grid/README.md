@@ -71,7 +71,9 @@ of CP2K uses unless `__NO_OFFLOAD_GRID` is defined. With CMake, `-DCP2K_USE_ACCE
 generates `grid_kernels.h` from the headers in `<grid>/common` into the
 consumer's build tree. A task contributes to the same points as with CP2K's CPU
 backend, or with `GRID_CENTRED=1` to the points within its radius plus one grid
-spacing about the center of the product (fewer, more accurate). Each work-group owns a tile of points and sums the tile's
+spacing about the center of the product (fewer, more accurate). With `GRID_WINDOW=1`, the
+contribution fades out over that margin, so that points do not enter or leave a task's sphere with a step. Forces and
+virial include the terms of the window. Each work-group owns a tile of points and sums the tile's
 tasks in a fixed order, hence the result is reproducible without atomics.
 Integration uses the same model: persistent engines take tasks from a queue and
 give each task lanes by its size; a task's lanes reduce its rows in a fixed order, and each block's part is owned by one work-item, hence
@@ -85,4 +87,5 @@ backend.
 | GRID_ROWS   | `8`     | Rows per lane before a task gets more lanes         |
 | GRID_SLOTS  | `8`     | Engines per compute unit                            |
 | GRID_CENTRED | `0`    | 1: points within radius + h of the product center, else CP2K's rules |
+| GRID_WINDOW | `0`     | 1: weight falling smoothly (C2) from 1 at the radius to 0 at radius + h, implies GRID_CENTRED |
 | GRID_FP32   | `-1`    | Margin (bits) for single precision in the tails of collocation (16 is safe), <0: off |

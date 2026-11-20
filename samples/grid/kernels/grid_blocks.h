@@ -98,6 +98,25 @@ static inline int2 grid_row_range(const int u1, const int u2, const double s0, c
 }
 
 
+/**
+ * Smooth window (WINDOW) of t = (rmax^2 - r^2) / (rmax^2 - radius^2): 1 within the radius of the task, 0 at rmax,
+ * C2 between (quintic in r^2: no sqrt). Single precision: only values below eps (the margin) get a weight below 1.
+ */
+static inline float grid_window(const float t)
+{
+  const float u = fmin(fmax(t, 0.0f), 1.0f);
+  return u * u * u * (10.0f + u * (6.0f * u - 15.0f));
+}
+
+
+/* Derivative dw/dt of the window (0 outside the margin): w'(r) / r = -2 dw/dt / (rmax^2 - radius^2) */
+static inline float grid_window_d(const float t)
+{
+  const float u = fmin(fmax(t, 0.0f), 1.0f), v = 1.0f - u;
+  return 30.0f * u * u * v * v;
+}
+
+
 /* Cube of a polynomial in f0, f1, f2 (index (i * LP1 + j) * LP1 + k), degree d times the linear form l */
 static inline void grid_poly_lin(const int d, const double* p, const double l0, const double l1, const double l2,
   double* q)

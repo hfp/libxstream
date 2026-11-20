@@ -154,10 +154,13 @@ static inline double grid_point(CONSTANT const double* restrict c, const int lp,
  * (table). Inlined with a constant lp (switch), the loops unroll: the runtime loops cost more than the math. */
 static inline void grid_row64(const int lp, CONSTANT const double* restrict c, const double eyz, const int2 rg,
   const double dy, const double dz, const double h0, CONSTANT const double* restrict gx, const double s0,
-  const int x0, const int n0, CONSTANT const int* restrict bt, double* acc)
+  const int x0, const int n0, CONSTANT const int* restrict bt, const double rmax2, const double winv, double* acc)
 {
   double cx[LP1], dx;
   int lx, ly, j, u0, k = 0;
+#if WINDOW
+  const float wc = (float)((rmax2 - dy * dy - dz * dz) * winv), wv = (float)winv; /* t = wc - dx^2 wv */
+#endif
   UNROLL_AUTO for (lx = 0; lx <= lp; ++lx) {
     double sy = 0.0, py = eyz;
     UNROLL_AUTO for (ly = 0; ly <= lp - lx; ++ly) {
@@ -180,6 +183,11 @@ static inline void grid_row64(const int lp, CONSTANT const double* restrict c, c
     if (x0 + j < n0 && rg.x <= u0 && u0 <= rg.y) {
       double p = cx[lp];
       UNROLL_AUTO for (lx = lp - 1; 0 <= lx; --lx) p = p * dx + cx[lx];
+#if WINDOW
+      { const float dxf = (float)dx;
+        p *= (double)grid_window(wc - dxf * dxf * wv);
+      }
+#endif
       acc[j] += gx[u0 - bt[0]] * p;
     }
   }
@@ -189,12 +197,15 @@ static inline void grid_row64(const int lp, CONSTANT const double* restrict c, c
 /* As grid_row64 in single precision (tail): the error of single precision is below the truncation */
 static inline void grid_row32(const int lp, CONSTANT const double* restrict c, const double eyz, const int2 rg,
   const double dy, const double dz, const double h0, CONSTANT const double* restrict gx, const double s0,
-  const int x0, const int n0, CONSTANT const int* restrict bt, double* acc)
+  const int x0, const int n0, CONSTANT const int* restrict bt, const double rmax2, const double winv, double* acc)
 {
   const float dyf = (float)dy, dzf = (float)dz;
   float cx[LP1];
   double dx;
   int lx, ly, j, u0, k = 0;
+#if WINDOW
+  const float wc = (float)((rmax2 - dy * dy - dz * dz) * winv), wv = (float)winv; /* t = wc - dx^2 wv */
+#endif
   UNROLL_AUTO for (lx = 0; lx <= lp; ++lx) {
     float sy = 0.0f, py = (float)eyz;
     UNROLL_AUTO for (ly = 0; ly <= lp - lx; ++ly) {
@@ -218,6 +229,9 @@ static inline void grid_row32(const int lp, CONSTANT const double* restrict c, c
       const float dxf = (float)dx;
       float p = cx[lp];
       UNROLL_AUTO for (lx = lp - 1; 0 <= lx; --lx) p = p * dxf + cx[lx];
+#if WINDOW
+      p *= grid_window(wc - dxf * dxf * wv);
+#endif
       acc[j] += (double)((float)gx[u0 - bt[0]] * p);
     }
   }
@@ -227,11 +241,16 @@ static inline void grid_row32(const int lp, CONSTANT const double* restrict c, c
 /* A row of a general cell: coefficients in lattice coordinates (f = u - s), contracted with f1, f2, then Horner in
  * f0 times the Gaussian along the row by recurrence (|d|^2 is quadratic in u0), restarted where the row wraps. */
 static inline void grid_row_gen(const int lp, CONSTANT const double* restrict c, const int2 rg, const double f1,
-  const double f2, const double s0, const double zetp, const double16 dh, const int x0, const int n0, double* acc)
+  const double f2, const double s0, const double zetp, const double16 dh, const int x0, const int n0,
+  const double rmax2, const double winv, double* acc)
 {
   const double a00 = dh.s0 * dh.s0 + dh.s1 * dh.s1 + dh.s2 * dh.s2, q = exp(-2.0 * zetp * a00);
   const double wx = f1 * dh.s3 + f2 * dh.s6, wy = f1 * dh.s4 + f2 * dh.s7, wz = f1 * dh.s5 + f2 * dh.s8;
+#if WINDOW
+  const float w2 = (float)(2.0 * a00 * winv); /* second difference of t along the row */
+#endif
   double cx[LP1], ex = 0.0, rx = 0.0;
+  float wt = 0.0f, wd = 0.0f; /* window: t along the row and its difference (quadratic in u0) */
   int lx, ly, j, u0, k = 0, have = 0;
   UNROLL_AUTO for (lx = 0; lx <= lp; ++lx) {
     double sy = 0.0, py = 1.0;
@@ -254,15 +273,27 @@ static inline void grid_row_gen(const int lp, CONSTANT const double* restrict c,
         double p = cx[lp];
         if (0 == have) {
           const double dx = f0 * dh.s0 + wx, dy = f0 * dh.s1 + wy, dz = f0 * dh.s2 + wz;
-          ex = exp(-zetp * (dx * dx + dy * dy + dz * dz));
-          rx = exp(-zetp * (2.0 * (dx * dh.s0 + dy * dh.s1 + dz * dh.s2) + a00));
+          const double r2 = dx * dx + dy * dy + dz * dz, dr2 = 2.0 * (dx * dh.s0 + dy * dh.s1 + dz * dh.s2) + a00;
+          ex = exp(-zetp * r2);
+          rx = exp(-zetp * dr2);
+#if WINDOW
+          wt = (float)((rmax2 - r2) * winv);
+          wd = (float)(-dr2 * winv);
+#endif
           have = 1;
         }
         else {
           ex *= rx;
           rx *= q;
+#if WINDOW
+          wt += wd;
+          wd -= w2;
+#endif
         }
         UNROLL_AUTO for (lx = lp - 1; 0 <= lx; --lx) p = p * f0 + cx[lx];
+#if WINDOW
+        p *= (double)grid_window(wt);
+#endif
         acc[j] += ex * p;
       }
       else have = 0;
@@ -273,9 +304,13 @@ static inline void grid_row_gen(const int lp, CONSTANT const double* restrict c,
       if (x0 + j < n0) {
         for (u0 = grid_image(x0 + j, rg.x, n0); u0 <= rg.y; u0 += n0) {
           const double f0 = u0 - s0, dx = f0 * dh.s0 + wx, dy = f0 * dh.s1 + wy, dz = f0 * dh.s2 + wz;
+          const double d2 = dx * dx + dy * dy + dz * dz;
           double p = cx[lp];
           UNROLL_AUTO for (lx = lp - 1; 0 <= lx; --lx) p = p * f0 + cx[lx];
-          acc[j] += exp(-zetp * (dx * dx + dy * dy + dz * dz)) * p;
+#if WINDOW
+          p *= (double)grid_window((float)((rmax2 - d2) * winv));
+#endif
+          acc[j] += exp(-zetp * d2) * p;
         }
       }
     }
@@ -286,18 +321,18 @@ static inline void grid_row_gen(const int lp, CONSTANT const double* restrict c,
 #if 0 == GRID_ORTHO
 #  define GRID_CASE(N) \
     case N: \
-      grid_row_gen(N, c, rg, u1 - s1, u2 - s2, s0, zetp, dh, x0, n0, acc); \
+      grid_row_gen(N, c, rg, u1 - s1, u2 - s2, s0, zetp, dh, x0, n0, rmax2, winv, acc); \
       break;
 #elif FP32
 #  define GRID_CASE(N) \
     case N: \
-      if (0 == tail) grid_row64(N, c, eyz, rg, dy, dz, h0, gx, s0, x0, n0, bt, acc); \
-      else grid_row32(N, c, eyz, rg, dy, dz, h0, gx, s0, x0, n0, bt, acc); \
+      if (0 == tail) grid_row64(N, c, eyz, rg, dy, dz, h0, gx, s0, x0, n0, bt, rmax2, winv, acc); \
+      else grid_row32(N, c, eyz, rg, dy, dz, h0, gx, s0, x0, n0, bt, rmax2, winv, acc); \
       break;
 #else
 #  define GRID_CASE(N) \
     case N: \
-      grid_row64(N, c, eyz, rg, dy, dz, h0, gx, s0, x0, n0, bt, acc); \
+      grid_row64(N, c, eyz, rg, dy, dz, h0, gx, s0, x0, n0, bt, rmax2, winv, acc); \
       break;
 #endif
 
@@ -345,6 +380,7 @@ __kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_ti
       CONSTANT const double* const c = coef + cinfo[2 * t];
       const int lp = cinfo[2 * t + 1]; /* -1: zero coefficients in this call */
       const double s0 = gt[0], s1 = gt[1], s2 = gt[2], zetp = gt[3], rmax = gt[6];
+      const double rmax2 = rmax * rmax, winv = gt[7];
       int u0, u1, u2;
       if (0 <= lp && (0 == GRID_ORTHO || bt[3] - bt[0] < n0)) { /* rows (orthorhombic: along x at most one image) */
 #if GRID_ORTHO
@@ -429,7 +465,14 @@ __kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_ti
                   const double f0 = u0 - s0;
                   const double dx = f0 * dh.s0, dy = f1 * dh.s4, dz = f2 * dh.s8; /* orthorhombic */
                   const double r2 = dx * dx + dy * dy + dz * dz;
+#if WINDOW
+                  if (rg.x <= u0 && u0 <= rg.y) {
+                    const float wt = (float)((rmax2 - r2) * winv);
+                    acc[j] += grid_point(c, lp, zetp, r2, dx, dy, dz) * (double)grid_window(wt);
+                  }
+#else
                   if (rg.x <= u0 && u0 <= rg.y) acc[j] += grid_point(c, lp, zetp, r2, dx, dy, dz);
+#endif
                 }
               }
             }
