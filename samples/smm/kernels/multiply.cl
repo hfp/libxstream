@@ -246,10 +246,10 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
 #endif
 
 #if defined(SLM_A) && (1 != BK || BM < SM || 1 != BN)
-    if (ACTIVE) { /* copy or transpose A-matrix into SLM */
+    { /* copy or transpose A-matrix into SLM: rows depend on SM only, hence all WG items share the copy */
       int m = idx;
-#  if (WRK != SM)
-      UNROLL_AUTO for (; m < SM; m += WRK)
+#  if (WG != SM)
+      UNROLL_AUTO for (; m < SM; m += WG)
 #  endif
       {
         SINT k;
@@ -519,10 +519,9 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
           const T b = ACTIVE ? BNK(idx, k) : ZERO;
           int m; /* also stepped from the work-item index, whose range is WG */
 #    if defined(SLM_A)
-          /* guarded separately from the BARRIER below, which stays collective */
-          if (ACTIVE) {
-#      if (WRK != SM)
-            UNROLL_AUTO for (m = idx; m < SM; m += WRK) amk[m] = ADX(m, k);
+          { /* rows depend on SM only, hence all WG items share the copy (no ACTIVE guard) */
+#      if (WG != SM)
+            UNROLL_AUTO for (m = idx; m < SM; m += WG) amk[m] = ADX(m, k);
 #      else
             amk[idx] = ADX(idx, k);
 #      endif
