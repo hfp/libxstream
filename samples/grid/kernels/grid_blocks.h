@@ -11,8 +11,8 @@
 #define GRID_BLOCKS_H
 
 /* Primitive pab[jco][ico] of a task: sphib^T P sphia, with the block layout of grid_opencl.c */
-static inline void grid_load_pab(__global const double* restrict blocks, __global const double* restrict sphi,
-  __global const int* restrict ti, double* pab, double* w)
+static inline void grid_load_pab(global const double* restrict blocks, global const double* restrict sphi,
+  global const int* restrict ti, double* pab, double* w)
 {
   const int ncoa = ncoset(ti[0]), ncob = ncoset(ti[2]);
   int i, s, t;
@@ -32,8 +32,8 @@ static inline void grid_load_pab(__global const double* restrict blocks, __globa
 }
 
 /* Adds the primitive hab[jco][ico] of a task to its block: sphib hab sphia^T */
-static inline void grid_store_hab(__global double* restrict blocks, __global const double* restrict sphi,
-  __global const int* restrict ti, __global const double* restrict hab, double* w)
+static inline void grid_store_hab(global double* restrict blocks, global const double* restrict sphi,
+  global const int* restrict ti, global const double* restrict hab, double* w)
 {
   const int ncoa = ncoset(ti[0]), ncob = ncoset(ti[2]);
   int s, t;
@@ -202,15 +202,15 @@ static inline void grid_lattice(const int lp, const int lp1, const double16 dh, 
 
 
 /* Gaussian of a task along each axis of its box (orthorhombic): the rows need no exp */
-__kernel void grid_gauss(const int ntasks, __global const double* restrict geo, __global const int* restrict box,
-  __global const double* restrict tdbl, __global const int* restrict gofs, __global double* restrict gauss)
+kernel void grid_gauss(const int ntasks, global const double* restrict geo, global const int* restrict box,
+  global const double* restrict tdbl, global const int* restrict gofs, global double* restrict gauss)
 {
   const int t = (int)get_group_id(0); /* work-group per task, work-item per entry */
   if (t < ntasks) {
-    __global const double* const gt = geo + GRID_OPENCL_NG * t;
-    __global const int* const bt = box + GRID_OPENCL_NB * t;
-    __global const double* const td = tdbl + GRID_OPENCL_ND * t;
-    __global double* const g = gauss + gofs[t];
+    global const double* const gt = geo + GRID_OPENCL_NG * t;
+    global const int* const bt = box + GRID_OPENCL_NB * t;
+    global const double* const td = tdbl + GRID_OPENCL_ND * t;
+    global double* const g = gauss + gofs[t];
     const int n0 = bt[3] - bt[0] + 1, n01 = n0 + bt[4] - bt[1] + 1, n = n01 + bt[5] - bt[2] + 1;
     int o;
     for (o = (int)get_local_id(0); o < n; o += (int)get_local_size(0)) {

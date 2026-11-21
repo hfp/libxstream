@@ -49,7 +49,7 @@ typedef struct {
   int kind; /* function of collocate, or -1 minus the flags of integrate */
   int ortho, lmax, tile[3];
   int engine, rows; /* integrate only */
-  int fp32, centred, window;
+  int fp32, centred, window, sg;
 } grid_opencl_key_t;
 
 typedef struct {
@@ -68,6 +68,7 @@ typedef struct {
   int fp32; /* GRID_FP32: margin in bits below the truncation for single precision in the tails (<0: off) */
   int centred; /* GRID_CENTRED: points within radius + h of rp (else CP2K's rules, as the CPU backend) */
   int window; /* GRID_WINDOW: smooth window over the margin of the centred model (implies GRID_CENTRED) */
+  int sg; /* GRID_SG: sub-group size the main kernels require (0: the compiler's choice) */
   int nunits; /* compute units */
   size_t localmem; /* local memory per work-group */
 } grid_opencl_config_t;
@@ -216,6 +217,20 @@ static void grid_opencl_init(void)
       { const char* const env_fp32 = getenv("GRID_FP32");
         grid_opencl_config.fp32 = (NULL != env_fp32 ? LIBXS_MIN(atoi(env_fp32), 24) : -1);
       }
+      { /* 16 lanes where the device offers them: measured faster than the compiler's choice (SIMD32) */
+        const char* const env_sg = getenv("GRID_SG");
+        size_t sizes[16], nbytes = 0, i;
+        int sg = 0;
+        if (0 != libxstream_opencl_config.device.intel &&
+            EXIT_SUCCESS ==
+              clGetDeviceInfo(device, 0x4108 /*CL_DEVICE_SUB_GROUP_SIZES_INTEL*/, sizeof(sizes), sizes, &nbytes))
+        {
+          for (i = 0; i * sizeof(size_t) < nbytes; ++i) {
+            if (16 == sizes[i]) sg = 16;
+          }
+        }
+        grid_opencl_config.sg = (NULL != env_sg ? LIBXS_MAX(atoi(env_sg), 0) : sg);
+      }
       if (EXIT_SUCCESS != clGetDeviceInfo(device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &nunits, NULL)) {
         nunits = 0;
       }
@@ -242,6 +257,7 @@ static const grid_opencl_kernels_t* grid_opencl_kernels(const int kind, const in
   key.fp32 = (0 <= kind && 0 <= grid_opencl_config.fp32 ? 1 : 0); /* integrate: measured slower (registers) */
   key.centred = grid_opencl_config.centred;
   key.window = grid_opencl_config.window;
+  key.sg = grid_opencl_config.sg;
   if (0 > kind) {
     key.engine = grid_opencl_config.engine;
     key.rows = grid_opencl_config.rows;
@@ -259,9 +275,9 @@ static const grid_opencl_kernels_t* grid_opencl_kernels(const int kind, const in
       const int l1 = lmax + imax(ld.la_max_diff, ld.lb_max_diff);
       snprintf(params, sizeof(params),
         "-DGRID_FUNC=%i -DGRID_ORTHO=%i -DNPAB=%i -DNCAB=%i -DLMAX1=%i -DLP1=%i -DTX=%i -DTY=%i -DTZ=%i -DFP32=%i "
-        "-DCENTRED=%i -DWINDOW=%i",
+        "-DCENTRED=%i -DWINDOW=%i -DINTEL=%i -DSG=%i",
         kind, ortho, ncoset(lmax), ncoset(l1), l1 + 1, 2 * l1 + 1, tile[0], tile[1], tile[2], key.fp32, key.centred,
-        key.window);
+        key.window, (int)(0 != libxstream_opencl_config.device.intel), key.sg);
     }
     else {
       const int flags = -1 - kind;
@@ -274,9 +290,9 @@ static const grid_opencl_kernels_t* grid_opencl_kernels(const int kind, const in
       kernels.engine = engine;
       snprintf(params, sizeof(params),
         "-DGRID_ORTHO=%i -DFORCES=%i -DVIRIAL=%i -DTAU=%i -DNPAB=%i -DNCA=%i -DNCB=%i -DLMAX1A=%i -DLMAX1B=%i "
-        "-DLP1=%i -DENGINE=%i -DROWS=%i -DCENTRED=%i -DWINDOW=%i",
+        "-DLP1=%i -DENGINE=%i -DROWS=%i -DCENTRED=%i -DWINDOW=%i -DINTEL=%i -DSG=%i",
         ortho, 1 & flags, (2 & flags) >> 1, (4 & flags) >> 2, ncoset(lmax), ncoset(la), ncoset(lb), la + 1, lb + 1,
-        lp1, engine, key.rows, key.centred, key.window);
+        lp1, engine, key.rows, key.centred, key.window, (int)(0 != libxstream_opencl_config.device.intel), key.sg);
     }
     ok = libxstream_opencl_kernel(0 /*source*/, source, name1, params, NULL /*options*/, NULL /*try*/,
       NULL /*try_ok*/, NULL /*exts*/, 0, &kernels.first);

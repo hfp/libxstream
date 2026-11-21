@@ -15,11 +15,6 @@
 #include "grid_cab_cxyz.h"
 #include "grid_blocks.h"
 
-/* address space of the read-only tables in the hot loops (global or constant) */
-#if !defined(CONSTANT)
-#  define CONSTANT global
-#endif
-
 
 static inline void cab_add(cab_store* cab, const orbital a, const orbital b, const double value)
 {
@@ -28,15 +23,15 @@ static inline void cab_add(cab_store* cab, const orbital a, const orbital b, con
 
 
 /* C_xyz of a task about the center of the product, triangular (lx, ly, lz ascending) */
-__kernel void grid_collocate_coef(const int ntasks, __global const double* restrict pab_blocks,
-  const int pab_offset, __global const double* restrict sphi, __global const int* restrict tint,
-  __global const double* restrict tdbl, __global int* restrict cinfo,
-  __global double* restrict coef, __global const double16* restrict ldh)
+kernel REQD_SG void grid_collocate_coef(const int ntasks, global const double* restrict pab_blocks,
+  const int pab_offset, global const double* restrict sphi, global const int* restrict tint,
+  global const double* restrict tdbl, global int* restrict cinfo,
+  global double* restrict coef, global const double16* restrict ldh)
 {
   const int itask = (int)get_global_id(0);
   if (itask < ntasks) {
-    __global const int* const ti = tint + GRID_OPENCL_NI * itask;
-    __global const double* const td = tdbl + GRID_OPENCL_ND * itask;
+    global const int* const ti = tint + GRID_OPENCL_NI * itask;
+    global const double* const td = tdbl + GRID_OPENCL_ND * itask;
     const int la_max = ti[0], la_min = ti[1], lb_max = ti[2], lb_min = ti[3];
     const prepare_ldiffs ld = prepare_get_ldiffs((enum grid_func)GRID_FUNC);
     const int la_max_cab = la_max + ld.la_max_diff, lb_max_cab = lb_max + ld.lb_max_diff;
@@ -49,7 +44,7 @@ __kernel void grid_collocate_coef(const int ntasks, __global const double* restr
     double pab[NPAB * NPAB], w[NPAB], cabd[NCAB * NCAB];
     double alpha[3 * LMAX1 * LMAX1 * LP1], cxyz[LP1 * LP1 * LP1], tx[LP1], txy[LP1 * LP1];
     double ra[3], rb[3], rp[3];
-    __global double* const c = coef + cinfo[2 * itask];
+    global double* const c = coef + cinfo[2 * itask];
     cab_store cab;
     int i, lxa, lxb, lya, lyb, lza, lzb, lx, ly, lz, n = 0, nonzero = 0;
     grid_load_pab(pab_blocks + pab_offset, sphi, ti, pab, w);
@@ -339,7 +334,7 @@ static inline void grid_row_gen(const int lp, CONSTANT const double* restrict c,
 /* Position of a tile of the level (tiles ordered x fastest) */
 static inline void grid_tile_origin(const int tile, const int n0, const int n1, int* x0, int* y0, int* z0)
 {
-  const int ntx = (n0 + TX - 1) / TX, nty = (n1 + TY - 1) / TY;
+  const int ntx = DIVUP(n0, TX), nty = DIVUP(n1, TY);
   *x0 = (tile % ntx) * TX;
   *y0 = ((tile / ntx) % nty) * TY;
   *z0 = (tile / (ntx * nty)) * TZ;
@@ -351,14 +346,14 @@ static inline void grid_tile_origin(const int tile, const int n0, const int n1, 
  * and the order of the chunk fixes the sum. A tile of a single chunk writes the grid, else its chunks write
  * partial tiles which grid_collocate_reduce sums in chunk order (deterministic).
  */
-__kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_tile(
+kernel __attribute__((reqd_work_group_size(1, TY, TZ))) REQD_SG void grid_collocate_tile(
   const int n0, const int n1, const int n2, const double16 dh, const double16 dhi, const int unit_base,
-  __global const int* restrict unit_tile, __global const int* restrict unit_start,
-  __global const int* restrict unit_slot, __global const int* restrict tile_task,
+  global const int* restrict unit_tile, global const int* restrict unit_start,
+  global const int* restrict unit_slot, global const int* restrict tile_task,
   CONSTANT const double* restrict geo, CONSTANT const int* restrict box,
   CONSTANT const int* restrict cinfo, CONSTANT const double* restrict coef,
-  __global double* restrict grid, const int grid_offset, CONSTANT const double* restrict gauss,
-  CONSTANT const int* restrict gofs, __global double* restrict partial)
+  global double* restrict grid, const int grid_offset, CONSTANT const double* restrict gauss,
+  CONSTANT const int* restrict gofs, global double* restrict partial)
 {
   const int unit = unit_base + (int)get_group_id(0), ly = (int)get_local_id(1), lz = (int)get_local_id(2);
   const int slot = unit_slot[unit];
@@ -485,7 +480,7 @@ __kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_ti
       }
     }
     else {
-      __global double* const p = partial + ((size_t)slot * TZ + lz) * TY * TX + ly * TX;
+      global double* const p = partial + ((size_t)slot * TZ + lz) * TY * TX + ly * TX;
       UNROLL_AUTO for (j = 0; j < TX; ++j) p[j] = acc[j];
     }
   }
@@ -493,10 +488,10 @@ __kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_ti
 
 
 /* Sums the partial tiles of a tile in chunk order */
-__kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_reduce(
-  const int n0, const int n1, const int n2, const int red_base, __global const int* restrict red_tile,
-  __global const int* restrict red_slot, __global const int* restrict red_n, __global const double* restrict partial,
-  __global double* restrict grid, const int grid_offset)
+kernel __attribute__((reqd_work_group_size(1, TY, TZ))) void grid_collocate_reduce(
+  const int n0, const int n1, const int n2, const int red_base, global const int* restrict red_tile,
+  global const int* restrict red_slot, global const int* restrict red_n, global const double* restrict partial,
+  global double* restrict grid, const int grid_offset)
 {
   const int r = red_base + (int)get_group_id(0), ly = (int)get_local_id(1), lz = (int)get_local_id(2);
   const int first = red_slot[r], n = red_n[r];

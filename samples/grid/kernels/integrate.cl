@@ -56,8 +56,8 @@ static inline int grid_width(const int nitems)
  * lp (switch), the loops unroll and the arrays stay in registers: a runtime bound puts them on the stack. */
 static inline void grid_item(const int r, const int lp, const int n0, const int n1, const int n2,
   const double16 dh, const double16 dhi, const double s0, const double s1, const double s2, const double zetp,
-  const double rmax, const double winv, __global const double* restrict gx, __global const int* restrict bt,
-  __global const double* restrict grid, __local double* restrict part, __local float* restrict partu)
+  const double rmax, const double winv, global const double* restrict gx, global const int* restrict bt,
+  global const double* restrict grid, local double* restrict part, local float* restrict partu)
 {
   const int ny = bt[4] - bt[1] + 1;
   double m[LP1], ty[LP1], tz[LP1];
@@ -70,9 +70,9 @@ static inline void grid_item(const int r, const int lp, const int n0, const int 
   const double h0 = dh.s0, dy = (u1 - s1) * dh.s4, dz = (u2 - s2) * dh.s8;
   const int2 rg = grid_row_range(u1, u2, s0, s1, s2, rmax, bt[6], bt[7], bt[8], dh, dhi);
   if (rg.x <= rg.y) {
-    __global const double* const row = grid + ((size_t)grid_wrap(u2, n2) * n1 + grid_wrap(u1, n1)) * n0;
-    __global const double* const gy = gx + (bt[3] - bt[0] + 1);
-    __global const double* const gz = gy + (bt[4] - bt[1] + 1);
+    global const double* const row = grid + ((size_t)grid_wrap(u2, n2) * n1 + grid_wrap(u1, n1)) * n0;
+    global const double* const gy = gx + (bt[3] - bt[0] + 1);
+    global const double* const gz = gy + (bt[4] - bt[1] + 1);
     double py = gy[u1 - bt[1]] * gz[u2 - bt[2]], pz = 1.0;
     int u0, g = grid_wrap(rg.x, n0);
     double dx = (rg.x - s0) * h0;
@@ -125,7 +125,7 @@ static inline void grid_item(const int r, const int lp, const int n0, const int 
   const int2 rg = grid_row_range(u1, u2, s0, s1, s2, rmax, bt[6], bt[7], bt[8], dh, dhi);
   (void)gx; /* no tables: the Gaussian of a general cell does not factor along the axes */
   if (rg.x <= rg.y) { /* lattice moments along the row, the Gaussian by recurrence (|d|^2 is quadratic in u0) */
-    __global const double* const row = grid + ((size_t)grid_wrap(u2, n2) * n1 + grid_wrap(u1, n1)) * n0;
+    global const double* const row = grid + ((size_t)grid_wrap(u2, n2) * n1 + grid_wrap(u1, n1)) * n0;
     const double f1 = u1 - s1, f2 = u2 - s2, a00 = dh.s0 * dh.s0 + dh.s1 * dh.s1 + dh.s2 * dh.s2;
     const double wx = f1 * dh.s3 + f2 * dh.s6, wy = f1 * dh.s4 + f2 * dh.s7, wz = f1 * dh.s5 + f2 * dh.s8;
     const double q = exp(-2.0 * zetp * a00);
@@ -217,23 +217,23 @@ static inline void grid_item(const int r, const int lp, const int n0, const int 
  * fixed way and their partial sums are combined in lane order, so the result does not depend
  * on which engine took the task: the queue decides who, never how (deterministic).
  */
-__kernel __attribute__((reqd_work_group_size(ENGINE, 1, 1))) void grid_integrate_coef(
+kernel __attribute__((reqd_work_group_size(ENGINE, 1, 1))) REQD_SG void grid_integrate_coef(
   const int n0, const int n1, const int n2, const double16 dh, const double16 dhi, const int task_base,
-  const int ntasks, __global const int* restrict level_task, __global const double* restrict geo,
-  __global const int* restrict box, __global const int* restrict cinfo,
-  __global const double* restrict grid, const int grid_offset, __global double* restrict coef,
-  __global int* restrict queue, __global const double* restrict gauss, __global const int* restrict gofs)
+  const int ntasks, global const int* restrict level_task, global const double* restrict geo,
+  global const int* restrict box, global const int* restrict cinfo,
+  global const double* restrict grid, const int grid_offset, global double* restrict coef,
+  global int* restrict queue, global const double* restrict gauss, global const int* restrict gofs)
 {
-  __local double part[ENGINE * NCOEF];
+  local double part[ENGINE * NCOEF];
 #if WU
-  __local float part_u[ENGINE * NCOEF];
-  __local float* const mineu = part_u + (int)get_local_id(0) * NCOEF;
+  local float part_u[ENGINE * NCOEF];
+  local float* const mineu = part_u + (int)get_local_id(0) * NCOEF;
 #else
-  __local float* const mineu = NULL;
+  local float* const mineu = NULL;
 #endif
-  __local int chunk_task[ENGINE], chunk_width[ENGINE], chunk_base;
+  local int chunk_task[ENGINE], chunk_width[ENGINE], chunk_base;
   const int lane = (int)get_local_id(0);
-  __local double* const mine = part + lane * NCOEF;
+  local double* const mine = part + lane * NCOEF;
   int offset = 0, mytask = -1, myoff = 0, myw = 0, k;
   for (k = 0; k < NCOEF; ++k) mine[k] = 0.0;
 #if WU
@@ -247,7 +247,7 @@ __kernel __attribute__((reqd_work_group_size(ENGINE, 1, 1))) void grid_integrate
     n = max(0, min(ENGINE, ntasks - chunk_base));
     if (lane < n) {
       const int t = level_task[task_base + chunk_base + lane];
-      __global const int* const bt = box + GRID_OPENCL_NB * t;
+      global const int* const bt = box + GRID_OPENCL_NB * t;
       chunk_task[lane] = t;
       chunk_width[lane] = grid_width((bt[4] - bt[1] + 1) * (bt[5] - bt[2] + 1));
     }
@@ -257,8 +257,8 @@ __kernel __attribute__((reqd_work_group_size(ENGINE, 1, 1))) void grid_integrate
       const int at = (offset + w - 1) & ~(w - 1);
       if (j < n ? (ENGINE < at + w) : (0 == n && 0 < offset)) { /* run the pack: full, or the queue is empty */
         if (0 <= mytask) {
-          __global const double* const gt = geo + GRID_OPENCL_NG * mytask;
-          __global const int* const bt = box + GRID_OPENCL_NB * mytask;
+          global const double* const gt = geo + GRID_OPENCL_NG * mytask;
+          global const int* const bt = box + GRID_OPENCL_NB * mytask;
           const int lp = cinfo[2 * mytask + 1];
               const int nitems = (bt[4] - bt[1] + 1) * (bt[5] - bt[2] + 1);
           int r;
@@ -317,7 +317,7 @@ __kernel __attribute__((reqd_work_group_size(ENGINE, 1, 1))) void grid_integrate
         barrier(CLK_LOCAL_MEM_FENCE);
         if (0 <= mytask) {
           const int lp = cinfo[2 * mytask + 1], nc = (lp + 1) * (lp + 2) * (lp + 3) / 6;
-          __global double* const c = coef + cinfo[2 * mytask];
+          global double* const c = coef + cinfo[2 * mytask];
           for (k = lane - myoff; k < nc; k += myw) {
             double sum = 0.0;
             int l;
@@ -354,7 +354,7 @@ __kernel __attribute__((reqd_work_group_size(ENGINE, 1, 1))) void grid_integrate
 
 
 /* Cartesian moments (cube of stride lp1) from the triangular moments of a task (general cells: lattice moments) */
-static inline void grid_moments(const int lp, const int lp1, __global const double* restrict c, const double16 dh,
+static inline void grid_moments(const int lp, const int lp1, global const double* restrict c, const double16 dh,
   double* cxyz)
 {
   int i, lx, ly, lz, n = 0;
@@ -381,18 +381,19 @@ static inline void grid_moments(const int lp, const int lp1, __global const doub
 
 
 /* One work-item per task: cab, the primitive hab, forces and virial into the task's scratch */
-__kernel void grid_integrate_task(const int ntasks, __global const double* restrict pab_blocks, const int pab_offset,
-  __global const double* restrict sphi, __global const int* restrict tint, __global const double* restrict tdbl,
-  __global const int* restrict cinfo, __global const double* restrict coef, __global const int* restrict hoff,
-  __global double* restrict hab_task, __global double* restrict fv_task, __global const double16* restrict ldh)
+kernel REQD_SG void grid_integrate_task(const int ntasks, global const double* restrict pab_blocks,
+  const int pab_offset, global const double* restrict sphi, global const int* restrict tint,
+  global const double* restrict tdbl, global const int* restrict cinfo, global const double* restrict coef,
+  global const int* restrict hoff, global double* restrict hab_task, global double* restrict fv_task,
+  global const double16* restrict ldh)
 {
   const int t = (int)get_global_id(0);
   if (t < ntasks) {
     const process_ldiffs ld = process_get_ldiffs(0 != FORCES, 0 != VIRIAL, 0 != TAU);
-    __global const int* const ti = tint + GRID_OPENCL_NI * t;
-    __global const double* const td = tdbl + GRID_OPENCL_ND * t;
-    __global const double* const c = coef + cinfo[2 * t];
-    __global double* const hab = hab_task + hoff[t];
+    global const int* const ti = tint + GRID_OPENCL_NI * t;
+    global const double* const td = tdbl + GRID_OPENCL_ND * t;
+    global const double* const c = coef + cinfo[2 * t];
+    global double* const hab = hab_task + hoff[t];
     const int la_max = ti[0], la_min = ti[1], lb_max = ti[2], lb_min = ti[3];
     const int la_max_local = la_max + ld.la_max_diff, lb_max_local = lb_max + ld.lb_max_diff;
     const int la_min_local = imax(0, la_min + ld.la_min_diff);
@@ -510,7 +511,7 @@ __kernel void grid_integrate_task(const int ntasks, __global const double* restr
     }
 #endif
     if (0 != FORCES || 0 != VIRIAL) {
-      __global double* const fv = fv_task + 24 * (size_t)t;
+      global double* const fv = fv_task + 24 * (size_t)t;
       for (i = 0; i < 6; ++i) fv[i] = f[i];
       for (i = 0; i < 9; ++i) {
         fv[6 + i] = va[i];
@@ -523,11 +524,11 @@ __kernel void grid_integrate_task(const int ntasks, __global const double* restr
 
 /* One work-item per segment (tasks of one block and set pair): it owns that part of the
  * block, adds the tasks in order, and sums their forces and virial in order as well. */
-__kernel void grid_integrate_hab(const int nsegs, __global const int* restrict seg_start,
-  __global const int* restrict seg_task, __global const double* restrict sphi, __global const int* restrict tint,
-  __global const int* restrict hoff, __global const double* restrict hab_task,
-  __global const double* restrict fv_task, __global double* restrict hab_blocks, const int hab_offset,
-  __global double* restrict fv)
+kernel void grid_integrate_hab(const int nsegs, global const int* restrict seg_start,
+  global const int* restrict seg_task, global const double* restrict sphi, global const int* restrict tint,
+  global const int* restrict hoff, global const double* restrict hab_task,
+  global const double* restrict fv_task, global double* restrict hab_blocks, const int hab_offset,
+  global double* restrict fv)
 {
   const int iseg = (int)get_global_id(0);
   if (iseg < nsegs) {

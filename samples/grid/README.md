@@ -88,4 +88,5 @@ backend.
 | GRID_SLOTS  | `8`     | Engines per compute unit                            |
 | GRID_CENTRED | `0`    | 1: points within radius + h of the product center, else CP2K's rules |
 | GRID_WINDOW | `0`     | 1: weight falling smoothly (C2) from 1 at the radius to 0 at radius + h, implies GRID_CENTRED |
+| GRID_SG     | auto    | Sub-group size of the main kernels (0: the compiler's choice), default: 16 where offered |
 | GRID_FP32   | `-1`    | Margin (bits) for single precision in the tails of collocation (16 is safe), <0: off |
