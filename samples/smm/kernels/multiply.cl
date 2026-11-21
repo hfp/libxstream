@@ -87,14 +87,10 @@
 #define VM (SM % UM)
 
 /**
- * A work-group within one sub-group skips its barriers only on a GPU, whose
- * sub-group runs in lockstep. OpenCL does not promise lockstep: a CPU runtime may
- * run the work-items one after another between barriers, and would then read
- * local memory before the other work-items have written it.
+ * The barriers below stay even if the work-group is a single sub-group: OpenCL
+ * promises no lockstep, and without a barrier a compiler may move reads of local
+ * memory ahead of other work-items' writes (seen, e.g., with 5x7x5 and BK=1).
  */
-#if (MAX(1, SG) < WG) || !defined(GPU) || (0 == GPU)
-#  define SYNC_WG
-#endif
 
 
 __attribute__((reqd_work_group_size(WG, 1, 1))) REQD_SG
@@ -207,7 +203,7 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
     }
   }
 #  endif
-#  if defined(BARRIER) && defined(SYNC_WG) && (defined(SLM_C) || defined(SLM_P))
+#  if defined(BARRIER) && (defined(SLM_C) || defined(SLM_P))
   BARRIER(CLK_LOCAL_MEM_FENCE);
 #  endif
 #  if defined(SLM_P)
@@ -300,7 +296,7 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
     }
 #endif
 
-#if defined(BARRIER) && defined(SYNC_WG) && \
+#if defined(BARRIER) && \
   (defined(SLM_B) || ((1 != BK || BM < SM || 1 != BN) && defined(SLM_A)))
     /* finish transpose/copy */
     BARRIER(CLK_LOCAL_MEM_FENCE);
@@ -531,7 +527,7 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
             UNROLL_FORCE(SM) for (m = 0; m < SM; ++m) amk[m] = ADX(m, k);
           }
 #    endif
-#    if defined(BARRIER) && defined(SYNC_WG) && defined(SLM_A)
+#    if defined(BARRIER) && defined(SLM_A)
           BARRIER(CLK_LOCAL_MEM_FENCE);
 #    endif
 #    if (!defined(GPU) || (0 != GPU)) && !defined(SLM_A) && !defined(REG_A) && (WRK == SM) && \
@@ -556,7 +552,7 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
             }
           }
 #    endif
-#    if defined(BARRIER) && defined(SYNC_WG) && defined(SLM_A)
+#    if defined(BARRIER) && defined(SLM_A)
           BARRIER(CLK_LOCAL_MEM_FENCE);
 #    endif
         }
@@ -738,7 +734,7 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
       c0 = c1;
     }
 #endif
-#if defined(BARRIER) && defined(SYNC_WG) && defined(SLM_A) && (BM <= SM || 1 != BN || 1 != BK)
+#if defined(BARRIER) && defined(SLM_A) && (BM <= SM || 1 != BN || 1 != BK)
     BARRIER(CLK_LOCAL_MEM_FENCE);
 #endif
   }
