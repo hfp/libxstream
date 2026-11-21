@@ -89,7 +89,8 @@ typedef struct {
 typedef struct {
   grid_cpu_task_list* cpu; /* distributed grids and border tasks (CPU backend), NULL otherwise */
   int tile[3];
-  offloadStream_t stream;
+  offloadStream_t stream, copy; /* kernels, and the transfers overlapping them */
+  offloadEvent_t* event; /* per level: grid computed or uploaded; the last one: pab uploaded or hab computed */
   grid_opencl_level_t* levels;
   int ntasks, nlevels, natoms, ortho, lmax, delegate, nsegs;
   int *lab, *cinfo; /* host: la_max and lb_max per task, coefficient offset and lp per task */
@@ -696,6 +697,10 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
       tl->seg_atoms[3 * i + 2] = (iatom_list[t] == jatom_list[t] ? 1 : 0);
     }
     offloadStreamCreate(&tl->stream);
+    offloadStreamCreate(&tl->copy);
+    tl->event = (offloadEvent_t*)malloc(sizeof(offloadEvent_t) * (nlevels + 1));
+    assert(NULL != tl->event);
+    for (level = 0; level <= nlevels; ++level) offloadEventCreate(&tl->event[level]);
     tl->level_task_dev = (int*)grid_opencl_upload(tl->stream, level_task, sizeof(int) * ntasks);
     tl->seg_start_dev = (int*)grid_opencl_upload(tl->stream, seg_start, sizeof(int) * (tl->nsegs + 1));
     tl->seg_task_dev = (int*)grid_opencl_upload(tl->stream, seg_key, sizeof(int) * ntasks);
@@ -897,6 +902,7 @@ void grid_gpu_free_task_list(grid_gpu_task_list* ptr)
   if (NULL != tl) {
     grid_cpu_free_task_list(tl->cpu);
     if (NULL != tl->stream) {
+      int level;
       offloadStreamSynchronize(tl->stream);
       offload_mempool_device_free(tl->tint_dev);
       offload_mempool_device_free(tl->tdbl_dev);
@@ -932,6 +938,10 @@ void grid_gpu_free_task_list(grid_gpu_task_list* ptr)
       if (NULL != tl->hab_task_dev) offload_mempool_device_free(tl->hab_task_dev);
       if (NULL != tl->fv_task_dev) offload_mempool_device_free(tl->fv_task_dev);
       if (NULL != tl->coef_dev) offload_mempool_device_free(tl->coef_dev);
+      offloadStreamSynchronize(tl->copy);
+      for (level = 0; level <= tl->nlevels; ++level) offloadEventDestroy(tl->event[level]);
+      free(tl->event);
+      offloadStreamDestroy(tl->copy);
       offloadStreamDestroy(tl->stream);
     }
     free(tl->lab);
@@ -1033,12 +1043,15 @@ void grid_gpu_collocate_task_list(const grid_gpu_task_list* ptr, const enum grid
         result |= clSetKernelArg(kernels->third, 9, sizeof(cl_int), &grid_offset);
         result |= libxstream_opencl_launch_work(stream, kernels->third, 3, NULL, global, local, 0, NULL, NULL, 0, 0);
       }
-      if (grids[level]->host_buffer != grids[level]->device_buffer) {
+      if (grids[level]->host_buffer != grids[level]->device_buffer) { /* goes back while the next level computes */
+        offloadEventRecord(tl->event[level], tl->stream);
+        offloadStreamWaitEvent(tl->copy, tl->event[level]);
         offloadMemcpyAsyncDtoH(grids[level]->host_buffer, grids[level]->device_buffer,
-          sizeof(double) * (size_t)n[0] * n[1] * n[2], tl->stream);
+          sizeof(double) * (size_t)n[0] * n[1] * n[2], tl->copy);
       }
     }
     offloadStreamSynchronize(tl->stream);
+    offloadStreamSynchronize(tl->copy);
     if (EXIT_SUCCESS != result) {
       fprintf(stderr, "ERROR GRID/OpenCL: collocation failed\n");
       abort();
@@ -1070,6 +1083,7 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
     const cl_int ntasks = tl->ntasks, nsegs = tl->nsegs;
     const void* const pab = (NULL != pab_blocks ? (const void*)pab_blocks->device_buffer : (const void*)tl->sphi_dev);
     const int nsets = (0 != grid_opencl_config.window && 0 != flags % 4 ? 2 : 1); /* window: moments of w' too */
+    const int pab_copy = (NULL != pab_blocks && 0 != flags % 4 && pab_blocks->host_buffer != pab_blocks->device_buffer);
     size_t ncoef = 0, global;
     cl_int pab_offset = 0, hab_offset = 0, grid_offset = 0, n[3];
     int result = EXIT_SUCCESS, i, level;
@@ -1084,8 +1098,17 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
       tl->coef_dev = grid_opencl_malloc(sizeof(double) * (0 < ncoef ? ncoef : 1));
       tl->ncoef = ncoef;
     }
-    if (NULL != pab_blocks && 0 != flags % 4 && pab_blocks->host_buffer != pab_blocks->device_buffer) {
-      offloadMemcpyAsyncHtoD(pab_blocks->device_buffer, pab_blocks->host_buffer, pab_blocks->size, tl->stream);
+    for (level = 0; level < nlevels; ++level) { /* uploads in level order: the engines of a level wait for its grid */
+      const grid_opencl_level_t* const lv = &tl->levels[level];
+      if (grids[level]->host_buffer != grids[level]->device_buffer) {
+        offloadMemcpyAsyncHtoD(grids[level]->device_buffer, grids[level]->host_buffer,
+          sizeof(double) * (size_t)lv->npts[0] * lv->npts[1] * lv->npts[2], tl->copy);
+        offloadEventRecord(tl->event[level], tl->copy);
+      }
+    }
+    if (0 != pab_copy) { /* needed by the task kernel only (after the engines) */
+      offloadMemcpyAsyncHtoD(pab_blocks->device_buffer, pab_blocks->host_buffer, pab_blocks->size, tl->copy);
+      offloadEventRecord(tl->event[nlevels], tl->copy);
     }
     result |= grid_opencl_gauss(tl, kernels);
     for (level = 0; level < nlevels; ++level) {
@@ -1093,10 +1116,6 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
       const cl_int task_base = tl->level_start[level], nlevel = tl->level_start[level + 1] - task_base;
       const int nengines = imin(grid_opencl_config.slots * grid_opencl_config.nunits, nlevel);
       for (i = 0; i < 3; ++i) n[i] = lv->npts[i];
-      if (grids[level]->host_buffer != grids[level]->device_buffer) {
-        offloadMemcpyAsyncHtoD(grids[level]->device_buffer, grids[level]->host_buffer,
-          sizeof(double) * (size_t)n[0] * n[1] * n[2], tl->stream);
-      }
       result |= clSetKernelArg(kernels->first, 0, sizeof(cl_int), &n[0]);
       result |= clSetKernelArg(kernels->first, 1, sizeof(cl_int), &n[1]);
       result |= clSetKernelArg(kernels->first, 2, sizeof(cl_int), &n[2]);
@@ -1115,6 +1134,7 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
       result |= grid_opencl_arg(kernels->first, 15, tl->gauss_dev, NULL);
       result |= grid_opencl_arg(kernels->first, 16, tl->gofs_dev, NULL);
       global = (size_t)nengines * local; /* persistent engines: the queue distributes the tasks */
+      if (grids[level]->host_buffer != grids[level]->device_buffer) offloadStreamWaitEvent(tl->stream, tl->event[level]);
       if (0 < global) {
         offloadMemsetAsync(tl->queue_dev, 0, sizeof(int), tl->stream);
         result |= libxstream_opencl_launch_work(stream, kernels->first, 1, NULL, &global, &local, 0, NULL, NULL, 0, 0);
@@ -1140,6 +1160,7 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
       result |= grid_opencl_arg(kernels->second, 10, fv_task, NULL);
       result |= grid_opencl_arg(kernels->second, 11, tl->ldh_dev, NULL);
       global = (size_t)ntasks;
+      if (0 != pab_copy) offloadStreamWaitEvent(tl->stream, tl->event[nlevels]);
       result |= libxstream_opencl_launch_work(stream, kernels->second, 1, NULL, &global, NULL, 0, NULL, NULL, 0, 0);
       result |= clSetKernelArg(kernels->third, 0, sizeof(cl_int), &nsegs);
       result |= grid_opencl_arg(kernels->third, 1, tl->seg_start_dev, NULL);
@@ -1154,24 +1175,27 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
       result |= grid_opencl_arg(kernels->third, 10, tl->fv_dev, NULL);
       global = (size_t)nsegs;
       result |= libxstream_opencl_launch_work(stream, kernels->third, 1, NULL, &global, NULL, 0, NULL, NULL, 0, 0);
-      if (0 != flags % 4) { /* forces per atom and the virial on the device: 3 natoms + 9 values come back */
-        const cl_int natoms = tl->natoms;
-        result |= clSetKernelArg(kernels->fourth, 0, sizeof(cl_int), &natoms);
-        result |= clSetKernelArg(kernels->fourth, 1, sizeof(cl_int), &nsegs);
-        result |= grid_opencl_arg(kernels->fourth, 2, tl->atom_start_dev, NULL);
-        result |= grid_opencl_arg(kernels->fourth, 3, tl->atom_seg_dev, NULL);
-        result |= grid_opencl_arg(kernels->fourth, 4, tl->seg_atoms_dev, NULL);
-        result |= grid_opencl_arg(kernels->fourth, 5, tl->fv_dev, NULL);
-        result |= grid_opencl_arg(kernels->fourth, 6, tl->fvat_dev, NULL);
-        global = (size_t)natoms + 9;
-        result |= libxstream_opencl_launch_work(stream, kernels->fourth, 1, NULL, &global, NULL, 0, NULL, NULL, 0, 0);
-        offloadMemcpyAsyncDtoH(tl->fv, tl->fvat_dev, sizeof(double) * (3 * (size_t)tl->natoms + 9), tl->stream);
-      }
     }
-    if (0 < hab_blocks->size && hab_blocks->host_buffer != hab_blocks->device_buffer) {
-      offloadMemcpyAsyncDtoH(hab_blocks->host_buffer, hab_blocks->device_buffer, hab_blocks->size, tl->stream);
+    if (0 < hab_blocks->size && hab_blocks->host_buffer != hab_blocks->device_buffer) { /* while forces are summed */
+      offloadEventRecord(tl->event[nlevels], tl->stream);
+      offloadStreamWaitEvent(tl->copy, tl->event[nlevels]);
+      offloadMemcpyAsyncDtoH(hab_blocks->host_buffer, hab_blocks->device_buffer, hab_blocks->size, tl->copy);
+    }
+    if (0 < ntasks && 0 != flags % 4) { /* forces per atom and the virial on the device: 3 natoms + 9 values come back */
+      const cl_int natoms = tl->natoms;
+      result |= clSetKernelArg(kernels->fourth, 0, sizeof(cl_int), &natoms);
+      result |= clSetKernelArg(kernels->fourth, 1, sizeof(cl_int), &nsegs);
+      result |= grid_opencl_arg(kernels->fourth, 2, tl->atom_start_dev, NULL);
+      result |= grid_opencl_arg(kernels->fourth, 3, tl->atom_seg_dev, NULL);
+      result |= grid_opencl_arg(kernels->fourth, 4, tl->seg_atoms_dev, NULL);
+      result |= grid_opencl_arg(kernels->fourth, 5, tl->fv_dev, NULL);
+      result |= grid_opencl_arg(kernels->fourth, 6, tl->fvat_dev, NULL);
+      global = (size_t)natoms + 9;
+      result |= libxstream_opencl_launch_work(stream, kernels->fourth, 1, NULL, &global, NULL, 0, NULL, NULL, 0, 0);
+      offloadMemcpyAsyncDtoH(tl->fv, tl->fvat_dev, sizeof(double) * (3 * (size_t)tl->natoms + 9), tl->stream);
     }
     offloadStreamSynchronize(tl->stream);
+    offloadStreamSynchronize(tl->copy);
     if (EXIT_SUCCESS != result) {
       fprintf(stderr, "ERROR GRID/OpenCL: integration failed\n");
       abort();
