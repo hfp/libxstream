@@ -998,7 +998,7 @@ void grid_gpu_collocate_task_list(const grid_gpu_task_list* ptr, const enum grid
       global[0] = (size_t)ntasks;
       result |= libxstream_opencl_launch_work(stream, kernels->first, 1, NULL, global, NULL, 0, NULL, NULL, 0, 0);
     }
-    for (level = 0; level < nlevels; ++level) {
+    for (level = 0; level < nlevels; ++level) { /* fine (large) levels first: the last download is the smallest */
       const grid_opencl_level_t* const lv = &tl->levels[level];
       for (i = 0; i < 3; ++i) n[i] = lv->npts[i];
       global[0] = (size_t)lv->nunits; /* a work-group per unit (chunk of a tile), a work-item per row */
@@ -1098,7 +1098,7 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
       tl->coef_dev = grid_opencl_malloc(sizeof(double) * (0 < ncoef ? ncoef : 1));
       tl->ncoef = ncoef;
     }
-    for (level = 0; level < nlevels; ++level) { /* uploads in level order: the engines of a level wait for its grid */
+    for (level = nlevels - 1; 0 <= level; --level) { /* coarse (small) levels first: their engines start early */
       const grid_opencl_level_t* const lv = &tl->levels[level];
       if (grids[level]->host_buffer != grids[level]->device_buffer) {
         offloadMemcpyAsyncHtoD(grids[level]->device_buffer, grids[level]->host_buffer,
@@ -1111,7 +1111,7 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list* ptr, const bool comp
       offloadEventRecord(tl->event[nlevels], tl->copy);
     }
     result |= grid_opencl_gauss(tl, kernels);
-    for (level = 0; level < nlevels; ++level) {
+    for (level = nlevels - 1; 0 <= level; --level) { /* the order of uploads: the engines of a level wait for its grid */
       const grid_opencl_level_t* const lv = &tl->levels[level];
       const cl_int task_base = tl->level_start[level], nlevel = tl->level_start[level + 1] - task_base;
       const int nengines = imin(grid_opencl_config.slots * grid_opencl_config.nunits, nlevel);
