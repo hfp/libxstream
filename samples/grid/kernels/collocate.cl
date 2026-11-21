@@ -10,6 +10,7 @@
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 
 #include <opencl/libxstream_common.h>
+#include <opencl/libxstream_pack.h>
 #include "../grid_opencl.h"
 #include "grid_prepare_pab.h"
 #include "grid_cab_cxyz.h"
@@ -349,11 +350,12 @@ static inline void grid_tile_origin(const int tile, const int n0, const int n1, 
 kernel __attribute__((reqd_work_group_size(1, TY, TZ))) REQD_SG void grid_collocate_tile(
   const int n0, const int n1, const int n2, const double16 dh, const double16 dhi, const int unit_base,
   global const int* restrict unit_tile, global const int* restrict unit_start,
-  global const int* restrict unit_slot, global const int* restrict tile_task,
+  global const int* restrict unit_slot, global const ulong* restrict tile_pack,
   CONSTANT const double* restrict geo, CONSTANT const int* restrict box,
   CONSTANT const int* restrict cinfo, CONSTANT const double* restrict coef,
   global double* restrict grid, const int grid_offset, CONSTANT const double* restrict gauss,
-  CONSTANT const int* restrict gofs, global double* restrict partial)
+  CONSTANT const int* restrict gofs, global double* restrict partial, global const ulong* restrict unit_pos,
+  global const int* restrict unit_prev, const int nhead)
 {
   const int unit = unit_base + (int)get_group_id(0), ly = (int)get_local_id(1), lz = (int)get_local_id(2);
   const int slot = unit_slot[unit];
@@ -365,10 +367,21 @@ kernel __attribute__((reqd_work_group_size(1, TY, TZ))) REQD_SG void grid_colloc
   g2 = z0 + lz;
   for (j = 0; j < TX; ++j) acc[j] = 0.0;
   if (g1 < n1 && g2 < n2) {
-    const int end = unit_start[unit + 1];
-    for (i = unit_start[unit]; i < end; ++i) {
-      const int tail = (0 > tile_task[i]); /* uniform per work-group: the whole tile is in the tail */
-      const int t = (0 == tail ? tile_task[i] : ~tile_task[i]);
+    const int begin = unit_start[unit], end = unit_start[unit + 1];
+    global const uchar* const head = (global const uchar*)tile_pack; /* the tile list, packed (level 1) */
+    global const ulong* const payload = tile_pack + nhead;
+    ulong pos = unit_pos[unit];
+    vunpack_group_t group = vunpack_group(payload, pos, 0);
+    int entry = unit_prev[unit];
+    for (i = begin; i < end; ++i) { /* all work-items decode the same entries */
+      int tail, t;
+      if (i == begin || 0 == (i & 7)) { /* a group: its width and words, once per group */
+        if (i != begin) pos += (ulong)group.width;
+        group = vunpack_group(payload, pos, vunpack_width(head, i >> 3));
+      }
+      entry += (int)vunpack_lane(&group, i & 7); /* gaps of 2 * task + tail */
+      tail = (entry & 1); /* uniform per work-group: the whole tile is in the tail */
+      t = (entry >> 1);
       CONSTANT const double* const gt = geo + GRID_OPENCL_NG * t;
       CONSTANT const int* const bt = box + GRID_OPENCL_NB * t;
       CONSTANT const double* const c = coef + cinfo[2 * t];
