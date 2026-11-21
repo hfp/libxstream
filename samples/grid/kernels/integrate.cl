@@ -24,7 +24,7 @@
 #define GRID_ICASE(N) \
   case N: \
     for (r = lane - myoff; r < nitems && 0 < gt[4]; r += myw) { \
-      grid_item(r, N, n0, n1, n2, dh, dhi, gt[0], gt[1], gt[2], gt[3], gt[6], gt[7], gauss + gofs[mytask], bt, \
+      grid_item(r, N, n0, n1, n2, dh, dhi, gt, gauss + gofs[mytask], bt, \
         grid + grid_offset, mine, mineu); \
     } \
     break;
@@ -55,11 +55,18 @@ static inline int grid_width(const int nitems)
 /* Adds a row to the partial C_xyz of a lane (general cells: in lattice coordinates). Inlined with a constant
  * lp (switch), the loops unroll and the arrays stay in registers: a runtime bound puts them on the stack. */
 static inline void grid_item(const int r, const int lp, const int n0, const int n1, const int n2,
-  const double16 dh, const double16 dhi, const double s0, const double s1, const double s2, const double zetp,
-  const double rmax, const double winv, global const double* restrict gx, global const int* restrict bt,
+  const double16 dh, const double16 dhi, global const double* restrict gt, global const double* restrict gx,
+  global const int* restrict bt,
   global const double* restrict grid, local double* restrict part, local float* restrict partu)
 {
   const int ny = bt[4] - bt[1] + 1;
+  const double s0 = gt[0], s1 = gt[1], s2 = gt[2], rmax = gt[6];
+#if 0 == GRID_ORTHO
+  const double zetp = gt[3]; /* the Gaussian by recurrence (orthorhombic: tables) */
+#endif
+#if WINDOW
+  const double winv = gt[7];
+#endif
   double m[LP1], ty[LP1], tz[LP1];
 #if WU
   float mu[LP1], tyf[LP1], tzf[LP1];
@@ -67,7 +74,7 @@ static inline void grid_item(const int r, const int lp, const int n0, const int 
   int k, lx, ly, lz, valid = 0;
 #if GRID_ORTHO
   const int u1 = bt[1] + r % ny, u2 = bt[2] + r / ny;
-  const double h0 = dh.s0, dy = (u1 - s1) * dh.s4, dz = (u2 - s2) * dh.s8;
+  const double h0 = dh.s0, dy = grid_dist(u1, bt[7], dh.s4, gt[9]), dz = grid_dist(u2, bt[8], dh.s8, gt[10]);
   const int2 rg = grid_row_range(u1, u2, s0, s1, s2, rmax, bt[6], bt[7], bt[8], dh, dhi);
   if (rg.x <= rg.y) {
     global const double* const row = grid + ((size_t)grid_wrap(u2, n2) * n1 + grid_wrap(u1, n1)) * n0;
@@ -75,7 +82,6 @@ static inline void grid_item(const int r, const int lp, const int n0, const int 
     global const double* const gz = gy + (bt[4] - bt[1] + 1);
     double py = gy[u1 - bt[1]] * gz[u2 - bt[2]], pz = 1.0;
     int u0, g = grid_wrap(rg.x, n0);
-    double dx = (rg.x - s0) * h0;
 #if WINDOW
     const float wc = (float)((rmax * rmax - dy * dy - dz * dz) * winv), wv = (float)winv; /* t = wc - dx^2 wv */
 #endif
@@ -84,6 +90,7 @@ static inline void grid_item(const int r, const int lp, const int n0, const int 
     UNROLL_AUTO for (k = 0; k <= lp; ++k) mu[k] = 0.0;
 #endif
     for (u0 = rg.x; u0 <= rg.y; ++u0) { /* the range of the row: no mask */
+      const double dx = grid_dist(u0, bt[6], h0, gt[8]); /* not incremental: summed steps err */
       double p = row[g] * gx[u0 - bt[0]];
 #if WU
       float pu; /* weight w'(r) / r */
@@ -105,7 +112,6 @@ static inline void grid_item(const int r, const int lp, const int n0, const int 
         pu *= dxf;
 #endif
       }
-      dx += h0;
       if (++g == n0) g = 0;
     }
     UNROLL_AUTO for (k = 0; k <= lp; ++k) {
@@ -405,7 +411,7 @@ kernel REQD_SG void grid_integrate_task(const int ntasks, global const double* r
     double alpha[3 * LMAX1A * LMAX1B * LP1], cxyz[LP1 * LP1 * LP1], tx[LP1], txy[LP1 * LP1];
     double ra[3], rb[3], rp[3], rab[3];
     cab_store cab;
-    int i, j, la, lb, ax, ay, bx, by, lx, ly, lz;
+    int i, j, la, lb, ax, ay, bx, by;
     for (i = 0; i < 6; ++i) f[i] = 0.0;
     for (i = 0; i < 9; ++i) va[i] = vb[i] = 0.0;
     for (i = 0; i < 3; ++i) {
@@ -465,7 +471,7 @@ kernel REQD_SG void grid_integrate_task(const int ntasks, global const double* r
       const int lh1 = la_max_h + lb_max_h + 1, zero = (0 == FORCES ? 3 : 0), nshift = (0 == VIRIAL ? 3 : 9);
       double ck[LP1 * LP1 * LP1], cabk[NCA * NCB];
       cab_store cabw;
-      int q;
+      int q, lx, ly, lz;
       grid_moments(lp, lp1, c + ncoset(lp), ldh[ti[14]], cxyz); /* cab is built: cxyz takes the moments of w' */
       grid_cab_alpha(la_max_h, lb_max_h, ra, rb, rp, alpha);
       cabw.n1 = ncoset(la_max_h);

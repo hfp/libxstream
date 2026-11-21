@@ -132,11 +132,26 @@ jobs:
         echo "CP2K_ROOT=${{ github.workspace }}/../cp2k" >> $GITHUB_ENV
         git -C ${{ github.workspace }}/../cp2k log -1 --format="CP2K %H %cs"
 
+    # The CPU backends only (OPENCL=0): LIBXS beside the checkout (below) would otherwise turn
+    # on the OpenCL backend, which needs a device to run.
     - name: Build grid miniapp
-      run: make -j $(nproc) -C samples/grid
+      run: make -j $(nproc) -C samples/grid OPENCL=0
 
     - name: Test grid miniapp
-      run: make -C samples/grid test
+      run: make -C samples/grid OPENCL=0 test
+
+    - name: Install OpenCL and Clang
+      run: sudo apt install -y opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev clang
+
+    - name: Setup LIBXS
+      run: git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
+
+    # tests/kernels.c compiles the GRID kernels as well once it knows CP2K's root,
+    # since they include CP2K's src/grid/common (elsewhere they are not attempted).
+    - name: Compile kernels
+      run: |
+        make -j $(nproc) -C tests kernels.x
+        cd tests && KERNELS_CP2K="${CP2K_ROOT}" ./kernels.x
 
   DBCSR:
     runs-on: ubuntu-latest

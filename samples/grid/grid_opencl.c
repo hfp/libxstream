@@ -515,7 +515,7 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
           const double e = rmax * sqrt(di[k] * di[k] + di[3 + k] * di[3 + k] + di[6 + k] * di[6 + k]);
           bt[k] = (int)ceil(s - e);
           bt[3 + k] = (int)floor(s + e);
-          bt[6 + k] = 0;
+          bt[6 + k] = (0 != ortho ? (int)floor(s) : 0); /* orthorhombic: the cell of rp, for the distances */
         }
       }
       gt[3] = zetp;
@@ -523,6 +523,10 @@ void grid_gpu_create_task_list(const bool ortho, const int ntasks, const int nle
       gt[6] = rmax;
       /* window: 1 within the radius, 0 at rmax (the margin of the centred model holds values below eps) */
       gt[7] = (0 != grid_opencl_config.window ? 1.0 / (rmax * rmax - radius_list[i] * radius_list[i]) : 0.0);
+      for (k = 0; k < 3; ++k) { /* orthorhombic: offset of rp from its cell, distances are (u - c) h - offset (as REF) */
+        const int* const bt = box + GRID_OPENCL_NB * i;
+        gt[8 + k] = (0 != ortho ? (td[6 + k] - (double)bt[6 + k] * td[15 + k]) : 0.0);
+      }
       /* Gaussian at most 2^(24-m) of its value at the radius: single precision errs below the truncation */
       gt[5] = LIBXS_MAX(radius_list[i] * radius_list[i] - (24 - grid_opencl_config.fp32) * log(2.0) / zetp, 0.0);
 

@@ -98,6 +98,13 @@ static inline int2 grid_row_range(const int u1, const int u2, const double s0, c
 }
 
 
+/* Distance along an orthorhombic axis: u - c whole steps from the cell of rp, less rp's offset in it (as REF) */
+static inline double grid_dist(const int u, const int c, const double h, const double offset)
+{
+  return fma((double)(u - c), h, -offset);
+}
+
+
 /**
  * Smooth window (WINDOW) of t = (rmax^2 - r^2) / (rmax^2 - radius^2): 1 within the radius of the task, 0 at rmax,
  * C2 between (quintic in r^2: no sqrt). Single precision: only values below eps (the margin) get a weight below 1.
@@ -216,7 +223,7 @@ kernel void grid_gauss(const int ntasks, global const double* restrict geo, glob
     for (o = (int)get_local_id(0); o < n; o += (int)get_local_size(0)) {
       const int axis = (o < n0 ? 0 : (o < n01 ? 1 : 2));
       const int u = bt[axis] + o - (0 == axis ? 0 : (1 == axis ? n0 : n01));
-      const double d = (u - gt[axis]) * td[15 + axis];
+      const double d = grid_dist(u, bt[6 + axis], td[15 + axis], gt[8 + axis]);
       g[o] = exp(-gt[3] * (d * d));
     }
   }

@@ -179,6 +179,25 @@
 
 
 /**
+ * GRID as grid_opencl.c composes it, for lmax = 2 and 8x4x4 tiles: collocation of the plain density
+ * (GRID_FUNC_AB) in an orthorhombic and a general cell, with the centred model and its window, and with the
+ * single-precision tails; integration without and with forces and virial (whose window takes the moments of
+ * w' too), for a general cell, and of tau. The kernels include CP2K's src/grid/common, which KERNELS_CP2K
+ * (CP2K's root) brings in; without it they are stated as not attempted.
+ */
+#define KERNELS_GRID_COMMON "-I" LIBXSTREAM_SRCDIR "/libxstream"
+/* the required sub-group size of the main kernels (REQD_SG), emitted for an Intel device with sub-groups */
+#define KERNELS_GRID_PLAIN " -DINTEL=0 -DSG=0"
+#define KERNELS_GRID_SG16 " -DINTEL=1 -DSG=16"
+#define KERNELS_GRID_COLLOCATE KERNELS_GRID_COMMON \
+  " -DGRID_FUNC=100 -DNPAB=10 -DNCAB=10 -DLMAX1=3 -DLP1=5 -DTX=8 -DTY=4 -DTZ=4"
+#define KERNELS_GRID_INTEGRATE KERNELS_GRID_COMMON " -DENGINE=16 -DROWS=8 -DNPAB=10"
+#define KERNELS_GRID_HAB " -DFORCES=0 -DVIRIAL=0 -DTAU=0 -DNCA=10 -DNCB=10 -DLMAX1A=3 -DLMAX1B=3 -DLP1=5"
+#define KERNELS_GRID_FV " -DFORCES=1 -DVIRIAL=1 -DTAU=0 -DNCA=35 -DNCB=20 -DLMAX1A=5 -DLMAX1B=4 -DLP1=8"
+#define KERNELS_GRID_TAU " -DFORCES=0 -DVIRIAL=0 -DTAU=1 -DNCA=20 -DNCB=20 -DLMAX1A=4 -DLMAX1B=4 -DLP1=7"
+
+
+/**
  * A flavor is a variant of one kernel's parameters, not of the level: the level
  * says what the language provides, the flavor what the host asked to emit.
  *
@@ -193,7 +212,7 @@
  * sg marks a flavor the host emits only for a device with sub-groups, which is
  * then compiled at the levels that provide them (kernels_level_t.sg).
  */
-typedef struct { const char* path; const char* flavor; const char* params; int nv; int sg; } kernels_file_t;
+typedef struct { const char* path; const char* flavor; const char* params; int nv; int sg; int cp2k; } kernels_file_t;
 
 /**
  * A level names what it selects, and states the language its artifact is in and
@@ -239,7 +258,31 @@ static const kernels_file_t kernel_files[] = {
   { LIBXSTREAM_SRCDIR "/samples/smm/kernels/multiply.cl", "bcst", KERNELS_SMM_BCST, 0, 0 },
   { LIBXSTREAM_SRCDIR "/samples/dbm/kernels/multiply.cl", "flat", KERNELS_DBM_FLAT, 0, 0 },
   { LIBXSTREAM_SRCDIR "/samples/dbm/kernels/multiply.cl", "sgb", KERNELS_DBM_SGB, 0, 1 },
-  { LIBXSTREAM_SRCDIR "/samples/dbm/kernels/multiply.cl", "sgbnv", KERNELS_DBM_SGB_NV, 1, 0 }
+  { LIBXSTREAM_SRCDIR "/samples/dbm/kernels/multiply.cl", "sgbnv", KERNELS_DBM_SGB_NV, 1, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/grid/kernels/collocate.cl", "ortho",
+    KERNELS_GRID_COLLOCATE " -DGRID_ORTHO=1 -DFP32=0 -DCENTRED=0 -DWINDOW=0" KERNELS_GRID_PLAIN, 0, 0, 1 },
+  { LIBXSTREAM_SRCDIR "/samples/grid/kernels/collocate.cl", "general",
+    KERNELS_GRID_COLLOCATE " -DGRID_ORTHO=0 -DFP32=0 -DCENTRED=0 -DWINDOW=0" KERNELS_GRID_PLAIN, 0, 0, 1 },
+  { LIBXSTREAM_SRCDIR "/samples/grid/kernels/collocate.cl", "window",
+    KERNELS_GRID_COLLOCATE " -DGRID_ORTHO=1 -DFP32=0 -DCENTRED=1 -DWINDOW=1" KERNELS_GRID_PLAIN, 0, 0, 1 },
+  { LIBXSTREAM_SRCDIR "/samples/grid/kernels/collocate.cl", "generalwindow",
+    KERNELS_GRID_COLLOCATE " -DGRID_ORTHO=0 -DFP32=0 -DCENTRED=1 -DWINDOW=1" KERNELS_GRID_PLAIN, 0, 0, 1 },
+  { LIBXSTREAM_SRCDIR "/samples/grid/kernels/collocate.cl", "fp32",
+    KERNELS_GRID_COLLOCATE " -DGRID_ORTHO=1 -DFP32=1 -DCENTRED=0 -DWINDOW=0" KERNELS_GRID_PLAIN, 0, 0, 1 },
+  { LIBXSTREAM_SRCDIR "/samples/grid/kernels/integrate.cl", "hab",
+    KERNELS_GRID_INTEGRATE KERNELS_GRID_HAB " -DGRID_ORTHO=1 -DCENTRED=0 -DWINDOW=0" KERNELS_GRID_PLAIN, 0, 0, 1 },
+  { LIBXSTREAM_SRCDIR "/samples/grid/kernels/integrate.cl", "forces",
+    KERNELS_GRID_INTEGRATE KERNELS_GRID_FV " -DGRID_ORTHO=1 -DCENTRED=0 -DWINDOW=0" KERNELS_GRID_PLAIN, 0, 0, 1 },
+  { LIBXSTREAM_SRCDIR "/samples/grid/kernels/integrate.cl", "window",
+    KERNELS_GRID_INTEGRATE KERNELS_GRID_FV " -DGRID_ORTHO=1 -DCENTRED=1 -DWINDOW=1" KERNELS_GRID_PLAIN, 0, 0, 1 },
+  { LIBXSTREAM_SRCDIR "/samples/grid/kernels/integrate.cl", "general",
+    KERNELS_GRID_INTEGRATE KERNELS_GRID_FV " -DGRID_ORTHO=0 -DCENTRED=1 -DWINDOW=1" KERNELS_GRID_PLAIN, 0, 0, 1 },
+  { LIBXSTREAM_SRCDIR "/samples/grid/kernels/integrate.cl", "tau",
+    KERNELS_GRID_INTEGRATE KERNELS_GRID_TAU " -DGRID_ORTHO=1 -DCENTRED=0 -DWINDOW=0" KERNELS_GRID_PLAIN, 0, 0, 1 },
+  { LIBXSTREAM_SRCDIR "/samples/grid/kernels/collocate.cl", "sg16",
+    KERNELS_GRID_COLLOCATE " -DGRID_ORTHO=1 -DFP32=0 -DCENTRED=0 -DWINDOW=0" KERNELS_GRID_SG16, 0, 1, 1 },
+  { LIBXSTREAM_SRCDIR "/samples/grid/kernels/integrate.cl", "sg16",
+    KERNELS_GRID_INTEGRATE KERNELS_GRID_FV " -DGRID_ORTHO=1 -DCENTRED=1 -DWINDOW=1" KERNELS_GRID_SG16, 0, 1, 1 }
 };
 static const kernels_level_t kernel_levels[] = {
   { "floor", "-DLIBXSTREAM_OCLVER_C=120 -DLIBXSTREAM_OCLVER=120", "CL1.2", "+cl_khr_fp64", 0 },
@@ -254,9 +297,10 @@ static int kernels_nassembled = 0;
 
 static const char* kernels_cc(void);
 static const char* kernels_ptxas(void);
+static const char* kernels_cp2k(void);
 static char* loads(const char path[]);
 static void dirname_of(const char path[], char buffer[], size_t size);
-static int compiles(const char artifact[], const kernels_level_t* level, int nv);
+static int compiles(const char artifact[], const kernels_level_t* level, int nv, const char flags[]);
 static int one(const kernels_file_t* file, const kernels_level_t* level);
 
 
@@ -264,7 +308,7 @@ int main(void)
 {
   const int nfiles = (int)(sizeof(kernel_files) / sizeof(*kernel_files));
   const int nlevels = (int)(sizeof(kernel_levels) / sizeof(*kernel_levels));
-  int result = EXIT_SUCCESS, skip = 0, i, j, n = 0;
+  int result = EXIT_SUCCESS, skip = 0, ncp2k = 0, i, j, n = 0;
 #if defined(__APPLE__)
   /**
    * Apple's clang does not support the OpenCL C extensions these kernels need,
@@ -302,12 +346,19 @@ int main(void)
   for (i = 0; i < nlevels && 0 == skip && EXIT_SUCCESS == result; ++i) {
     for (j = 0; j < nfiles && EXIT_SUCCESS == result; ++j) {
       if (0 != kernel_files[j].sg && 0 == kernel_levels[i].sg) continue;
+      if (0 != kernel_files[j].cp2k && NULL == kernels_cp2k()) {
+        ++ncp2k;
+        continue;
+      }
       result = one(kernel_files + j, kernel_levels + i);
       if (EXIT_SUCCESS == result) ++n;
     }
   }
   if (0 == skip && EXIT_SUCCESS == result) {
     printf("kernels: %d compiled at -Wall -Wextra -pedantic -Wshadow -Werror\n", n);
+    if (0 != ncp2k) { /* stated rather than skipped */
+      printf("kernels: %d NOT ATTEMPTED (they include CP2K's src/grid: set KERNELS_CP2K to CP2K's root)\n", ncp2k);
+    }
     if (NULL != kernels_ptxas()) {
       printf("kernels: %d assembled by ptxas -arch=%s\n", kernels_nassembled, KERNELS_PTXARCH);
     }
@@ -332,6 +383,14 @@ static const char* kernels_cc(void)
 static const char* kernels_ptxas(void)
 {
   const char* const env = getenv("KERNELS_PTXAS");
+  return (NULL != env && '\0' != *env) ? env : NULL;
+}
+
+
+/* KERNELS_CP2K names CP2K's root, whose src/grid/common the GRID kernels include. */
+static const char* kernels_cp2k(void)
+{
+  const char* const env = getenv("KERNELS_CP2K");
   return (NULL != env && '\0' != *env) ? env : NULL;
 }
 
@@ -369,7 +428,7 @@ static void dirname_of(const char path[], char buffer[], size_t size)
 }
 
 
-static int compiles(const char artifact[], const kernels_level_t* level, int nv)
+static int compiles(const char artifact[], const kernels_level_t* level, int nv, const char flags[])
 {
   char command[1024], ptx[512];
   const char* const ptxas = kernels_ptxas();
@@ -384,8 +443,8 @@ static int compiles(const char artifact[], const kernels_level_t* level, int nv)
          * local that shadows the caller's captures every argument spelled with
          * that name, which compiles clean and computes something else. */
         " -Wall -Wextra -pedantic -Wshadow -Wno-unused-parameter -Werror"
-        " -Xclang -cl-ext=%s -Xclang -finclude-default-header %s",
-        kernels_cc(), level->std, 0 != nv ? " --target=nvptx64-nvidia-cuda" : "", level->ext, artifact))
+        " -Xclang -cl-ext=%s -Xclang -finclude-default-header%s %s",
+        kernels_cc(), level->std, 0 != nv ? " --target=nvptx64-nvidia-cuda" : "", level->ext, flags, artifact))
   {
     result = (EXIT_SUCCESS == system(command) ? EXIT_SUCCESS : EXIT_FAILURE);
   }
@@ -438,7 +497,8 @@ static int one(const kernels_file_t* file, const kernels_level_t* level)
     dirname_of(path, dir, sizeof(dir));
     if (0 >= LIBXS_SNPRINTF(name, sizeof(name), "k_%s_%s%s%s", level->name, base,
           ('\0' != *file->flavor) ? "_" : "", file->flavor)
-      || 0 >= LIBXS_SNPRINTF(defines, sizeof(defines), "-I%s %s %s", dir, level->defines, file->params)
+      || 0 >= LIBXS_SNPRINTF(defines, sizeof(defines), "-I%s %s %s%s%s%s", dir, level->defines, file->params,
+           0 != file->cp2k ? " -I" : "", 0 != file->cp2k ? kernels_cp2k() : "", 0 != file->cp2k ? "/src/grid/common" : "")
       || 0 >= LIBXS_SNPRINTF(artifact, sizeof(artifact), "%s.cl", name))
     {
       result = EXIT_FAILURE;
@@ -450,7 +510,8 @@ static int one(const kernels_file_t* file, const kernels_level_t* level)
       }
     }
     if (EXIT_SUCCESS == result) {
-      result = compiles(artifact, level, file->nv);
+      /* CP2K's shared headers define the helpers of host and device code alike, which no one kernel all uses */
+      result = compiles(artifact, level, file->nv, 0 != file->cp2k ? " -Wno-unused-function" : "");
       if (EXIT_SUCCESS != result) {
         fprintf(stderr, "kernels: %s failed to compile [%s %s]\n", path, level->name, file->flavor);
       }
