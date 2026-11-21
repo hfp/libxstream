@@ -398,55 +398,7 @@ kernel __attribute__((reqd_work_group_size(1, TY, TZ))) REQD_SG void grid_colloc
               const double eyz = gy[u1 - bt[1]] * gz[u2 - bt[2]];
 #endif
               switch (lp) {
-                GRID_CASE(0)
-#if 1 < LP1
-                GRID_CASE(1)
-#endif
-#if 2 < LP1
-                GRID_CASE(2)
-#endif
-#if 3 < LP1
-                GRID_CASE(3)
-#endif
-#if 4 < LP1
-                GRID_CASE(4)
-#endif
-#if 5 < LP1
-                GRID_CASE(5)
-#endif
-#if 6 < LP1
-                GRID_CASE(6)
-#endif
-#if 7 < LP1
-                GRID_CASE(7)
-#endif
-#if 8 < LP1
-                GRID_CASE(8)
-#endif
-#if 9 < LP1
-                GRID_CASE(9)
-#endif
-#if 10 < LP1
-                GRID_CASE(10)
-#endif
-#if 11 < LP1
-                GRID_CASE(11)
-#endif
-#if 12 < LP1
-                GRID_CASE(12)
-#endif
-#if 13 < LP1
-                GRID_CASE(13)
-#endif
-#if 14 < LP1
-                GRID_CASE(14)
-#endif
-#if 15 < LP1
-                GRID_CASE(15)
-#endif
-#if 16 < LP1
-#  error "lp > 15"
-#endif
+                GRID_CASES(GRID_CASE)
               }
             }
           }

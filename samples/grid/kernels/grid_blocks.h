@@ -10,6 +10,28 @@
 #ifndef GRID_BLOCKS_H
 #define GRID_BLOCKS_H
 
+/* Switch cases 0 to LP1 - 1 of a function-like macro C (case N: ...): constant lp, loops unroll, arrays in registers */
+#if 16 < LP1
+#  error "lp > 15"
+#endif
+#define GRID_CASES_1(C) C(0)
+#define GRID_CASES_2(C) GRID_CASES_1(C) C(1)
+#define GRID_CASES_3(C) GRID_CASES_2(C) C(2)
+#define GRID_CASES_4(C) GRID_CASES_3(C) C(3)
+#define GRID_CASES_5(C) GRID_CASES_4(C) C(4)
+#define GRID_CASES_6(C) GRID_CASES_5(C) C(5)
+#define GRID_CASES_7(C) GRID_CASES_6(C) C(6)
+#define GRID_CASES_8(C) GRID_CASES_7(C) C(7)
+#define GRID_CASES_9(C) GRID_CASES_8(C) C(8)
+#define GRID_CASES_10(C) GRID_CASES_9(C) C(9)
+#define GRID_CASES_11(C) GRID_CASES_10(C) C(10)
+#define GRID_CASES_12(C) GRID_CASES_11(C) C(11)
+#define GRID_CASES_13(C) GRID_CASES_12(C) C(12)
+#define GRID_CASES_14(C) GRID_CASES_13(C) C(13)
+#define GRID_CASES_15(C) GRID_CASES_14(C) C(14)
+#define GRID_CASES_16(C) GRID_CASES_15(C) C(15)
+#define GRID_CASES(C) CAT(GRID_CASES_, LP1)(C)
+
 /* Primitive pab[jco][ico] of a task: sphib^T P sphia, with the block layout of grid_opencl.c */
 static inline void grid_load_pab(global const double* restrict blocks, global const double* restrict sphi,
   global const int* restrict ti, double* pab, double* w)
