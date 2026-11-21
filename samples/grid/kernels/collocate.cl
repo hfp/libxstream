@@ -91,8 +91,7 @@ __kernel void grid_collocate_coef(const int ntasks, __global const double* restr
     }
 #else
     { /* general cells: in lattice coordinates, the rows take the orthorhombic form */
-      double latt[LP1 * LP1 * LP1], px[LP1 * LP1 * LP1], pxy[LP1 * LP1 * LP1], pxyz[LP1 * LP1 * LP1];
-      double tmp[LP1 * LP1 * LP1];
+      double latt[LP1 * LP1 * LP1], px[LP1 * LP1], pxy[LP1 * LP1], pxyz[LP1 * LP1], tmp[LP1 * LP1];
       grid_lattice(lp, lp1, ldh[ti[14]], cxyz, latt, 1, px, pxy, pxyz, tmp);
       for (lx = 0; lx <= lp; ++lx) {
         for (ly = 0; ly <= lp - lx; ++ly) {

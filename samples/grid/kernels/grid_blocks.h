@@ -117,25 +117,37 @@ static inline float grid_window_d(const float t)
 }
 
 
-/* Cube of a polynomial in f0, f1, f2 (index (i * LP1 + j) * LP1 + k), degree d times the linear form l */
+/**
+ * Homogeneous polynomial of degree d in f0, f1, f2 times the linear form l0 f0 + l1 f1 + l2 f2. The term
+ * f0^i f1^j f2^k (i = d - j - k) is stored at [j * LP1 + k]: the linear forms of the lattice vectors have no
+ * constant, hence their products are homogeneous (LP1^2 entries instead of a cube).
+ */
 static inline void grid_poly_lin(const int d, const double* p, const double l0, const double l1, const double l2,
   double* q)
 {
-  int i, j, k;
-  for (i = 0; i <= d + 1; ++i) {
-    for (j = 0; j <= d + 1 - i; ++j) {
-      for (k = 0; k <= d + 1 - i - j; ++k) q[(i * LP1 + j) * LP1 + k] = 0.0;
+  int i, j;
+  for (j = 0; j <= d + 1; ++j) {
+    int k;
+    for (k = 0; k <= d + 1 - j; ++k) q[j * LP1 + k] = 0.0;
+  }
+  for (i = 0; i <= d; ++i) { /* i, then j ascending: each term of q sums its three contributions in a fixed order */
+    for (j = 0; j <= d - i; ++j) {
+      const int k = d - i - j;
+      const double v = p[j * LP1 + k];
+      q[j * LP1 + k] += v * l0;
+      q[(j + 1) * LP1 + k] += v * l1;
+      q[j * LP1 + k + 1] += v * l2;
     }
   }
-  for (i = 0; i <= d; ++i) {
-    for (j = 0; j <= d - i; ++j) {
-      for (k = 0; k <= d - i - j; ++k) {
-        const double v = p[(i * LP1 + j) * LP1 + k];
-        q[((i + 1) * LP1 + j) * LP1 + k] += v * l0;
-        q[(i * LP1 + j + 1) * LP1 + k] += v * l1;
-        q[(i * LP1 + j) * LP1 + k + 1] += v * l2;
-      }
-    }
+}
+
+
+/* Copies a homogeneous polynomial of degree d (layout of grid_poly_lin) */
+static inline void grid_poly_copy(const int d, const double* p, double* q)
+{
+  int j, k;
+  for (j = 0; j <= d; ++j) {
+    for (k = 0; k <= d - j; ++k) q[j * LP1 + k] = p[j * LP1 + k];
   }
 }
 
@@ -144,48 +156,46 @@ static inline void grid_poly_lin(const int d, const double* p, const double l0, 
  * Change of variables between Cartesian d and lattice coordinates f (d = f0 a0 + f1 a1 + f2 a2, rows of dh) of a
  * polynomial of degree lp. cart is a cube [c][b][a] of stride lp1 (d_x^a d_y^b d_z^c), latt a cube of stride LP1.
  * to_lattice: latt = sum cart_abc L_x^a L_y^b L_z^c (coefficients); else cart_abc = <L_x^a L_y^b L_z^c, latt>
- * (moments, the transpose). x, xy, xyz, tmp: scratch cubes of LP1**3.
+ * (moments, the transpose). x, xy, xyz, tmp: scratch of LP1^2 (homogeneous polynomials, see grid_poly_lin).
  */
 static inline void grid_lattice(const int lp, const int lp1, const double16 dh, double* cart, double* latt,
   const int to_lattice, double* x, double* xy, double* xyz, double* tmp)
 {
-  int a, b, c, i, n;
+  int a, b, c, i;
   if (0 != to_lattice) {
     for (i = 0; i < LP1 * LP1 * LP1; ++i) latt[i] = 0.0;
   }
-  for (i = 0; i < LP1 * LP1 * LP1; ++i) x[i] = 0.0;
   x[0] = 1.0;
   for (a = 0; a <= lp; ++a) {
-    for (i = 0; i < LP1 * LP1 * LP1; ++i) xy[i] = x[i];
+    grid_poly_copy(a, x, xy);
     for (b = 0; b <= lp - a; ++b) {
-      for (i = 0; i < LP1 * LP1 * LP1; ++i) xyz[i] = xy[i];
+      grid_poly_copy(a + b, xy, xyz);
       for (c = 0; c <= lp - a - b; ++c) {
         const int d = a + b + c, ic = (c * lp1 + b) * lp1 + a;
-        int ii, jj, kk;
+        int ii, jj;
         double sum = 0.0;
-        for (ii = 0; ii <= d; ++ii) {
+        for (ii = 0; ii <= d; ++ii) { /* the terms of degree d, in the order of the cube */
           for (jj = 0; jj <= d - ii; ++jj) {
-            for (kk = 0; kk <= d - ii - jj; ++kk) {
-              n = (ii * LP1 + jj) * LP1 + kk;
-              if (0 != to_lattice) latt[n] += cart[ic] * xyz[n];
-              else sum += xyz[n] * latt[n];
-            }
+            const int kk = d - ii - jj, n = (ii * LP1 + jj) * LP1 + kk;
+            const double v = xyz[jj * LP1 + kk];
+            if (0 != to_lattice) latt[n] += cart[ic] * v;
+            else sum += v * latt[n];
           }
         }
         if (0 == to_lattice) cart[ic] = sum;
         if (c < lp - a - b) { /* times d_z = f0 a0z + f1 a1z + f2 a2z */
           grid_poly_lin(d, xyz, dh.s2, dh.s5, dh.s8, tmp);
-          for (i = 0; i < LP1 * LP1 * LP1; ++i) xyz[i] = tmp[i];
+          grid_poly_copy(d + 1, tmp, xyz);
         }
       }
       if (b < lp - a) {
         grid_poly_lin(a + b, xy, dh.s1, dh.s4, dh.s7, tmp);
-        for (i = 0; i < LP1 * LP1 * LP1; ++i) xy[i] = tmp[i];
+        grid_poly_copy(a + b + 1, tmp, xy);
       }
     }
     if (a < lp) {
       grid_poly_lin(a, x, dh.s0, dh.s3, dh.s6, tmp);
-      for (i = 0; i < LP1 * LP1 * LP1; ++i) x[i] = tmp[i];
+      grid_poly_copy(a + 1, tmp, x);
     }
   }
 }

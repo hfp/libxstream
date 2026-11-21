@@ -368,8 +368,7 @@ static inline void grid_moments(const int lp, const int lp1, __global const doub
   }
 #else
   { /* general cells: Cartesian moments from the lattice moments (transpose of the change of variables) */
-    double latt[LP1 * LP1 * LP1], px[LP1 * LP1 * LP1], pxy[LP1 * LP1 * LP1], pxyz[LP1 * LP1 * LP1];
-    double tmp[LP1 * LP1 * LP1];
+    double latt[LP1 * LP1 * LP1], px[LP1 * LP1], pxy[LP1 * LP1], pxyz[LP1 * LP1], tmp[LP1 * LP1];
     for (lx = 0; lx <= lp; ++lx) {
       for (ly = 0; ly <= lp - lx; ++ly) {
         for (lz = 0; lz <= lp - lx - ly; ++lz) latt[(lx * LP1 + ly) * LP1 + lz] = c[n++];
