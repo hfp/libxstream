@@ -21,29 +21,8 @@
 #include <stdio.h>
 
 #include <libxstream/opencl/libxstream_cpu_begin.h>
-#include <libxstream/opencl/libxstream_pack.h>
-
-/* values [first, first + count) of a stream, reading from group first / 8 at bit position pos */
-kernel void shim_pack_read(global const ulong* restrict stream, const int n, const int first, const int count,
-  const ulong pos, const int is_signed, global long* restrict out)
-{
-  global const uchar* const head = (global const uchar*)stream;
-  global const ulong* const payload = stream + VUNPACK_NHEAD(n);
-  ulong p = pos;
-  int g = first / 8, w = vunpack_width(head, g), i;
-  vunpack_group_t group = vunpack_group(payload, p, w);
-  for (i = first; i < first + count; ++i) {
-    const int l = i % 8;
-    if (0 == l && i != first) { /* the next group */
-      p += (ulong)w;
-      w = vunpack_width(head, ++g);
-      group = vunpack_group(payload, p, w);
-    }
-    { const ulong code = vunpack_code(payload, p, w, l), lane = vunpack_lane(&group, l);
-      out[i - first] = (code != lane ? -1 : (0 != is_signed ? vunpack_signed(code) : (long)code));
-    }
-  }
-}
+#include "shim_pack.h"
+#include <libxstream/opencl/libxstream_cpu_end.h>
 
 
 static void shim_pack_launch(const uint64_t* stream, int n, int first, int count, uint64_t pos, int is_signed,
@@ -51,10 +30,8 @@ static void shim_pack_launch(const uint64_t* stream, int n, int first, int count
 {
   LIBXSTREAM_CPU_GRID(1, 1, 1);
   LIBXSTREAM_CPU_WORKITEM(0, 0, 0, 0, 0, 1, 1);
-  shim_pack_read((const ulong*)stream, n, first, count, pos, is_signed, (long*)out);
+  shim_pack_read((const libxstream_cpu_ulong_t*)stream, n, first, count, pos, is_signed, (long*)out);
 }
-
-#include <libxstream/opencl/libxstream_cpu_end.h>
 
 
 /* bit position of group g: the prefix sum of the widths in the header */
