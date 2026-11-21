@@ -112,18 +112,31 @@ jobs:
   # task lists recorded by the reference backend and replayed by the others.
   GRID:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       OWNER_CP2K: ${{ github.event.inputs.owner_cp2k || 'hfp' }}
       REF_CP2K: ${{ github.event.inputs.ref_cp2k || 'master' }}
+      # PoCL's CPU device runs the OpenCL backend (grid_opencl.c), and it has FP64
+      LIBXSTREAM_DEVTYPE: cpu
+      # a fallback after a failure must not pass for the intended path
+      LIBXSTREAM_FALLBACK: 0
       OMP_NUM_THREADS: 2
     steps:
     - uses: actions/checkout@v7
 
-    - name: Install OpenBLAS
+    # PoCL's CPU driver, the same build as for the simulated GPUs (cached)
+    - uses: ./.github/actions/pocl
+
+    # Clang: tests/kernels.c compiles the kernels (below)
+    - name: Install OpenBLAS, OpenCL, and Clang
       run: |
         sudo apt update -y
-        sudo apt install -y libopenblas-openmp-dev
+        sudo apt install -y libopenblas-openmp-dev clang \
+          opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev
+
+    # Beside the checkout, which turns on the OpenCL backend of samples/grid (header-only).
+    - name: Setup LIBXS
+      run: git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
 
     - name: Setup CP2K
       run: |
@@ -132,19 +145,12 @@ jobs:
         echo "CP2K_ROOT=${{ github.workspace }}/../cp2k" >> $GITHUB_ENV
         git -C ${{ github.workspace }}/../cp2k log -1 --format="CP2K %H %cs"
 
-    # The CPU backends only (OPENCL=0): LIBXS beside the checkout (below) would otherwise turn
-    # on the OpenCL backend, which needs a device to run.
     - name: Build grid miniapp
-      run: make -j $(nproc) -C samples/grid OPENCL=0
+      run: make -j $(nproc) -C samples/grid
 
+    # CP2K's unit test and the recorded sample tasks on the reference, CPU, and OpenCL backends
     - name: Test grid miniapp
-      run: make -C samples/grid OPENCL=0 test
-
-    - name: Install OpenCL and Clang
-      run: sudo apt install -y opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev clang
-
-    - name: Setup LIBXS
-      run: git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
+      run: make -C samples/grid test
 
     # tests/kernels.c compiles the GRID kernels as well once it knows CP2K's root,
     # since they include CP2K's src/grid/common (elsewhere they are not attempted).

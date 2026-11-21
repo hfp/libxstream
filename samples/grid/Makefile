@@ -90,6 +90,10 @@ $(BLDDIR)/grid_opencl.o: $(ROOTDIR)/grid_opencl.c $(ROOTDIR)/grid_opencl.h $(CLH
 # CP2K's unit test, then each sample task recorded as task list (collocate and
 # integrate) by the reference backend and replayed by every other backend
 TESTBACKENDS ?= ref cpu $(if $(filter-out 0,$(CUDA) $(OPENCL)),gpu)
+# A recorded list holds TESTCOPIES copies of a sample task, whose equal contributions to a point carry
+# the same rounding: the relative tolerance grows with them (if the miniapp takes --tolerance).
+TESTCOPIES := 50
+TESTTOL ?= $(TESTCOPIES)e-12
 TESTDIR := $(BLDDIR)/tasklists
 .PHONY: test
 test: miniapp
@@ -98,14 +102,15 @@ test: miniapp
 	@cd $(TESTDIR) && for TASK in $(GRIDDIR)/sample_tasks/*.task; do \
 		NAME=$$(basename $${TASK} .task); \
 		for KIND in "" --integrate; do \
-			$(abspath $(MINIAPP)) --backend ref --dump 1 $${KIND} --batch 50 50 \
+			$(abspath $(MINIAPP)) --backend ref --dump 1 $${KIND} --batch $(TESTCOPIES) $(TESTCOPIES) \
 				$${TASK} >/dev/null || exit 1; \
 		done; \
 		for FILE in grid_*_0_0.tasklist; do mv $${FILE} $${NAME}_$${FILE}; done; \
 	done
-	@cd $(TESTDIR) && for FILE in *.tasklist; do \
+	@cd $(TESTDIR) && TOL=$$($(abspath $(MINIAPP)) 2>&1 | grep -q -- --tolerance && echo "--tolerance $(TESTTOL)"); \
+	for FILE in *.tasklist; do \
 		for BACKEND in $(TESTBACKENDS); do \
-			OUTPUT=$$($(abspath $(MINIAPP)) --backend $${BACKEND} $(TESTARG) \
+			OUTPUT=$$($(abspath $(MINIAPP)) --backend $${BACKEND} $${TOL} $(TESTARG) \
 				$${FILE} 2>&1) || { echo "$${OUTPUT}"; exit 1; }; \
 			echo "$${OUTPUT}" | grep "^Task list"; \
 		done; \
