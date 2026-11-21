@@ -528,6 +528,45 @@ kernel REQD_SG void grid_integrate_task(const int ntasks, global const double* r
 }
 
 
+/**
+ * Forces per atom and the virial from the segments (grid_integrate_hab), summed in segment order as on the host
+ * (reproducible): work-item a < natoms takes atom a, the next nine take the components of the virial.
+ */
+kernel void grid_integrate_atoms(const int natoms, const int nsegs, global const int* restrict atom_start,
+  global const int* restrict atom_seg, global const int* restrict seg_atoms, global const double* restrict fv,
+  global double* restrict out)
+{
+  const int a = (int)get_global_id(0);
+  int i, k;
+  if (a < natoms) {
+    double f[3] = {0.0, 0.0, 0.0};
+    for (k = atom_start[a]; k < atom_start[a + 1]; ++k) {
+      const int s = atom_seg[k];
+      global const int* const atoms = seg_atoms + 3 * s;
+      global const double* const v = fv + 24 * (size_t)s;
+      const double scalef = (0 != atoms[2] ? 1.0 : 2.0);
+      if (a == atoms[0]) {
+        for (i = 0; i < 3; ++i) f[i] += scalef * v[i];
+      }
+      if (a == atoms[1]) {
+        for (i = 0; i < 3; ++i) f[i] += scalef * v[3 + i];
+      }
+    }
+    for (i = 0; i < 3; ++i) out[3 * a + i] = f[i];
+  }
+  else if (a < natoms + 9) {
+    const int c = a - natoms;
+    double sum = 0.0;
+    for (k = 0; k < nsegs; ++k) {
+      global const double* const v = fv + 24 * (size_t)k;
+      const double scalef = (0 != seg_atoms[3 * k + 2] ? 1.0 : 2.0);
+      sum += scalef * v[6 + c] + scalef * v[15 + c];
+    }
+    out[3 * natoms + c] = sum;
+  }
+}
+
+
 /* One work-item per segment (tasks of one block and set pair): it owns that part of the
  * block, adds the tasks in order, and sums their forces and virial in order as well. */
 kernel void grid_integrate_hab(const int nsegs, global const int* restrict seg_start,

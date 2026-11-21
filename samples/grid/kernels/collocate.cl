@@ -101,7 +101,7 @@ kernel REQD_SG void grid_collocate_coef(const int ntasks, global const double* r
     }
 #endif
     /* zero coefficients in this call (e.g., the block-diagonal atomic guess): the tiles skip the task */
-    if (0 == nonzero) cinfo[2 * itask + 1] = -1;
+    cinfo[2 * itask + 1] = (0 != nonzero ? lp : -1); /* every call: the layout is kept across calls */
   }
 }
 
