@@ -23,6 +23,9 @@
 /* The plugin's table, and its state: 0 = not yet tried, 1 = loading, 2 = loaded, -1 = none. */
 static libxstream_blas_plugin_t libxstream_blas_table;
 static volatile int libxstream_blas_state;
+/* Context the plugin was asked about, and whether it serves it: 0 = not yet asked, 1 = asking, 2 = yes, -1 = no. */
+static void* volatile libxstream_blas_context;
+static volatile int libxstream_blas_serves;
 
 
 /* Loads the plugin (LIBXSTREAM_BLAS: 0 disables it, a path selects it), once per process. */
@@ -83,7 +86,64 @@ static void libxstream_blas_load(void)
 }
 
 
-/* The plugin if it serves the stream's device, NULL otherwise. */
+/* Kind of memory libxstream_mem_allocate returns (LIBXSTREAM_BLAS_MEM_*), as the device pool prefers it. */
+static int libxstream_blas_memkind(void);
+static int libxstream_blas_memkind(void)
+{
+  const libxstream_opencl_device_t* const device = &libxstream_opencl_config.device;
+  return (0 == (2 & libxstream_mem_pooled()) ? LIBXSTREAM_BLAS_MEM_BUFFER
+    : ((NULL != device->clDeviceMemAllocINTEL || NULL != device->clSharedMemAllocINTEL) ? LIBXSTREAM_BLAS_MEM_USM
+      : LIBXSTREAM_BLAS_MEM_SVM));
+}
+
+
+/**
+ * C := 2*A*B + C (3x2, with A at an offset into memory of libxstream_mem_allocate) against the host,
+ * in each precision the plugin accepts, on LIBXSTREAM's own stream: it checks the memory as callers
+ * pass it (an address within an allocation) rather than the plugin's own. Small integers make it exact.
+ */
+static int libxstream_blas_check(const libxstream_blas_plugin_t* plugin);
+static int libxstream_blas_check(const libxstream_blas_plugin_t* plugin)
+{
+  enum { m = 3, n = 2, k = 4, offset = 5, size = offset + m * k + k * n + m * n };
+  libxstream_stream_t* const stream = &libxstream_opencl_config.device.stream;
+  double hd[size], ref[m * n], cd[m * n];
+  float hf[size], cf[m * n];
+  char* dev = NULL;
+  int result = libxstream_mem_allocate((void**)&dev, sizeof(hd)), nserved = 0, f64, i, j, p;
+  for (i = 0; i < size; ++i) hf[i] = (float)(hd[i] = (double)(i % 7 - 3));
+  for (j = 0; j < n; ++j) {
+    for (i = 0; i < m; ++i) {
+      double c = hd[offset + m * k + k * n + i + j * m];
+      for (p = 0; p < k; ++p) c += 2 * hd[offset + i + p * m] * hd[offset + m * k + p + j * k];
+      ref[i + j * m] = c;
+    }
+  }
+  for (f64 = 0; f64 < 2 && EXIT_SUCCESS == result; ++f64) {
+    const size_t es = (0 != f64 ? sizeof(double) : sizeof(float));
+    void* const host = (0 != f64 ? (void*)hd : (void*)hf);
+    result = libxstream_mem_copy_h2d(host, dev, es * size, stream);
+    if (EXIT_SUCCESS == result) {
+      char* const a = dev + es * offset;
+      if (0 == plugin->gemm(libxstream_opencl_config.device.context, stream->queue, f64, 'N', 'N', m, n, k, 2.0, a, m,
+        a + es * m * k, k, 1.0, a + es * (m * k + k * n), m))
+      {
+        result = libxstream_mem_copy_d2h(a + es * (m * k + k * n), 0 != f64 ? (void*)cd : (void*)cf, es * m * n, stream);
+        if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
+        for (i = 0; i < m * n && EXIT_SUCCESS == result; ++i) {
+          if ((0 != f64 ? cd[i] : (double)cf[i]) != ref[i]) result = EXIT_FAILURE;
+        }
+        if (EXIT_SUCCESS == result) ++nserved;
+      }
+      else result = libxstream_stream_sync(stream); /* precision declined */
+    }
+  }
+  if (NULL != dev) libxstream_mem_deallocate(dev);
+  return (EXIT_SUCCESS == result && 0 < nserved) ? EXIT_SUCCESS : EXIT_FAILURE;
+}
+
+
+/* The plugin if it serves the device (probe and check, once per context), NULL otherwise. */
 static const libxstream_blas_plugin_t* libxstream_blas_find(const libxstream_stream_t* stream);
 static const libxstream_blas_plugin_t* libxstream_blas_find(const libxstream_stream_t* stream)
 {
@@ -95,13 +155,26 @@ static const libxstream_blas_plugin_t* libxstream_blas_find(const libxstream_str
     while (1 == (state = LIBXS_ATOMIC_LOAD(&libxstream_blas_state, LIBXS_ATOMIC_SEQ_CST))) LIBXS_SYNC_PAUSE;
   }
   if (2 == state && NULL != stream && NULL != stream->queue) {
-    const libxstream_opencl_device_t* const device = &libxstream_opencl_config.device;
-    /* oneMKL addresses Intel USM and SVM, which libxstream_mem_allocate returns if either is in use */
-    if (0 == libxstream_blas_table.xmem
-      || (0 != device->intel && (NULL != device->clDeviceMemAllocINTEL || 0 != device->usm)))
+    void* const context = libxstream_opencl_config.device.context;
+    int serves = LIBXS_ATOMIC_LOAD(&libxstream_blas_serves, LIBXS_ATOMIC_SEQ_CST);
+    if (1 != serves && context != libxstream_blas_context /* another context (device): ask again */
+      && LIBXS_ATOMIC_CMPSWP(&libxstream_blas_serves, serves, 1, LIBXS_ATOMIC_SEQ_CST))
     {
-      result = &libxstream_blas_table;
+      const int kind = libxstream_blas_memkind();
+      const int served = (0 == libxstream_blas_table.probe(context, libxstream_opencl_config.device.stream.queue, kind)
+        && EXIT_SUCCESS == libxstream_blas_check(&libxstream_blas_table));
+      if (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {
+        static const char* const kinds[] = {"", "Intel USM", "SVM", "buffers"};
+        LIBXS_STDIO_ACQUIRE();
+        fprintf(stderr, "INFO LIBXSTREAM: device BLAS %s %s with %s\n", libxstream_blas_table.name,
+          0 != served ? "serves" : "declines", kinds[kind]);
+        LIBXS_STDIO_RELEASE();
+      }
+      libxstream_blas_context = context;
+      LIBXS_ATOMIC_STORE(&libxstream_blas_serves, 0 != served ? 2 : -1, LIBXS_ATOMIC_SEQ_CST);
     }
+    while (1 == (serves = LIBXS_ATOMIC_LOAD(&libxstream_blas_serves, LIBXS_ATOMIC_SEQ_CST))) LIBXS_SYNC_PAUSE;
+    if (2 == serves) result = &libxstream_blas_table;
   }
   return result;
 }
@@ -115,14 +188,9 @@ static int libxstream_blas_f64(libxs_data_t datatype)
 }
 
 
-LIBXSTREAM_API const char* libxstream_blas_query(libxstream_stream_t* stream, int* xmem)
+LIBXSTREAM_API const char* libxstream_blas_query(libxstream_stream_t* stream)
 {
-  const libxstream_blas_plugin_t* plugin = libxstream_blas_find(stream);
-  /* a plugin which fails its self-test refuses every call, hence it is not reported */
-  if (NULL != plugin && NULL != plugin->probe && 0 != plugin->probe(libxstream_opencl_config.device.context, stream->queue)) {
-    plugin = NULL;
-  }
-  if (NULL != xmem) *xmem = (NULL != plugin ? plugin->xmem : 0);
+  const libxstream_blas_plugin_t* const plugin = libxstream_blas_find(stream);
   return (NULL != plugin ? plugin->name : NULL);
 }
 

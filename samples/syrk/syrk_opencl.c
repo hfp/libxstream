@@ -56,6 +56,8 @@ struct syrk_opencl_t {
   int blas, scaled;
   void *as, *s, *hs;
   size_t nas, ns, nhs;
+  /* what computed the panels so far: 1 = device BLAS, 2 = kernel, 4 = host (declined) */
+  int used;
   syrk_opencl_slot_t slot[SYRK_OPENCL_NSLOTS];
 };
 
@@ -265,10 +267,12 @@ static int syrk_opencl_submit(void* vctx, const libxs_syrk_t* plan, const void* 
       slot->f64 = f64;
       slot->upper = ('U' == plan->shape.uplo);
       slot->busy = 1;
+      ctx->used |= (0 != blas_done ? 1 : 2);
       ticket = s;
     }
     else ctx->valid = 0; /* copy again next time */
   }
+  if (0 > ticket) ctx->used |= 4;
   return ticket;
 }
 
@@ -329,8 +333,7 @@ int syrk_opencl_create(syrk_opencl_t** ctx)
       result = libxstream_stream_create(&c->stream, "syrk", LIBXSTREAM_STREAM_DEFAULT);
       if (EXIT_SUCCESS == result) {
         const char* const env = getenv("SYRK_OPENCL_BLAS");
-        int xmem = 0;
-        c->blas = ((NULL == env || 0 != atoi(env)) && NULL != libxstream_blas_query(c->stream, &xmem) && 0 != xmem);
+        c->blas = ((NULL == env || 0 != atoi(env)) && NULL != libxstream_blas_query(c->stream));
       }
       if (EXIT_SUCCESS != result) {
         free(c);
@@ -379,7 +382,9 @@ void syrk_opencl_device(syrk_opencl_t* ctx, libxs_syrk_device_t* device)
 
 const char* syrk_opencl_backend(const syrk_opencl_t* ctx)
 {
-  return (NULL != ctx && 0 != ctx->blas ? "oneMKL" : "kernel");
+  static const char* const labels[] = {
+    "none", "oneMKL", "kernel", "oneMKL+kernel", "host", "oneMKL+host", "kernel+host", "oneMKL+kernel+host"};
+  return labels[NULL != ctx ? (7 & ctx->used) : 0];
 }
 
 

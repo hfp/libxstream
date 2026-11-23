@@ -1476,7 +1476,7 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_h2d(
 {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
 #if defined(LIBXSTREAM_ASYNC)
-  const cl_bool finish = (0 != blocking || 0 == (1 & libxstream_opencl_config.async) || LIBXSTREAM_WA_UNIFIED(devinfo));
+  const cl_bool finish = (0 != blocking || 0 == (1 & libxstream_opencl_config.async));
 #else
   const cl_bool finish = CL_TRUE;
 #endif
@@ -1668,7 +1668,7 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_d2h(
 {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
 #if defined(LIBXSTREAM_ASYNC)
-  const cl_bool finish = (0 != blocking || 0 == (2 & libxstream_opencl_config.async) || LIBXSTREAM_WA_UNIFIED(devinfo));
+  const cl_bool finish = (0 != blocking || 0 == (2 & libxstream_opencl_config.async));
 #else
   const cl_bool finish = CL_TRUE;
 #endif

@@ -128,4 +128,14 @@ LIBXSTREAM_API int libxstream_mem_copy_d2d(const void* devmem_src, void* devmem_
 LIBXSTREAM_API int libxstream_mem_zero(void* dev_mem, size_t offset, size_t nbytes,
   libxstream_stream_t* LIBXS_ARGDEF(stream, NULL));
 
+/**
+ * header-only: the implementation follows the declarations, unless a public header
+ * which includes this one defers it to its own end (after its declarations).
+ */
+#if defined(LIBXSTREAM_SOURCE) && !defined(LIBXSTREAM_SOURCE_H) \
+ && !defined(LIBXSTREAM_OPENCL_H) && !defined(LIBXSTREAM_DBCSR_H) && !defined(DBCSR_ACC_H) \
+ && !defined(LIBXSTREAM_CP2K_H) && !defined(LIBXSTREAM_BLAS_H)
+# include "libxstream_source.h"
+#endif
+
 #endif /*LIBXSTREAM_H*/

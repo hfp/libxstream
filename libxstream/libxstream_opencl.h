@@ -190,8 +190,7 @@ LIBXS_PRAGMA_DIAG_POP()
   (const void*)(STREAM) != (const void*)&libxstream_opencl_config.device.stream)
 /**
  * Whether WA-16 applies to the given device, i.e. a unified-memory Intel GPU
- * (iGPU). Both of the workaround's effects share this predicate: no USM, and
- * synchronous transfers (see libxstream_opencl_config_t::wa).
+ * (iGPU): no USM by default (see libxstream_opencl_config_t::wa).
  */
 #define LIBXSTREAM_WA_UNIFIED(DEVINFO) \
   (0 != (16 & libxstream_opencl_config.wa) && 0 != (DEVINFO)->intel && 0 != (DEVINFO)->unified && \
@@ -919,7 +918,7 @@ LIBXSTREAM_API int libxstream_mps_server(void);
 /** Points the OpenCL loader to the forwarding ICD (LIBXSTREAM_MPS, or a running server), before any OpenCL call. */
 LIBXSTREAM_API_INTERN void libxstream_mps_presetup(int verbosity);
 
-/* header-only: include implementation (deferred from libxstream_macros.h) */
+/* header-only: include implementation after the declarations */
 #if defined(LIBXSTREAM_SOURCE) && !defined(LIBXSTREAM_SOURCE_H)
 # include "libxstream_source.h"
 #endif

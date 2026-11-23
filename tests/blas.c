@@ -47,9 +47,13 @@ static double get(const void* x, int f64, int i)
 }
 
 
-/* GEMM (C := 0.5*A*B^T + 2*C), SYRK (lower, C := A*A^T, the upper triangle untouched), and DGMM. */
-static int check(libxstream_stream_t* stream, int f64);
-static int check(libxstream_stream_t* stream, int f64)
+/**
+ * GEMM (C := 0.5*A*B^T + 2*C), SYRK (lower, C := A*A^T, the upper triangle untouched), and DGMM. A
+ * precision the plugin declines at the first call (e.g., FP64 on a device without it) is not checked
+ * (served is set to zero), but each call after a served one must succeed.
+ */
+static int check(libxstream_stream_t* stream, int f64, int* served);
+static int check(libxstream_stream_t* stream, int f64, int* served)
 {
   const libxs_data_t datatype = (0 != f64 ? LIBXS_DATATYPE_F64 : LIBXS_DATATYPE_F32);
   const size_t es = (0 != f64 ? sizeof(double) : sizeof(float));
@@ -72,13 +76,16 @@ static int check(libxstream_stream_t* stream, int f64)
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(hc, dc, es * M * M, stream);
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(hx, dx, es * N, stream);
     if (EXIT_SUCCESS == result) {
-      if (0 == op) result = libxstream_blas_gemm(stream, datatype, 'N', 'T', M, N, K, 0.5, da, M, db, N, 2.0, dc, M);
+      if (0 == op) {
+        *served = (EXIT_SUCCESS == libxstream_blas_gemm(stream, datatype, 'N', 'T', M, N, K, 0.5, da, M, db, N, 2.0, dc, M));
+        if (0 == *served) op = 3; /* declined: nothing to check, the copies are synchronized below */
+      }
       else if (1 == op) result = libxstream_blas_syrk(stream, datatype, 'L', 'N', M, K, 1.0, da, M, NULL, 0, 0.0, dc, M);
       else result = libxstream_blas_dgmm(stream, datatype, 'R', M, N, da, M, dx, 1, dc, M);
     }
-    if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(dc, hc, es * M * M, stream);
+    if (EXIT_SUCCESS == result && 3 != op) result = libxstream_mem_copy_d2h(dc, hc, es * M * M, stream);
     if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
-    for (j = 0; j < (1 == op ? M : N) && EXIT_SUCCESS == result; ++j) {
+    for (j = 0; j < (1 == op ? M : (3 != op ? N : 0)) && EXIT_SUCCESS == result; ++j) {
       for (i = 0; i < M && EXIT_SUCCESS == result; ++i) {
         const int x = i + j * M, untouched = (1 == op && i < j);
         const double c0 = (0 != f64 ? value(4, x) : (double)(float)value(4, x)); /* C as it was copied */
@@ -112,18 +119,20 @@ static int check(libxstream_stream_t* stream, int f64)
 int main(void)
 {
   libxstream_stream_t* stream = NULL;
-  int result = libxstream_init(), xmem = 0, ndevices = 0;
+  int result = libxstream_init(), ndevices = 0;
   if (EXIT_SUCCESS == result) result = libxstream_device_count(&ndevices);
   if (EXIT_SUCCESS == result && 0 < ndevices) {
     result = libxstream_stream_create(&stream, "blas", LIBXSTREAM_STREAM_DEFAULT);
   }
   else if (EXIT_SUCCESS == result) printf("device BLAS: no device\n");
   if (EXIT_SUCCESS == result && NULL != stream) {
-    const char* const name = libxstream_blas_query(stream, &xmem);
-    if (NULL != name && 0 != xmem) {
-      result = check(stream, 1);
-      if (EXIT_SUCCESS == result) result = check(stream, 0);
-      printf("device BLAS %s: %s\n", name, EXIT_SUCCESS == result ? "OK" : "FAILED");
+    const char* const name = libxstream_blas_query(stream);
+    if (NULL != name) { /* single precision is served by any plugin which serves the device */
+      int f64 = 0, f32 = 0;
+      result = check(stream, 1, &f64);
+      if (EXIT_SUCCESS == result) result = check(stream, 0, &f32);
+      if (EXIT_SUCCESS == result && 0 == f32) result = EXIT_FAILURE;
+      printf("device BLAS %s: %s%s\n", name, EXIT_SUCCESS == result ? "OK" : "FAILED", 0 == f64 ? " (FP64 declined)" : "");
     }
     else { /* every call refuses, hence the caller computes otherwise */
       double c = 0;
@@ -133,7 +142,7 @@ int main(void)
       {
         result = EXIT_FAILURE;
       }
-      printf("device BLAS: none%s\n", NULL != name ? " (no LIBXSTREAM memory)" : "");
+      printf("device BLAS: none\n");
     }
   }
   if (NULL != stream) libxstream_stream_destroy(stream);

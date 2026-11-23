@@ -29,9 +29,9 @@ int syrk_opencl_create(syrk_opencl_t** ctx);
 void syrk_opencl_destroy(syrk_opencl_t* ctx);
 
 /**
- * What computes SYRK: "oneMKL" if the device BLAS (libxstream_blas.h) serves the device, which needs
- * Intel USM or SVM (LIBXSTREAM_USM), unless SYRK_OPENCL_BLAS=0; "kernel" otherwise. SYR2K, and
- * weights with a negative one, take the kernel either way.
+ * What computed the panels so far: "oneMKL" where the device BLAS (libxstream_blas.h) serves the
+ * device and the precision (unless SYRK_OPENCL_BLAS=0), "kernel" (SYR2K, a negative weight, or no
+ * device BLAS), "host" for panels the device declined, or a combination such as "oneMKL+host".
  */
 const char* syrk_opencl_backend(const syrk_opencl_t* ctx);
 

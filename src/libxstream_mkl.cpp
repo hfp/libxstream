@@ -67,8 +67,8 @@ struct libxstream_mkl_pending_t {
 };
 
 /**
- * The SYCL context made of the OpenCL context, whether oneMKL passed its self-test, and the arguments
- * still in flight. An interop object neither retains nor releases its OpenCL handle, hence a queue is
+ * The SYCL context made of the OpenCL context, whether oneMKL passed its self-test per precision
+ * (single, double), and the arguments still in flight. An interop object neither retains nor releases its OpenCL handle, hence a queue is
  * made per call (a cached one could outlive the stream). Never destroyed: the SYCL runtime may be
  * gone by the time the process exits.
  */
@@ -76,7 +76,7 @@ struct libxstream_mkl_state_t {
   std::mutex lock;
   cl_context clctx = nullptr;
   sycl::context* context = nullptr;
-  int status = 0; /* 0: untested, 1: usable, -1: disabled */
+  int status[2] = {0, 0}; /* 0: untested, 1: usable, -1: disabled */
   std::vector<libxstream_mkl_pending_t> pending;
 };
 
@@ -162,7 +162,7 @@ sycl::event libxstream_mkl_dgmm(sycl::queue& queue, char side, int m, int n, con
     std::vector<sycl::event>());
 }
 
-/* Each entry point in both precisions against the host, synchronously: small integers make it exact. */
+/* Each entry point in precision T against the host, synchronously: small integers make it exact. */
 template <typename T>
 bool libxstream_mkl_selftest_type(sycl::queue& queue)
 {
@@ -220,11 +220,39 @@ bool libxstream_mkl_selftest_type(sycl::queue& queue)
 }
 
 /**
+ * Self-test of each precision the device has, once per context. A failure or an exception disables
+ * that precision only, e.g., double precision on a device without it.
+ */
+void libxstream_mkl_selftest(libxstream_mkl_state_t& state, sycl::queue& queue)
+{
+  int f64;
+  for (f64 = 0; f64 < 2; ++f64) {
+    if (0 == state.status[f64]) {
+      const char* const precision = (0 != f64 ? "double" : "single");
+      state.status[f64] = -1;
+      try {
+        if (0 == f64 || queue.get_device().has(sycl::aspect::fp64)) {
+          if (0 != f64 ? libxstream_mkl_selftest_type<double>(queue) : libxstream_mkl_selftest_type<float>(queue)) {
+            state.status[f64] = 1;
+          }
+          else std::fprintf(stderr, "WARNING LIBXSTREAM: oneMKL (SYCL) failed its self-test in %s precision\n", precision);
+        }
+      }
+      catch (const std::exception& e) {
+        std::fprintf(stderr, "WARNING LIBXSTREAM: oneMKL (SYCL) failed its self-test in %s precision: %s\n", precision,
+          e.what());
+      }
+    }
+  }
+}
+
+/**
  * The work of one call on a queue made of the stream's OpenCL queue (hence in order with the stream's
- * other work), after the context is set up and oneMKL passed its self-test. Returns zero on success.
+ * other work), after the context is set up and oneMKL passed its self-test in the precision f64 (any
+ * precision if negative). Returns zero on success.
  */
 template <typename F>
-int libxstream_mkl_run(void* context, void* queue, std::size_t nargs, F work)
+int libxstream_mkl_run(void* context, void* queue, int f64, std::size_t nargs, F work)
 {
   libxstream_mkl_state_t& state = libxstream_mkl_state();
   int result = -1;
@@ -236,17 +264,12 @@ int libxstream_mkl_run(void* context, void* queue, std::size_t nargs, F work)
       delete state.context;
       state.context = new sycl::context(sycl::make_context<sycl::backend::opencl>(clctx));
       state.clctx = clctx;
-      state.status = 0;
+      state.status[0] = state.status[1] = 0;
     }
     {
       sycl::queue q = sycl::make_queue<sycl::backend::opencl>(static_cast<cl_command_queue>(queue), *state.context);
-      if (0 == state.status) {
-        state.status = ((libxstream_mkl_selftest_type<double>(q) && libxstream_mkl_selftest_type<float>(q)) ? 1 : -1);
-        if (0 > state.status) {
-          std::fprintf(stderr, "WARNING LIBXSTREAM: oneMKL (SYCL) failed its self-test, no device BLAS\n");
-        }
-      }
-      if (0 < state.status) {
+      libxstream_mkl_selftest(state, q);
+      if (0 > f64 ? (0 < state.status[0] || 0 < state.status[1]) : (0 < state.status[0 != f64 ? 1 : 0])) {
         void* const args = (0 < nargs ? sycl::malloc_shared(nargs, q) : nullptr);
         if (0 < nargs && nullptr == args) throw std::bad_alloc();
         /* on a CPU, oneMKL runs host tasks which the OpenCL queue does not order: synchronous */
@@ -272,16 +295,37 @@ std::size_t libxstream_mkl_nargs(int f64)
   return (0 != f64 ? sizeof(libxstream_mkl_args_t<double>) : sizeof(libxstream_mkl_args_t<float>));
 }
 
-/* Sets up the context and runs the self-test (once per context), enqueuing nothing. */
-int libxstream_mkl_probe_entry(void* context, void* queue)
+/**
+ * An Intel device, memory oneMKL addresses, and a passed self-test (set up once per context, nothing
+ * enqueued). Intel USM is taken as is. A buffer's device address is taken where memory is unified
+ * (the driver keeps such a buffer resident); elsewhere a buffer oneMKL does not reference may not be.
+ * SVM is taken on a CPU only: on an integrated GPU (Gen12LP), oneMKL produced wrong results with SVM.
+ */
+int libxstream_mkl_probe_entry(void* context, void* queue, int kind)
 {
-  return libxstream_mkl_run(context, queue, 0, [](sycl::queue&, void*) { return sycl::event(); });
+  const cl_command_queue clqueue = static_cast<cl_command_queue>(queue);
+  cl_device_id device = nullptr;
+  cl_device_type type = 0;
+  cl_uint vendor = 0;
+  cl_bool unified = CL_FALSE;
+  int result = -1;
+  if (CL_SUCCESS == clGetCommandQueueInfo(clqueue, CL_QUEUE_DEVICE, sizeof(device), &device, nullptr)
+    && CL_SUCCESS == clGetDeviceInfo(device, CL_DEVICE_VENDOR_ID, sizeof(vendor), &vendor, nullptr)
+    && CL_SUCCESS == clGetDeviceInfo(device, CL_DEVICE_TYPE, sizeof(type), &type, nullptr)
+    && CL_SUCCESS == clGetDeviceInfo(device, CL_DEVICE_HOST_UNIFIED_MEMORY, sizeof(unified), &unified, nullptr)
+    && 0x8086 == vendor
+    && (LIBXSTREAM_BLAS_MEM_USM == kind || (LIBXSTREAM_BLAS_MEM_SVM == kind && 0 != (CL_DEVICE_TYPE_CPU & type))
+      || (LIBXSTREAM_BLAS_MEM_BUFFER == kind && CL_FALSE != unified)))
+  {
+    result = libxstream_mkl_run(context, queue, -1, 0, [](sycl::queue&, void*) { return sycl::event(); });
+  }
+  return result;
 }
 
 int libxstream_mkl_gemm_entry(void* context, void* queue, int f64, char transa, char transb, int m, int n, int k,
   double alpha, const void* a, int lda, const void* b, int ldb, double beta, void* c, int ldc)
 {
-  return libxstream_mkl_run(context, queue, libxstream_mkl_nargs(f64), [=](sycl::queue& q, void* args) {
+  return libxstream_mkl_run(context, queue, f64, libxstream_mkl_nargs(f64), [=](sycl::queue& q, void* args) {
     return (0 != f64 ? libxstream_mkl_gemm<double>(q, args, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)
                      : libxstream_mkl_gemm<float>(q, args, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc));
   });
@@ -291,7 +335,7 @@ int libxstream_mkl_syrk_entry(void* context, void* queue, int f64, char uplo, ch
   const void* a, int lda, const void* b, int ldb, double beta, void* c, int ldc)
 {
   (void)ldb;
-  return (nullptr == b ? libxstream_mkl_run(context, queue, libxstream_mkl_nargs(f64), [=](sycl::queue& q, void* args) {
+  return (nullptr == b ? libxstream_mkl_run(context, queue, f64, libxstream_mkl_nargs(f64), [=](sycl::queue& q, void* args) {
     return (0 != f64 ? libxstream_mkl_syrk<double>(q, args, uplo, trans, n, k, alpha, a, lda, beta, c, ldc)
                      : libxstream_mkl_syrk<float>(q, args, uplo, trans, n, k, alpha, a, lda, beta, c, ldc));
   })
@@ -301,7 +345,7 @@ int libxstream_mkl_syrk_entry(void* context, void* queue, int f64, char uplo, ch
 int libxstream_mkl_dgmm_entry(void* context, void* queue, int f64, char side, int m, int n, const void* a, int lda,
   const void* x, int incx, void* c, int ldc)
 {
-  return libxstream_mkl_run(context, queue, 0, [=](sycl::queue& q, void*) {
+  return libxstream_mkl_run(context, queue, f64, 0, [=](sycl::queue& q, void*) {
     return (0 != f64 ? libxstream_mkl_dgmm<double>(q, side, m, n, a, lda, x, incx, c, ldc)
                      : libxstream_mkl_dgmm<float>(q, side, m, n, a, lda, x, incx, c, ldc));
   });
@@ -314,7 +358,6 @@ extern "C" __attribute__((visibility("default"))) int libxstream_blas_plugin(lib
   int result = -1;
   if (nullptr != table && LIBXSTREAM_BLAS_PLUGIN_VERSION == table->version) {
     table->name = "mkl";
-    table->xmem = 1; /* Intel USM of libxstream_mem_allocate */
     table->probe = libxstream_mkl_probe_entry;
     table->gemm = libxstream_mkl_gemm_entry;
     table->syrk = libxstream_mkl_syrk_entry;

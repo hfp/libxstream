@@ -11,9 +11,14 @@
 #define LIBXSTREAM_BLAS_PLUGIN_H
 
 /* version of the table: a plugin refuses any other */
-#define LIBXSTREAM_BLAS_PLUGIN_VERSION 2
+#define LIBXSTREAM_BLAS_PLUGIN_VERSION 3
 /* the one function a plugin exports */
 #define LIBXSTREAM_BLAS_PLUGIN_ENTRY "libxstream_blas_plugin"
+
+/* what libxstream_mem_allocate returns (see probe): Intel USM, OpenCL SVM, or buffers by device address */
+#define LIBXSTREAM_BLAS_MEM_USM 1
+#define LIBXSTREAM_BLAS_MEM_SVM 2
+#define LIBXSTREAM_BLAS_MEM_BUFFER 3
 
 #if defined(__cplusplus)
 extern "C" {
@@ -27,11 +32,12 @@ extern "C" {
  */
 typedef struct libxstream_blas_plugin_t {
   int version;
-  /** Name, and whether memory of libxstream_mem_allocate (Intel USM) is taken. */
   const char* name;
-  int xmem;
-  /** Whether the plugin serves the stream (e.g., after a self-test), enqueuing nothing. */
-  int (*probe)(void* context, void* queue);
+  /**
+   * Whether the plugin serves the device with memory of the given kind (LIBXSTREAM_BLAS_MEM_*),
+   * e.g., after a self-test; enqueues nothing. Called before any other function of a context.
+   */
+  int (*probe)(void* context, void* queue, int kind);
   int (*gemm)(void* context, void* queue, int f64, char transa, char transb, int m, int n, int k, double alpha,
     const void* a, int lda, const void* b, int ldb, double beta, void* c, int ldc);
   int (*syrk)(void* context, void* queue, int f64, char uplo, char trans, int n, int k, double alpha, const void* a,

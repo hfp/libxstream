@@ -2087,8 +2087,9 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
           /* what an AMD device's compiler accepts is test-compiled (libxstream_opencl_atomics_probe), not told by its name */
           if (EXIT_SUCCESS == libxstream_opencl_device_vendor(active_id, "amd", 0 /*use_platform_name*/) ||
               EXIT_SUCCESS == libxstream_opencl_device_vendor(active_id, "amd", 1 /*use_platform_name*/))
-          {
-            devinfo->amd = 1;
+          { /* amd: 1=generic, 2=CDNA3 matrix cores (MFMA 32x32x16 int8), 3=CDNA4 (32x32x32): by LIBXSTREAM_AMD or a caller's probe */
+            const char* const env_amd = getenv("LIBXSTREAM_AMD");
+            devinfo->amd = (NULL != env_amd) ? atoi(env_amd) : 1;
           }
           libxstream_opencl_config.atomics_probe[0] = libxstream_opencl_config.atomics_probe[1] = 0;
           if (EXIT_SUCCESS !=
@@ -2163,8 +2164,8 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
              * WA-16 disables USM on unified-memory Intel GPUs, where some stacks are
              * not correct with SVM. It supplies the default level only, so an explicit
              * request still wins. Restricted to a GPU: a CPU device reports unified
-             * memory as well but is correct. The same bit forces synchronous
-             * transfers.
+             * memory as well but is correct. Transfers stay asynchronous: buffers
+             * are correct asynchronously on such a GPU.
              */
 # if (1 >= LIBXSTREAM_USM)
             /* Intel USM on an Intel discrete GPU, unless Intel MPI could not exchange its host memory */
