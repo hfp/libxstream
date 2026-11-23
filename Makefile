@@ -177,19 +177,39 @@ ifeq (file,$(origin AVX))
 endif
 AVX_STATIC ?= $(AVX)
 
-HEADERS_MAIN := $(ROOTINC)/libxstream_cp2k.h $(ROOTINC)/libxstream_dbcsr.h $(ROOTINC)/libxstream_macros.h $(ROOTINC)/libxstream_opencl.h $(ROOTINC)/libxstream.h
+HEADERS_MAIN := $(ROOTINC)/libxstream_blas.h $(ROOTINC)/libxstream_cp2k.h $(ROOTINC)/libxstream_dbcsr.h $(ROOTINC)/libxstream_macros.h $(ROOTINC)/libxstream_opencl.h $(ROOTINC)/libxstream.h
 LIBXS_SOURCE := $(wildcard $(LIBXSROOT)/libxs/libxs_source.h)
 # without a LIBXS library, the objects embed the sources libxs_source.h includes
 LIBXS_SRCDEP := $(if $(LIBXS)$(LIBXS_PC),,$(if $(LIBXS_SOURCE), \
   $(wildcard $(LIBXSROOT)/src/*.c) $(wildcard $(LIBXSROOT)/src/*.h)))
 HEADERS_SRC := $(wildcard $(ROOTSRC)/*.h)
 HEADERS := $(HEADERS_SRC) $(HEADERS_MAIN)
-SRCFILES := $(patsubst %,$(ROOTSRC)/%,libxstream_cp2k.c libxstream_dbcsr.c libxstream.c libxstream_event.c libxstream_mem.c libxstream_mps.c libxstream_stream.c)
+SRCFILES := $(patsubst %,$(ROOTSRC)/%,libxstream_blas.c libxstream_cp2k.c libxstream_dbcsr.c libxstream.c libxstream_event.c libxstream_mem.c libxstream_mps.c libxstream_stream.c)
 # OpenCL-MPS server and the ICD given to the OpenCL loader, both beside the shared library
 # in the build tree (installed into PBINDIR and POUTDIR/libxstream, the ICD versioned)
 MPSFILE := $(ROOTSRC)/libxstream_mpsd.c
 MPSTARGETS := $(if $(filter-out 1 2,$(BUILD))$(filter-out 0,$(ANALYZE)),,$(OUTDIR)/libxstream_icd.$(DLIBEXT) $(OUTDIR)/libxstream_mpsd)
 OBJFILES := $(patsubst %,$(BLDDIR)/intel64/%.o,$(basename $(notdir $(SRCFILES))))
+
+# Device BLAS (libxstream_blas.h): a plugin beside the shared library, which loads it at runtime.
+# oneMKL's SYCL interface is compiled by the C++ compiler at hand (no SYCL compiler): built if CXX,
+# the SYCL runtime (CMPLR_ROOT, icx, or next to MKL), and oneMKL's SYCL library are found, and
+# dropped otherwise (SYCL=0 drops it as well). Libraries are linked by path (oneAPI's lib directory
+# also holds an OpenCL loader) with an RPATH, since the SYCL runtime loads its backend by name, and
+# MKL's Intel interface supplies the *_64 CBLAS names oneMKL calls.
+SYCL ?= 1
+ifneq (0,$(SYCL))
+  PLUGIN_MKLROOT := $(firstword $(MKLROOT) $(wildcard /opt/intel/oneapi/mkl/latest))
+  PLUGIN_MKLDIR := $(firstword $(foreach DIR,$(PLUGIN_MKLROOT)/lib/$(MKL_ARCH) $(PLUGIN_MKLROOT)/lib, \
+    $(if $(wildcard $(DIR)/libmkl_sycl_blas.$(DLIBEXT)),$(call qapath,$(DIR)))))
+  PLUGIN_SYCLROOT := $(firstword $(foreach DIR,$(CMPLR_ROOT) $(ICXROOT) $(PLUGIN_MKLROOT)/../../compiler/latest, \
+    $(if $(wildcard $(DIR)/include/sycl/sycl.hpp),$(if $(wildcard $(DIR)/lib/libsycl.$(DLIBEXT)),$(call qapath,$(DIR))))))
+  ifneq (,$(and $(PLUGIN_MKLDIR),$(PLUGIN_SYCLROOT),$(call which,$(CXX))))
+    MKLPLUGIN := $(if $(filter-out 1 2,$(BUILD))$(filter-out 0,$(ANALYZE)),,$(OUTDIR)/libxstream_mkl.$(DLIBEXT))
+    # found by a static library (or executable) as well, which has no directory of its own
+    DFLAGS += -DLIBXSTREAM_BLAS_PLUGIN_DIR=\"$(abspath $(OUTDIR))\"
+  endif
+endif
 
 # no warning conversion for released versions
 ifneq (0,$(VERSION_RELEASED))
@@ -272,7 +292,7 @@ $(foreach OBJ,$(OBJFILES),$(eval $(call DEFINE_COMPILE_RULE, \
   $(DFLAGS) $(IFLAGS) $(CTARGET) $(CFLAGS))))
 
 .PHONY: libs
-libs: $(PPKGDIR)/$(PROJECT)-static.pc $(PPKGDIR)/$(PROJECT)-shared.pc $(PCMKDIR)/$(PROJECT)Config.cmake $(MPSTARGETS)
+libs: $(PPKGDIR)/$(PROJECT)-static.pc $(PPKGDIR)/$(PROJECT)-shared.pc $(PCMKDIR)/$(PROJECT)Config.cmake $(MPSTARGETS) $(MKLPLUGIN)
 	@if [ -d $(OUTDIR) ]; then cd $(OUTTOP) && for LINK in *; do \
 		if [ -L "$${LINK}" ]; then case "$$(readlink "$${LINK}")" in \
 			/*) ;; */*) if [ -d "$$(dirname "$$(readlink "$${LINK}")")" ]; then rm -f "$${LINK}"; fi;; \
@@ -301,6 +321,15 @@ $(OUTDIR)/$(PROJECT).$(DLIBEXT): $(OUTDIR)/.make $(OBJFILES) $(FTNOBJS) $(LIBXS)
 		$(call cleanld,$(LDFLAGS) $(CLDFLAGS))
 else
 .PHONY: $(OUTDIR)/$(PROJECT).$(DLIBEXT)
+endif
+
+ifneq (,$(MKLPLUGIN))
+$(MKLPLUGIN): $(OUTDIR)/.make $(ROOTSRC)/libxstream_mkl.cpp $(ROOTSRC)/libxstream_blas_plugin.h $(LNKSTATE)
+	$(CXX) $(CXXFLAGS) $(CTARGET) $(PICFLAG) -std=c++17 -shared -isystem $(PLUGIN_SYCLROOT)/include \
+		$(ROOTSRC)/libxstream_mkl.cpp -o $@ $(PLUGIN_MKLDIR)/libmkl_sycl_blas.$(DLIBEXT) \
+		$(PLUGIN_SYCLROOT)/lib/libsycl.$(DLIBEXT) $(PLUGIN_MKLDIR)/libmkl_intel_lp64.$(DLIBEXT) \
+		$(PLUGIN_MKLDIR)/libmkl_sequential.$(DLIBEXT) $(PLUGIN_MKLDIR)/libmkl_core.$(DLIBEXT) \
+		-Wl,--disable-new-dtags -Wl,-rpath,$(PLUGIN_MKLDIR) -Wl,-rpath,$(PLUGIN_SYCLROOT)/lib
 endif
 
 $(OUTDIR)/libxstream_icd.$(DLIBEXT): $(OUTDIR)/$(PROJECT).$(DLIBEXT) $(MPSFILE) $(HEADERS) $(INCDIR)/$(PROJECT)_version.h
@@ -514,6 +543,9 @@ endif
 	@$(CP) -v  $(OUTDIR)/$(PROJECT).$(SLIBEXT)  $(PREFIX)/$(POUTDIR) 2>/dev/null || true
 	@if [ -e $(OUTDIR)/libxstream_icd.$(DLIBEXT) ]; then \
 		$(CP) -va $(OUTDIR)/libxstream_icd.$(DLIBEXT).* $(PREFIX)/$(POUTDIR); \
+	fi
+	@if [ -e $(OUTDIR)/libxstream_mkl.$(DLIBEXT) ]; then \
+		$(CP) -v $(OUTDIR)/libxstream_mkl.$(DLIBEXT) $(PREFIX)/$(POUTDIR); \
 	fi
 	@if [ -e $(OUTDIR)/libxstream_mpsd ]; then \
 		$(MKDIR) -p $(PREFIX)/$(PBINDIR) && $(CP) -v $(OUTDIR)/libxstream_mpsd $(PREFIX)/$(PBINDIR); \

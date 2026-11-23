@@ -264,8 +264,9 @@ int main(int argc, char* argv[])
       if (1 < nranks) printf(" ranks=%i grid=%ix%i block=%i", nranks, nprow, npcol, SYRK_BLOCK);
       printf("\n  error (relative):  %.2e\n", rel);
       printf("  LIBXS (host):      %.3f ms  %.1f GFLOPS/s\n", 1E3 * thost, 1E-9 * nflops / thost);
-      printf("  LIBXSTREAM:        %.3f ms  %.1f GFLOPS/s\n", 1E3 * tdev, 1E-9 * nflops / tdev);
-      printf("  LIBXSTREAM (A on device): %.3f ms  %.1f GFLOPS/s\n", 1E3 * tres, 1E-9 * nflops / tres);
+      printf("  LIBXSTREAM (%s): %.3f ms  %.1f GFLOPS/s\n", syrk_opencl_backend(ctx), 1E3 * tdev, 1E-9 * nflops / tdev);
+      printf("  LIBXSTREAM (%s, A on device): %.3f ms  %.1f GFLOPS/s\n", syrk_opencl_backend(ctx), 1E3 * tres,
+        1E-9 * nflops / tres);
     }
     if (!(rel <= tol)) {
       if (0 == rank) fprintf(stderr, "ERROR: relative error %.2e exceeds %.2e\n", rel, tol);

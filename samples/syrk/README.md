@@ -42,4 +42,6 @@ syrk_opencl_weights(ctx, d);         /* optional, per call */
 libxs_syrk(&plan, alpha, a, NULL, beta, c);
 ```
 
+Where the [device BLAS](../../documentation/libxstream_opencl.md#device-blas) serves the device (oneMKL on an Intel GPU with Intel USM or SVM, e.g., `LIBXSTREAM_USM=2` on an integrated GPU), a panel is a SYRK of its diagonal block and a GEMM of the rest, with weights applied as A\*diag(sqrt(d)) (`dgmm`). SYR2K, a negative weight, or `SYRK_OPENCL_BLAS=0` take the kernel instead, and the sample prints which one computes.
+
 The kernel (`kernels/syrk.cl`) computes a panel in blocks of 64x64 (16x16 work-items with 4x4 elements each) through local memory, and the host merges the panel's triangle into C. A panel the device cannot compute (e.g., no fp64) is declined, and LIBXS computes it on the host.

@@ -35,6 +35,7 @@ Environment variables are read when the library initializes, except those concer
 | `LIBXSTREAM_STAGE_NT` | Threads of the staging copy; default: half of the OpenMP threads, at most 32 |
 | `LIBXSTREAM_USM` | Unified Shared Memory level: 0 = off, 1 = Intel USM, 2 = OpenCL 2.0 SVM coarse-grain, 3 = OpenCL 2.0 SVM reported caps. Unset means 1 on an Intel discrete GPU, 0 on an Intel integrated GPU (which also transfers synchronously), off on NVIDIA, and 2 otherwise. Intel MPI cannot exchange Intel USM host memory without `I_MPI_OFFLOAD=1`: on a system with Intel GPUs only it is set unless given. If `I_MPI_OFFLOAD=0` is given, unset means 2, while an explicit 1 takes effect as requested (and fails). Where it could not be set, an explicit 1 takes host memory off Intel USM |
 | `LIBXSTREAM_SUBBUFFER` | Sub-buffers for offset kernel-arguments (0 = off, 1 = on); unused where USM is active; default: 0 |
+| `LIBXSTREAM_BLAS` | Plugin of the [device BLAS](#device-blas): 0 disables it, a path selects it; default: `libxstream_mkl.so` beside the library, in the directory it was built into, or on the library path |
 | `LIBXSTREAM_CACHE` | 0: no kernel cache, i.e., the vendor's compiled-kernel cache is off (`CUDA_CACHE_DISABLE=1` and `NEO_CACHE_PERSISTENT=0`, unless set); default: the vendor's cache |
 
 Level 3 is opt-in and never reached by the default; level 1 is the default on an Intel discrete GPU only, and opt-in elsewhere. Level 1 (`cl_intel_unified_shared_memory`) is the only level with asynchronous host-device transfers. Levels below 3 use coarse-grain SVM buffers only, whereas level 3 adopts whatever `CL_DEVICE_SVM_CAPABILITIES` reports (possibly fine-grain system allocations). At verbosity 2+, a warning says when an explicit level 1 cannot load the extensions, since the only symptom is a slower run.
@@ -209,6 +210,12 @@ PROF ACC/OpenCL: ID=<id> device inflight>=<ratio> (3 kernels, 3 transfer kinds)
 It is a lower bound on the average number of these operations running at once (summed durations over the time their intervals cover). A value above 1 is overlap; the field is absent if no overlap shows in two decimals. Intervals arriving too late to be merged are added whole, and their count is reported.
 
 A `device` row combines every kernel and every transfer, states how many of each contributed, and thereby shows overlap between kernels or between a kernel and a transfer.
+
+## Device BLAS
+
+`libxstream/libxstream_blas.h` enqueues a vendor's BLAS on a stream, in order with the stream's other work: `libxstream_blas_gemm`, `libxstream_blas_syrk`, and `libxstream_blas_dgmm` (C := A\*diag(x) or diag(x)\*A), on device memory in double or single precision. A plugin provides it and is loaded at the first call, hence the library itself links nothing more. Every function returns `EXIT_FAILURE` where no plugin serves the device, and the caller computes otherwise; `libxstream_blas_query` tells beforehand.
+
+* `libxstream_mkl.so`: oneMKL's SYCL interface on Intel GPUs, built beside the library when CXX, the SYCL runtime, and oneMKL's SYCL library are found (`SYCL=0` drops it). It takes memory of `libxstream_mem_allocate` where that is Intel USM or SVM (`LIBXSTREAM_USM`), and checks oneMKL against the host before first use. SYR2K is declined.
 
 ## OpenCL-MPS
 

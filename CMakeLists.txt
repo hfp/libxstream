@@ -204,6 +204,77 @@ if(BUILD_SHARED_LIBS)
                LIBRARY_OUTPUT_DIRECTORY "$<TARGET_FILE_DIR:libxstream>")
 endif()
 
+# Device BLAS (libxstream_blas.h): a plugin beside the library, which loads it at
+# runtime. oneMKL's SYCL interface is compiled by the C++ compiler at hand (no SYCL
+# compiler): built if CXX, the SYCL runtime (CMPLR_ROOT, icx, or next to MKL), and
+# oneMKL's SYCL library are found, unless LIBXSTREAM_SYCL is OFF. MKL's Intel
+# interface supplies the *_64 CBLAS names oneMKL calls.
+option(LIBXSTREAM_SYCL "Device BLAS by oneMKL's SYCL interface (if found)" ON)
+include(CheckLanguage)
+check_language(CXX)
+if(LIBXSTREAM_SYCL AND CMAKE_CXX_COMPILER)
+  enable_language(CXX)
+  set(LIBXSTREAM_MKLDIRS "$ENV{MKLROOT}/lib/intel64" "$ENV{MKLROOT}/lib"
+                         "/opt/intel/oneapi/mkl/latest/lib")
+  find_library(
+    LIBXSTREAM_MKL_SYCL_BLAS
+    NAMES mkl_sycl_blas
+    HINTS ${LIBXSTREAM_MKLDIRS})
+  find_program(LIBXSTREAM_ICX icx)
+  set(LIBXSTREAM_SYCLROOTS "$ENV{CMPLR_ROOT}")
+  if(LIBXSTREAM_ICX)
+    get_filename_component(dir "${LIBXSTREAM_ICX}" DIRECTORY)
+    list(APPEND LIBXSTREAM_SYCLROOTS "${dir}/..")
+  endif()
+  if(LIBXSTREAM_MKL_SYCL_BLAS)
+    get_filename_component(LIBXSTREAM_MKLDIR "${LIBXSTREAM_MKL_SYCL_BLAS}"
+                           DIRECTORY)
+    list(APPEND LIBXSTREAM_SYCLROOTS "${LIBXSTREAM_MKLDIR}/../../compiler/latest"
+         "${LIBXSTREAM_MKLDIR}/../../../compiler/latest")
+  endif()
+  find_path(
+    LIBXSTREAM_SYCL_INCLUDE_DIR
+    NAMES sycl/sycl.hpp
+    HINTS ${LIBXSTREAM_SYCLROOTS}
+    PATH_SUFFIXES include
+    NO_DEFAULT_PATH)
+  find_library(
+    LIBXSTREAM_SYCL_LIBRARY
+    NAMES sycl
+    HINTS ${LIBXSTREAM_SYCLROOTS}
+    PATH_SUFFIXES lib
+    NO_DEFAULT_PATH)
+  if(LIBXSTREAM_MKL_SYCL_BLAS
+     AND LIBXSTREAM_SYCL_INCLUDE_DIR
+     AND LIBXSTREAM_SYCL_LIBRARY)
+    add_library(libxstream_mkl MODULE "${LIBXSTREAM_ROOT_DIR}/src/libxstream_mkl.cpp")
+    # the SYCL headers as system headers of this file only: they bring CL headers
+    target_compile_options(
+      libxstream_mkl PRIVATE -isystem "${LIBXSTREAM_SYCL_INCLUDE_DIR}" -std=c++17)
+    target_link_libraries(
+      libxstream_mkl
+      PRIVATE "${LIBXSTREAM_MKL_SYCL_BLAS}" "${LIBXSTREAM_SYCL_LIBRARY}"
+              "${LIBXSTREAM_MKLDIR}/libmkl_intel_lp64${CMAKE_SHARED_LIBRARY_SUFFIX}"
+              "${LIBXSTREAM_MKLDIR}/libmkl_sequential${CMAKE_SHARED_LIBRARY_SUFFIX}"
+              "${LIBXSTREAM_MKLDIR}/libmkl_core${CMAKE_SHARED_LIBRARY_SUFFIX}")
+    get_filename_component(LIBXSTREAM_SYCLDIR "${LIBXSTREAM_SYCL_LIBRARY}"
+                           DIRECTORY)
+    set_target_properties(
+      libxstream_mkl
+      PROPERTIES PREFIX "lib"
+                 OUTPUT_NAME xstream_mkl
+                 LIBRARY_OUTPUT_DIRECTORY "$<TARGET_FILE_DIR:libxstream>"
+                 BUILD_RPATH "${LIBXSTREAM_MKLDIR};${LIBXSTREAM_SYCLDIR}"
+                 INSTALL_RPATH "${LIBXSTREAM_MKLDIR};${LIBXSTREAM_SYCLDIR}")
+    # found by a static library (or executable) as well
+    target_compile_definitions(
+      libxstream
+      PRIVATE LIBXSTREAM_BLAS_PLUGIN_DIR="$<TARGET_FILE_DIR:libxstream>")
+    install(TARGETS libxstream_mkl LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+    message(STATUS "LIBXSTREAM: device BLAS by oneMKL (SYCL)")
+  endif()
+endif()
+
 if(BUILD_TESTING)
   add_subdirectory(tests)
 endif()

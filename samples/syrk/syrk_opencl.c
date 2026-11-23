@@ -9,7 +9,9 @@
 ******************************************************************************/
 #include "syrk_opencl.h"
 #include <syrk_kernels.h>
+#include <libxstream/libxstream_blas.h>
 #include <libxstream/libxstream_opencl.h>
+#include <math.h>
 
 #if !defined(OPENCL_KERNELS_SOURCE_SYRK)
 # error "OpenCL kernel code not found (syrk_kernels.h)!"
@@ -46,6 +48,14 @@ struct syrk_opencl_t {
   const void *ha, *hb; /* what the copies hold */
   const void* weights;
   int keep, valid;
+  /**
+   * The device BLAS (libxstream_blas.h) computes SYRK if it serves the device (SYRK_OPENCL_BLAS=0
+   * disables it): with weights, as holds A*diag(sqrt(d)) per update (scaled is zero if a weight is
+   * negative), and hs the square roots in host memory until they are copied.
+   */
+  int blas, scaled;
+  void *as, *s, *hs;
+  size_t nas, ns, nhs;
   syrk_opencl_slot_t slot[SYRK_OPENCL_NSLOTS];
 };
 
@@ -117,6 +127,59 @@ static int syrk_opencl_upload(syrk_opencl_t* ctx, const libxs_syrk_t* plan, cons
     const size_t sd = (size_t)plan->shape.k * es;
     result = syrk_opencl_reserve(&ctx->d, &ctx->nd, LIBXS_MAX(sd, es));
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(ctx->weights, ctx->d, sd, ctx->stream);
+    ctx->scaled = 0;
+    if (EXIT_SUCCESS == result && 0 != ctx->blas && 0 == twok) { /* A*diag(sqrt(d)) for the device BLAS */
+      const int f64 = (LIBXS_DATATYPE_F64 == plan->shape.datatype), k = plan->shape.k;
+      int i, positive = 1;
+      if (EXIT_SUCCESS == libxstream_stream_sync(ctx->stream) && ctx->nhs < sd) { /* hs may still be read */
+        free(ctx->hs);
+        ctx->hs = malloc(sd);
+        ctx->nhs = (NULL != ctx->hs ? sd : 0);
+      }
+      for (i = 0; i < k && NULL != ctx->hs && 0 != positive; ++i) {
+        const double w = (0 != f64 ? ((const double*)ctx->weights)[i] : (double)((const float*)ctx->weights)[i]);
+        if (0 <= w) {
+          if (0 != f64) ((double*)ctx->hs)[i] = sqrt(w);
+          else ((float*)ctx->hs)[i] = (float)sqrt(w);
+        }
+        else positive = 0; /* the own kernel takes any weights */
+      }
+      if (NULL != ctx->hs && 0 != positive && EXIT_SUCCESS == syrk_opencl_reserve(&ctx->s, &ctx->ns, LIBXS_MAX(sd, es))
+        && EXIT_SUCCESS == syrk_opencl_reserve(&ctx->as, &ctx->nas, ctx->na)
+        && EXIT_SUCCESS == libxstream_mem_copy_h2d(ctx->hs, ctx->s, sd, ctx->stream)
+        && EXIT_SUCCESS == libxstream_blas_dgmm(ctx->stream, plan->shape.datatype, 0 != notrans ? 'R' : 'L',
+          0 != notrans ? plan->shape.n : k, 0 != notrans ? k : plan->shape.n, ctx->a, plan->shape.lda, ctx->s, 1, ctx->as,
+          plan->shape.lda))
+      {
+        ctx->scaled = 1;
+      }
+    }
+  }
+  return result;
+}
+
+
+/**
+ * A panel by the device BLAS into its compact buffer: SYRK of the block on the diagonal, which writes
+ * its triangle only, and GEMM of the rows above (upper) or below (lower) it.
+ */
+static int syrk_opencl_blas(syrk_opencl_t* ctx, const libxs_syrk_t* plan, const libxs_syrk_panel_t* panel, void* out);
+static int syrk_opencl_blas(syrk_opencl_t* ctx, const libxs_syrk_t* plan, const libxs_syrk_panel_t* panel, void* out)
+{
+  const libxs_data_t dt = plan->shape.datatype;
+  const size_t es = LIBXS_TYPESIZE(dt);
+  const int notrans = ('N' == plan->shape.trans), upper = ('U' == plan->shape.uplo);
+  const int k = plan->shape.k, lda = plan->shape.lda, w = panel->w, m = panel->m;
+  const int rect = m - w, r1 = (0 != upper ? 0 : (panel->c0 + w)); /* rows of the rectangle, and its first one */
+  const char* const a = (const char*)(NULL != ctx->weights ? ctx->as : ctx->a);
+  const size_t stride = (0 != notrans ? 1 : (size_t)lda) * es; /* from one row of op(A) to the next */
+  char* const diag = (char*)out + (size_t)(panel->c0 - panel->r0) * es;
+  int result = libxstream_blas_syrk(ctx->stream, dt, plan->shape.uplo, plan->shape.trans, w, k, panel->alpha,
+    a + panel->c0 * stride, lda, NULL, 0, 0.0, diag, m);
+  if (EXIT_SUCCESS == result && 0 < rect) {
+    result = libxstream_blas_gemm(ctx->stream, dt, 0 != notrans ? 'N' : 'T', 0 != notrans ? 'T' : 'N', rect, w, k,
+      panel->alpha, a + r1 * stride, lda, a + panel->c0 * stride, lda, 0.0,
+      (char*)out + (size_t)(0 != upper ? 0 : w) * es, m);
   }
   return result;
 }
@@ -131,10 +194,11 @@ static int syrk_opencl_submit(void* vctx, const libxs_syrk_t* plan, const void* 
   syrk_opencl_t *const ctx = (syrk_opencl_t*)vctx;
   const int f64 = (LIBXS_DATATYPE_F64 == plan->shape.datatype), twok = (0 != plan->shape.ldb);
   const size_t es = LIBXS_TYPESIZE(plan->shape.datatype), size = (size_t)panel->m * panel->w * es;
+  const int blas = (0 != ctx->blas && 0 == twok);
   const cl_kernel kernel = syrk_opencl_kernel(ctx, f64);
   int ticket = -1, s = 0;
   for (; s < SYRK_OPENCL_NSLOTS && 0 != ctx->slot[s].busy; ++s);
-  if (NULL != kernel && SYRK_OPENCL_NSLOTS > s && 0 < size) { /* otherwise declined: the host computes the panel */
+  if ((NULL != kernel || 0 != blas) && SYRK_OPENCL_NSLOTS > s && 0 < size) { /* else the host computes the panel */
     syrk_opencl_slot_t *const slot = ctx->slot + s;
     const cl_int m = panel->m, w = panel->w, r0 = panel->r0, c0 = panel->c0, k = plan->shape.k;
     const cl_int lda = plan->shape.lda, ldb = (0 != twok ? plan->shape.ldb : plan->shape.lda);
@@ -145,7 +209,7 @@ static int syrk_opencl_submit(void* vctx, const libxs_syrk_t* plan, const void* 
     const size_t bt = (size_t)SYRK_OPENCL_BS * SYRK_OPENCL_RB;
     const size_t local[2] = {SYRK_OPENCL_BS, SYRK_OPENCL_BS};
     size_t global[2];
-    int result = EXIT_SUCCESS;
+    int result = EXIT_SUCCESS, blas_done = 0;
     global[0] = LIBXS_UPDIV((size_t)panel->m, bt) * SYRK_OPENCL_BS;
     global[1] = LIBXS_UPDIV((size_t)panel->w, bt) * SYRK_OPENCL_BS;
     if (0 == panel->c0) result = syrk_opencl_upload(ctx, plan, a, b); /* the first panel of an update */
@@ -160,11 +224,21 @@ static int syrk_opencl_submit(void* vctx, const libxs_syrk_t* plan, const void* 
       if (EXIT_SUCCESS == result) slot->size = size;
     }
     if (EXIT_SUCCESS == result && NULL == slot->event) result = libxstream_event_create(&slot->event);
-    if (EXIT_SUCCESS == result) result = libxstream_opencl_set_kernel_ptr(kernel, 0, slot->dev);
-    if (EXIT_SUCCESS == result) result = libxstream_opencl_set_kernel_ptr(kernel, 1, ctx->a);
-    if (EXIT_SUCCESS == result) result = libxstream_opencl_set_kernel_ptr(kernel, 2, 0 != twok ? ctx->b : ctx->a);
-    if (EXIT_SUCCESS == result) result = libxstream_opencl_set_kernel_ptr(kernel, 3, NULL != ctx->weights ? ctx->d : ctx->a);
-    if (EXIT_SUCCESS == result) {
+    if (EXIT_SUCCESS == result && 0 != blas && (NULL == ctx->weights || 0 != ctx->scaled)
+      && EXIT_SUCCESS == syrk_opencl_blas(ctx, plan, panel, slot->dev))
+    {
+      blas_done = 1;
+    }
+    else if (NULL == kernel) result = EXIT_FAILURE;
+    if (EXIT_SUCCESS == result && 0 == blas_done) result = libxstream_opencl_set_kernel_ptr(kernel, 0, slot->dev);
+    if (EXIT_SUCCESS == result && 0 == blas_done) result = libxstream_opencl_set_kernel_ptr(kernel, 1, ctx->a);
+    if (EXIT_SUCCESS == result && 0 == blas_done) {
+      result = libxstream_opencl_set_kernel_ptr(kernel, 2, 0 != twok ? ctx->b : ctx->a);
+    }
+    if (EXIT_SUCCESS == result && 0 == blas_done) {
+      result = libxstream_opencl_set_kernel_ptr(kernel, 3, NULL != ctx->weights ? ctx->d : ctx->a);
+    }
+    if (EXIT_SUCCESS == result && 0 == blas_done) {
       cl_int status = clSetKernelArg(kernel, 4, sizeof(cl_int), &m);
       status |= clSetKernelArg(kernel, 5, sizeof(cl_int), &w);
       status |= clSetKernelArg(kernel, 6, sizeof(cl_int), &r0);
@@ -180,7 +254,7 @@ static int syrk_opencl_submit(void* vctx, const libxs_syrk_t* plan, const void* 
       status |= clSetKernelArg(kernel, 15, sizeof(cl_int), &upper);
       if (CL_SUCCESS != status) result = EXIT_FAILURE;
     }
-    if (EXIT_SUCCESS == result) {
+    if (EXIT_SUCCESS == result && 0 == blas_done) {
       result = libxstream_opencl_launch_work(ctx->stream, kernel, 2, NULL, global, local, 0, NULL, NULL,
         (size_t)2 * (1 + twok) * panel->m * panel->w * plan->shape.k, size);
     }
@@ -253,6 +327,11 @@ int syrk_opencl_create(syrk_opencl_t** ctx)
     if (NULL != c) {
       LIBXS_MEMZERO(c);
       result = libxstream_stream_create(&c->stream, "syrk", LIBXSTREAM_STREAM_DEFAULT);
+      if (EXIT_SUCCESS == result) {
+        const char* const env = getenv("SYRK_OPENCL_BLAS");
+        int xmem = 0;
+        c->blas = ((NULL == env || 0 != atoi(env)) && NULL != libxstream_blas_query(c->stream, &xmem) && 0 != xmem);
+      }
       if (EXIT_SUCCESS != result) {
         free(c);
         *ctx = NULL;
@@ -277,6 +356,9 @@ void syrk_opencl_destroy(syrk_opencl_t* ctx)
     if (NULL != ctx->a) libxstream_mem_deallocate(ctx->a);
     if (NULL != ctx->b) libxstream_mem_deallocate(ctx->b);
     if (NULL != ctx->d) libxstream_mem_deallocate(ctx->d);
+    if (NULL != ctx->as) libxstream_mem_deallocate(ctx->as);
+    if (NULL != ctx->s) libxstream_mem_deallocate(ctx->s);
+    free(ctx->hs);
     if (NULL != ctx->kernel[0]) clReleaseKernel(ctx->kernel[0]);
     if (NULL != ctx->kernel[1]) clReleaseKernel(ctx->kernel[1]);
     if (NULL != ctx->stream) libxstream_stream_destroy(ctx->stream);
@@ -292,6 +374,12 @@ void syrk_opencl_device(syrk_opencl_t* ctx, libxs_syrk_device_t* device)
     device->wait = syrk_opencl_wait;
     device->ctx = ctx;
   }
+}
+
+
+const char* syrk_opencl_backend(const syrk_opencl_t* ctx)
+{
+  return (NULL != ctx && 0 != ctx->blas ? "oneMKL" : "kernel");
 }
 
 

@@ -28,6 +28,13 @@ int syrk_opencl_create(syrk_opencl_t** ctx);
 /** Releases the context, which must outlive every plan that uses it. NULL is accepted. */
 void syrk_opencl_destroy(syrk_opencl_t* ctx);
 
+/**
+ * What computes SYRK: "oneMKL" if the device BLAS (libxstream_blas.h) serves the device, which needs
+ * Intel USM or SVM (LIBXSTREAM_USM), unless SYRK_OPENCL_BLAS=0; "kernel" otherwise. SYR2K, and
+ * weights with a negative one, take the kernel either way.
+ */
+const char* syrk_opencl_backend(const syrk_opencl_t* ctx);
+
 /** Populates the device of a shape (libxs_syrk_shape_t), whose context is ctx. */
 void syrk_opencl_device(syrk_opencl_t* ctx, libxs_syrk_device_t* device);
 

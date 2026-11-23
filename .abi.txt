@@ -24,6 +24,11 @@ c_dbcsr_acc_stream_destroy
 c_dbcsr_acc_stream_priority_range
 c_dbcsr_acc_stream_sync
 c_dbcsr_acc_stream_wait_event
+libxstream_blas_dgmm
+libxstream_blas_gemm
+libxstream_blas_plugin
+libxstream_blas_query
+libxstream_blas_syrk
 libxstream_device_count
 libxstream_device_set_active
 libxstream_device_sync

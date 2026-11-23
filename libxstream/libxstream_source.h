@@ -27,6 +27,7 @@
  * public interface as the internal implementation may change without notice.
  */
 #include "../src/libxstream.c"
+#include "../src/libxstream_blas.c"
 #include "../src/libxstream_cp2k.c"
 #include "../src/libxstream_dbcsr.c"
 #include "../src/libxstream_event.c"
