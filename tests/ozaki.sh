@@ -112,8 +112,8 @@ cases() {
       echo "oz2int8_wgmmabulk2wide_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${BULK} ${WIDE}|${N}"
     fi
     # level 5 takes the fifth generation by default (no OZAKI_TCGEN05): named _nv5_, which the
-    # check below expects to report it
-    if [ 5 = "${TOP}" ] && [ -n "${TC}" ]; then
+    # check below expects to report it; a local part whose probe chose bf16 reports level 6
+    if [ 5 -le "${TOP}" ] && [ -n "${TC}" ]; then
       if [ 1 = "${TCI}" ]; then
         echo "oz2int8_${TAG}5_n${N}_double|OZAKI=2 ${VAR}=5|${N}"
         echo "oz2sym_${TAG}5_n${N}_double|OZAKI=2 OZAKI_SYMRES=1 ${VAR}=5|${N}"
@@ -126,6 +126,12 @@ cases() {
       echo "oz2int8_tcgen05wide_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_TCGEN05=${TC} ${WIDE}|${N}"
     fi
     if [ -n "${TC}" ]; then
+      # level 6 takes bf16 by default, and without a level the carrier probe decides 5 or 6;
+      # a simulated GPU names the fifth generation (spliced offline), a local one has it by default
+      local TCSEL=""
+      if [ 2 = "${TC}" ]; then TCSEL=" OZAKI_TCGEN05=${TC}"; fi
+      echo "oz2_${TAG}6_n${N}_double|OZAKI=2 ${VAR}=6${TCSEL}|${N}"
+      echo "oz2_probe_n${N}_double|OZAKI=2${TCSEL}|${N}"
       echo "oz2bf16_tcgen05_n${N}_double|OZAKI=2 OZAKI_BF16=1 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_TCGEN05=${TC}|${N}"
       echo "oz2bf16u8_tcgen05_n${N}_double|OZAKI=2 OZAKI_BF16=1 ${VAR}=${TOP} OZAKI_TCGEN05=${TC}|${N}"
       echo "oz2bf16_tcgen05wide_n${N}_double|OZAKI=2 OZAKI_BF16=1 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_TCGEN05=${TC} ${WIDE}|${N}"
@@ -205,7 +211,7 @@ for SPEC in ${GPUS}; do
     LOG=${LOGS}/logs/run-${TARGET}-${NAME}.log
     PRIME=${LOGS}/logs/prime-${TARGET}-${NAME}.log
     TCGEN05=$(value OZAKI_TCGEN05 "${SETENV}")
-    if [[ "${NAME}" == *_nv5_* ]]; then TCGEN05=${TCGEN05:-1}; fi
+    if [[ "${NAME}" =~ _(nv5|nv6|probe)_ ]]; then TCGEN05=${TCGEN05:-1}; fi
     # the fifth generation takes the warp-group geometry, which the configuration names as such
     WGMMA=$(value OZAKI_WGMMA "${SETENV}")
     WGMMA=${WGMMA:-${TCGEN05}}
@@ -245,6 +251,9 @@ for SPEC in ${GPUS}; do
       CONFIG=$(grep -m1 "^INFO OZAKI: gpu=" "${LOG}" 2> /dev/null)
       DIFF=$(grep -m1 "^DIFF: " "${LOG}" 2> /dev/null)
       LEVEL=$(value "${VAR:-LEVEL}" "${SETENV}")
+      # the carrier probe's decision (level 5 or 6), which a case without a level expects
+      PROBED=$(sed -n 's/^INFO OZAKI: bf16 runs at .* - level \([56]\)$/\1/p' "${LOG}" 2> /dev/null | head -n1)
+      if [[ "${NAME}" == *_probe_* ]]; then LEVEL=${PROBED}; fi
       # the level every kernel was built for (-DNV, -DINTEL)
       BUILT=$(grep "^INFO OZAKI: -D" "${LOG}" 2> /dev/null | grep -o -- "-D${VAR#LIBXSTREAM_}=[0-9]*" | sort -u | paste -sd' ' -)
       KEY=$(value OZAKI "${SETENV}")_${N}
@@ -252,6 +261,10 @@ for SPEC in ${GPUS}; do
         RESULT="FAIL: exit status ${CODE:-unknown}"
       elif grep -q "ERROR" "${LOG}"; then
         RESULT="FAIL: $(grep -m1 "ERROR" "${LOG}")"
+      elif [[ "${NAME}" == *_probe_* ]] && [ -z "${PROBED}" ]; then
+        RESULT="FAIL: the carrier probe did not decide"
+      elif [ 6 = "${LEVEL}" ] && [ -z "$(value OZAKI_BF16 "${SETENV}")" ] && [ 1 != "$(value bf16 "${CONFIG}")" ]; then
+        RESULT="FAIL: level 6 does not carry bf16 (${CONFIG#INFO OZAKI: })"
       elif [ -n "${VAR}" ] && [ "-D${VAR#LIBXSTREAM_}=${LEVEL}" != "${BUILT}" ]; then
         RESULT="FAIL: not built for level ${LEVEL} (${BUILT:-no build line})"
       elif [ "${WGMMA:-0}" != "$(value wgmma "${CONFIG}" | grep . || echo 0)" ]; then
