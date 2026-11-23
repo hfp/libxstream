@@ -1,0 +1,308 @@
+/******************************************************************************
+* Copyright (c) 2009-2026 Hans Pabst                                          *
+* Copyright (c) 2009-2026 Intel Corporation                                   *
+* This file is part of the LIBXSTREAM library.                                *
+*                                                                             *
+* For information on the license, see the LICENSE file.                       *
+* Further information: https://github.com/hfp/libxstream/                     *
+* SPDX-License-Identifier: BSD-3-Clause                                       *
+******************************************************************************/
+#include "syrk_opencl.h"
+#include <syrk_kernels.h>
+#include <libxstream/libxstream_opencl.h>
+
+#if !defined(OPENCL_KERNELS_SOURCE_SYRK)
+# error "OpenCL kernel code not found (syrk_kernels.h)!"
+#endif
+/* work-items per dimension of a work-group, elements per work-item and dimension, and depth in k */
+#if !defined(SYRK_OPENCL_BS)
+# define SYRK_OPENCL_BS 16
+#endif
+#if !defined(SYRK_OPENCL_RB)
+# define SYRK_OPENCL_RB 4
+#endif
+#if !defined(SYRK_OPENCL_BK)
+# define SYRK_OPENCL_BK 16
+#endif
+/* panels in flight, as many as LIBXS submits before it waits */
+#define SYRK_OPENCL_NSLOTS 2
+
+
+/* A panel in flight: its result on the device, then in host memory for the merge */
+typedef struct syrk_opencl_slot_t {
+  libxs_syrk_panel_t panel;
+  void *dev, *host;
+  size_t size;
+  libxstream_event_t* event;
+  int f64, upper, busy;
+} syrk_opencl_slot_t;
+
+struct syrk_opencl_t {
+  libxstream_stream_t* stream;
+  cl_kernel kernel[2]; /* F64 and F32 */
+  int built[2];        /* 0: not yet, 1: built, -1: failed (panels are declined) */
+  void *a, *b, *d;     /* device copies of the operands and weights */
+  size_t na, nb, nd;
+  const void *ha, *hb; /* what the copies hold */
+  const void* weights;
+  int keep, valid;
+  syrk_opencl_slot_t slot[SYRK_OPENCL_NSLOTS];
+};
+
+
+/* Device memory of at least size bytes, reallocated if smaller. */
+static int syrk_opencl_reserve(void** mem, size_t* capacity, size_t size);
+static int syrk_opencl_reserve(void** mem, size_t* capacity, size_t size)
+{
+  int result = EXIT_SUCCESS;
+  if (*capacity < size) {
+    if (NULL != *mem) result = libxstream_mem_deallocate(*mem);
+    *mem = NULL;
+    *capacity = 0;
+    if (EXIT_SUCCESS == result) result = libxstream_mem_allocate(mem, size);
+    if (EXIT_SUCCESS == result) *capacity = size;
+  }
+  return result;
+}
+
+
+/* Kernel of the datatype, built at its first use; NULL if the device cannot (e.g., no fp64). */
+static cl_kernel syrk_opencl_kernel(syrk_opencl_t* ctx, int f64);
+static cl_kernel syrk_opencl_kernel(syrk_opencl_t* ctx, int f64)
+{
+  const int which = (0 != f64 ? 0 : 1);
+  if (0 == ctx->built[which]) {
+    const char* exts[] = {"cl_khr_fp64"};
+    char flags[LIBXSTREAM_BUFFERSIZE];
+    cl_program program = NULL;
+    int result = EXIT_FAILURE;
+    const int nchars = LIBXS_SNPRINTF(flags, sizeof(flags), "-DT=%s -DBS=%i -DRB=%i -DBK=%i", 0 != f64 ? "double" : "float",
+      SYRK_OPENCL_BS, SYRK_OPENCL_RB, SYRK_OPENCL_BK);
+    if (0 < nchars && (int)sizeof(flags) > nchars) {
+      result = libxstream_opencl_program(0 /*source_kind*/, OPENCL_KERNELS_SOURCE_SYRK, "syrk", flags, NULL /*options*/,
+        NULL /*try*/, NULL /*try_ok*/, exts, 0 != f64 ? 1 : 0, &program);
+    }
+    if (EXIT_SUCCESS == result) result = libxstream_opencl_kernel_query(program, "syrk_panel", ctx->kernel + which);
+    if (NULL != program) clReleaseProgram(program); /* the kernel keeps what it needs */
+    ctx->built[which] = (EXIT_SUCCESS == result ? 1 : -1);
+  }
+  return (0 < ctx->built[which] ? ctx->kernel[which] : NULL);
+}
+
+
+/* Copies the operands (and weights) of an update to the device, unless they are resident. */
+static int syrk_opencl_upload(syrk_opencl_t* ctx, const libxs_syrk_t* plan, const void* a, const void* b);
+static int syrk_opencl_upload(syrk_opencl_t* ctx, const libxs_syrk_t* plan, const void* a, const void* b)
+{
+  const size_t es = LIBXS_TYPESIZE(plan->shape.datatype);
+  const int notrans = ('N' == plan->shape.trans), twok = (0 != plan->shape.ldb);
+  const size_t ncols = (size_t)(0 != notrans ? plan->shape.k : plan->shape.n);
+  int result = EXIT_SUCCESS;
+  if (0 == ctx->keep || 0 == ctx->valid || ctx->ha != a || ctx->hb != b) {
+    const size_t sa = (size_t)plan->shape.lda * ncols * es, sb = (size_t)plan->shape.ldb * ncols * es;
+    ctx->valid = 0;
+    result = syrk_opencl_reserve(&ctx->a, &ctx->na, LIBXS_MAX(sa, es));
+    if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(a, ctx->a, sa, ctx->stream);
+    if (EXIT_SUCCESS == result && 0 != twok) {
+      result = syrk_opencl_reserve(&ctx->b, &ctx->nb, LIBXS_MAX(sb, es));
+      if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(b, ctx->b, sb, ctx->stream);
+    }
+    if (EXIT_SUCCESS == result) {
+      ctx->ha = a;
+      ctx->hb = b;
+      ctx->valid = 1;
+    }
+  }
+  if (EXIT_SUCCESS == result && NULL != ctx->weights) {
+    const size_t sd = (size_t)plan->shape.k * es;
+    result = syrk_opencl_reserve(&ctx->d, &ctx->nd, LIBXS_MAX(sd, es));
+    if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(ctx->weights, ctx->d, sd, ctx->stream);
+  }
+  return result;
+}
+
+
+/* Starts a panel: kernel, then the copy of its result to host memory (see libxs_syrk_device_t). */
+static int syrk_opencl_submit(void* vctx, const libxs_syrk_t* plan, const void* a, const void* b,
+  const libxs_syrk_panel_t* panel);
+static int syrk_opencl_submit(void* vctx, const libxs_syrk_t* plan, const void* a, const void* b,
+  const libxs_syrk_panel_t* panel)
+{
+  syrk_opencl_t *const ctx = (syrk_opencl_t*)vctx;
+  const int f64 = (LIBXS_DATATYPE_F64 == plan->shape.datatype), twok = (0 != plan->shape.ldb);
+  const size_t es = LIBXS_TYPESIZE(plan->shape.datatype), size = (size_t)panel->m * panel->w * es;
+  const cl_kernel kernel = syrk_opencl_kernel(ctx, f64);
+  int ticket = -1, s = 0;
+  for (; s < SYRK_OPENCL_NSLOTS && 0 != ctx->slot[s].busy; ++s);
+  if (NULL != kernel && SYRK_OPENCL_NSLOTS > s && 0 < size) { /* otherwise declined: the host computes the panel */
+    syrk_opencl_slot_t *const slot = ctx->slot + s;
+    const cl_int m = panel->m, w = panel->w, r0 = panel->r0, c0 = panel->c0, k = plan->shape.k;
+    const cl_int lda = plan->shape.lda, ldb = (0 != twok ? plan->shape.ldb : plan->shape.lda);
+    const cl_int trans = ('N' != plan->shape.trans), ctwok = twok, hasd = (NULL != ctx->weights);
+    const cl_double alpha64 = panel->alpha;
+    const cl_float alpha32 = (cl_float)panel->alpha;
+    const size_t bt = (size_t)SYRK_OPENCL_BS * SYRK_OPENCL_RB;
+    const size_t local[2] = {SYRK_OPENCL_BS, SYRK_OPENCL_BS};
+    size_t global[2];
+    int result = EXIT_SUCCESS;
+    global[0] = LIBXS_UPDIV((size_t)panel->m, bt) * SYRK_OPENCL_BS;
+    global[1] = LIBXS_UPDIV((size_t)panel->w, bt) * SYRK_OPENCL_BS;
+    if (0 == panel->c0) result = syrk_opencl_upload(ctx, plan, a, b); /* the first panel of an update */
+    if (EXIT_SUCCESS == result && slot->size < size) {
+      if (NULL != slot->host) result = libxstream_mem_host_deallocate(slot->host, ctx->stream);
+      slot->host = NULL;
+      slot->size = 0;
+      if (EXIT_SUCCESS == result && NULL != slot->dev) result = libxstream_mem_deallocate(slot->dev);
+      slot->dev = NULL;
+      if (EXIT_SUCCESS == result) result = libxstream_mem_allocate(&slot->dev, size);
+      if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate(&slot->host, size, ctx->stream);
+      if (EXIT_SUCCESS == result) slot->size = size;
+    }
+    if (EXIT_SUCCESS == result && NULL == slot->event) result = libxstream_event_create(&slot->event);
+    if (EXIT_SUCCESS == result) result = libxstream_opencl_set_kernel_ptr(kernel, 0, slot->dev);
+    if (EXIT_SUCCESS == result) result = libxstream_opencl_set_kernel_ptr(kernel, 1, ctx->a);
+    if (EXIT_SUCCESS == result) result = libxstream_opencl_set_kernel_ptr(kernel, 2, 0 != twok ? ctx->b : ctx->a);
+    if (EXIT_SUCCESS == result) result = libxstream_opencl_set_kernel_ptr(kernel, 3, NULL != ctx->weights ? ctx->d : ctx->a);
+    if (EXIT_SUCCESS == result) {
+      cl_int status = clSetKernelArg(kernel, 4, sizeof(cl_int), &m);
+      status |= clSetKernelArg(kernel, 5, sizeof(cl_int), &w);
+      status |= clSetKernelArg(kernel, 6, sizeof(cl_int), &r0);
+      status |= clSetKernelArg(kernel, 7, sizeof(cl_int), &c0);
+      status |= clSetKernelArg(kernel, 8, sizeof(cl_int), &k);
+      status |= clSetKernelArg(kernel, 9, sizeof(cl_int), &lda);
+      status |= clSetKernelArg(kernel, 10, sizeof(cl_int), &ldb);
+      status |= clSetKernelArg(kernel, 11, sizeof(cl_int), &trans);
+      status |= clSetKernelArg(kernel, 12, sizeof(cl_int), &ctwok);
+      status |= clSetKernelArg(kernel, 13, sizeof(cl_int), &hasd);
+      if (0 != f64) status |= clSetKernelArg(kernel, 14, sizeof(cl_double), &alpha64);
+      else status |= clSetKernelArg(kernel, 14, sizeof(cl_float), &alpha32);
+      if (CL_SUCCESS != status) result = EXIT_FAILURE;
+    }
+    if (EXIT_SUCCESS == result) {
+      result = libxstream_opencl_launch_work(ctx->stream, kernel, 2, NULL, global, local, 0, NULL, NULL,
+        (size_t)2 * (1 + twok) * panel->m * panel->w * plan->shape.k, size);
+    }
+    if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(slot->dev, slot->host, size, ctx->stream);
+    if (EXIT_SUCCESS == result) result = libxstream_event_record(slot->event, ctx->stream);
+    if (EXIT_SUCCESS == result) {
+      slot->panel = *panel;
+      slot->f64 = f64;
+      slot->upper = ('U' == plan->shape.uplo);
+      slot->busy = 1;
+      ticket = s;
+    }
+    else ctx->valid = 0; /* copy again next time */
+  }
+  return ticket;
+}
+
+
+/* Completes a panel: out := result + beta*out within the triangle (beta=0 does not read out). */
+static int syrk_opencl_wait(void* vctx, int ticket);
+static int syrk_opencl_wait(void* vctx, int ticket)
+{
+  syrk_opencl_t *const ctx = (syrk_opencl_t*)vctx;
+  int result = EXIT_FAILURE;
+  if (0 <= ticket && SYRK_OPENCL_NSLOTS > ticket && 0 != ctx->slot[ticket].busy) {
+    syrk_opencl_slot_t *const slot = ctx->slot + ticket;
+    const libxs_syrk_panel_t *const panel = &slot->panel;
+    result = libxstream_event_sync(slot->event);
+    if (EXIT_SUCCESS == result) {
+      const double beta = panel->beta;
+      int i, j;
+      for (j = 0; j < panel->w; ++j) {
+        const int gj = panel->c0 + j;
+        const int begin = (0 != slot->upper ? 0 : (gj - panel->r0));
+        const int end = (0 != slot->upper ? (gj - panel->r0 + 1) : panel->m);
+        if (0 != slot->f64) {
+          const double *const src = (const double*)slot->host + (size_t)j * panel->m;
+          double *const dst = (double*)panel->out + (size_t)j * panel->ldo;
+          if (0 == beta) {
+            for (i = begin; i < end; ++i) dst[i] = src[i];
+          }
+          else {
+            for (i = begin; i < end; ++i) dst[i] = src[i] + beta * dst[i];
+          }
+        }
+        else {
+          const float *const src = (const float*)slot->host + (size_t)j * panel->m;
+          float *const dst = (float*)panel->out + (size_t)j * panel->ldo;
+          const float fbeta = (float)beta;
+          if (0 == beta) {
+            for (i = begin; i < end; ++i) dst[i] = src[i];
+          }
+          else {
+            for (i = begin; i < end; ++i) dst[i] = src[i] + fbeta * dst[i];
+          }
+        }
+      }
+    }
+    slot->busy = 0;
+  }
+  return result;
+}
+
+
+int syrk_opencl_create(syrk_opencl_t** ctx)
+{
+  int result = EXIT_FAILURE;
+  if (NULL != ctx) {
+    syrk_opencl_t *const c = (syrk_opencl_t*)malloc(sizeof(syrk_opencl_t));
+    if (NULL != c) {
+      LIBXS_MEMZERO(c);
+      result = libxstream_stream_create(&c->stream, "syrk", LIBXSTREAM_STREAM_DEFAULT);
+      if (EXIT_SUCCESS != result) {
+        free(c);
+        *ctx = NULL;
+      }
+      else *ctx = c;
+    }
+  }
+  return result;
+}
+
+
+void syrk_opencl_destroy(syrk_opencl_t* ctx)
+{
+  if (NULL != ctx) {
+    int s = 0;
+    if (NULL != ctx->stream) libxstream_stream_sync(ctx->stream);
+    for (; s < SYRK_OPENCL_NSLOTS; ++s) {
+      if (NULL != ctx->slot[s].event) libxstream_event_destroy(ctx->slot[s].event);
+      if (NULL != ctx->slot[s].dev) libxstream_mem_deallocate(ctx->slot[s].dev);
+      if (NULL != ctx->slot[s].host) libxstream_mem_host_deallocate(ctx->slot[s].host, ctx->stream);
+    }
+    if (NULL != ctx->a) libxstream_mem_deallocate(ctx->a);
+    if (NULL != ctx->b) libxstream_mem_deallocate(ctx->b);
+    if (NULL != ctx->d) libxstream_mem_deallocate(ctx->d);
+    if (NULL != ctx->kernel[0]) clReleaseKernel(ctx->kernel[0]);
+    if (NULL != ctx->kernel[1]) clReleaseKernel(ctx->kernel[1]);
+    if (NULL != ctx->stream) libxstream_stream_destroy(ctx->stream);
+    free(ctx);
+  }
+}
+
+
+void syrk_opencl_device(syrk_opencl_t* ctx, libxs_syrk_device_t* device)
+{
+  if (NULL != device) {
+    device->submit = syrk_opencl_submit;
+    device->wait = syrk_opencl_wait;
+    device->ctx = ctx;
+  }
+}
+
+
+void syrk_opencl_weights(syrk_opencl_t* ctx, const void* d)
+{
+  if (NULL != ctx) ctx->weights = d;
+}
+
+
+void syrk_opencl_resident(syrk_opencl_t* ctx, int keep)
+{
+  if (NULL != ctx) {
+    ctx->keep = keep;
+    ctx->valid = 0;
+  }
+}

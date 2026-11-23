@@ -67,6 +67,24 @@ libxstream_sample(libxstream_sample_mixes mixes mixes mixes/mixes.c
 target_include_directories(libxstream_sample_mixes
                            PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
+set(syrk_dir "${CMAKE_CURRENT_SOURCE_DIR}/syrk")
+set(syrk_header "${CMAKE_CURRENT_BINARY_DIR}/syrk_kernels.h")
+add_custom_command(
+  OUTPUT "${syrk_header}"
+  COMMAND
+    "${PROJECT_SOURCE_DIR}/scripts/tool_opencl.sh" -p "" -I
+    "${PROJECT_SOURCE_DIR}/libxstream" "${syrk_dir}/kernels/syrk.cl"
+    "${syrk_header}"
+  DEPENDS "${syrk_dir}/kernels/syrk.cl" ${LIBXSTREAM_OPENCL_H}
+          "${PROJECT_SOURCE_DIR}/scripts/tool_opencl.sh"
+  COMMENT "Generating syrk_kernels.h from .cl sources"
+  VERBATIM)
+libxstream_sample(libxstream_sample_syrk syrk syrk syrk/syrk.c
+                  syrk/syrk_opencl.c "${syrk_header}")
+target_include_directories(libxstream_sample_syrk
+                           PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(libxstream_sample_syrk PRIVATE ${BLAS_LIBRARIES})
+
 libxstream_sample(
   libxstream_sample_stencil
   stencil
