@@ -1,0 +1,7 @@
+# Ozaki-2 fp64 kernel times at n=4096 on GH200 with the bf16 carrier (symmetric residues), median of 3 repetitions
+# (LIBXSTREAM_PROFILE=1, LIBXSTREAM_ASYNC=0)
+kernel,gh200_ms
+gemm_crt_fused,4.076
+gemm_crt_reduce,0.271
+preprocess_a_crt_dense,0.463
+preprocess_b_crt_dense,0.385

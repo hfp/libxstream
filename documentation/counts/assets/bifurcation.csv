@@ -1,0 +1,15 @@
+# Sibling parts that split over FP64: datasheet peaks per GPU, dense (no sparsity), int8 TOPS, bf16 TFLOPS,
+# memory bandwidth TB/s, FP64 TFLOPS (matrix where listed; empty: not listed), the role a vendor gives a part.
+# GH200's bf16 anchors the bf16 carrier.
+# GH200: https://www.nvidia.com/en-us/data-center/grace-hopper-superchip/ datasheet (1979 bf16 TFLOPS with sparsity)
+# B200, B300: NVIDIA Blackwell Architecture Technical Brief, Table 3 (HGX B300 and HGX B200, per GPU, dense/sparse)
+#   https://dam-cdn.nvd.orangelogic.com/AssetLink/gl2l4l4812s5fw0p614s6i8bv6mi3vx5.pdf (B300: 0.15/0.30 int8 POPS)
+# MI430X: https://www.amd.com/en/products/accelerators/instinct/mi400/mi430x.html (FP64 vector, projected by AMD,
+#   July 2026; no int8 or bf16 figure listed)
+# MI450X: https://www.amd.com/en/products/accelerators/instinct/mi400/mi450x.html
+part,family,role,int8_tops,bf16_tflops,bandwidth_tbs,fp64
+GH200,anchor,,,990,,
+MI430X,AMD Instinct MI400 (announced),HPC,,,23.3,288
+MI450X,AMD Instinct MI400 (announced),AI,5000,5000,23.3,5
+B200,NVIDIA Blackwell,,4500,2200,7.7,37
+B300,NVIDIA Blackwell,,150,2200,7.7,1.2

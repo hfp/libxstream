@@ -163,6 +163,16 @@ Where each part crosses its native FP64 matrix peak:
 
 ---
 
+## HPC parts keep FP64, AI parts cut it
+
+Where native FP64 is cut, emulation on the matrix engines gives it back:
+
+<img class="wide" style="max-height: 55vh" src="assets/bifurcation.png" alt="Native FP64 against Ozaki-2 on sibling parts that split over FP64"/>
+
+<span style="opacity: 0.4; font-size: 50%;">Ozaki-2 at n=4096 from GH200's kernel times, each part on its better carrier, from AMD's lowest published GEMM efficiency relative to NVIDIA's up to NVIDIA's. MI400: as announced by AMD. Sources: bifurcation.csv, ozaki-bf16.csv, published.csv, ozaki-kernels.csv.</span>
+
+---
+
 ## Same mixes, three instruction sets
 
 <img class="wide" style="max-height: 62vh" src="assets/isa-score.png" alt="One score per target: slots of the best target over its own, geometric mean over the named mixes"/>

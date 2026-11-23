@@ -560,6 +560,140 @@ def channel():
     save(fig, "channel.png")
 
 
+def bifurcation():
+    """Sibling parts that split over FP64 (an HPC part keeps it, an AI part
+    cuts it): native FP64 against Ozaki-2's FP64-equivalent at n=4096 from
+    GH200 as in model(), on the better carrier of the part (int8, or bf16 from
+    GH200's bf16 times), from AMD's lowest published GEMM efficiency relative
+    to NVIDIA's (and the bandwidth fractions published) up to NVIDIA's."""
+    s, pub, a, bw_a, nv, effs, fracs, tflops = model()
+    parts = {r["part"]: r for r in rows("bifurcation.csv")}
+    bf = {r["kernel"]: float(r["gh200_ms"]) for r in rows("ozaki-bf16.csv")}
+    g16 = sum(t for n, t in bf.items() if n.startswith("gemm_crt_fused"))
+    o16 = sum(bf.values()) - g16
+    a16 = float(parts["GH200"]["bf16_tflops"])
+
+    def bf16(r, eff, bw):
+        t = g16 * a16 / float(r["bf16_tflops"]) / eff + o16 * bw_a / bw
+        return 2.0 * 4096**3 / (t * 1e9)
+
+    data = []
+    for part, r in parts.items():
+        if "anchor" == r["family"]:
+            continue
+        native = float(r["fp64"])
+        best = None
+        if r["bandwidth_tbs"] and (r["int8_tops"] or r["bf16_tflops"]):
+            datasheet = float(r["bandwidth_tbs"])
+            bws = (
+                min(datasheet * f for f in fracs),
+                datasheet * bw_a / float(a["bandwidth_tbs"]),
+            )
+            for carrier, f, ok in (
+                ("int8", tflops, r["int8_tops"]),
+                ("bf16", bf16, r["bf16_tflops"]),
+            ):
+                if ok:
+                    lo, hi = f(r, min(effs) / nv, bws[0]), f(r, 1.0, bws[1])
+                    if best is None or hi > best[2]:
+                        best = (carrier, lo, hi)
+        name = "%s (%s)" % (part, r["role"]) if r["role"] else part
+        data.append((r["family"], name, native, best))
+    color = {"int8": BLUE, "bf16": ORANGE}
+    ys, y, prev = [], 0.0, None
+    for family, *_ in data:
+        y -= 1.0 if prev in (None, family) else 1.6
+        prev = family
+        ys.append(y)
+    fig, ax = plt.subplots(figsize=(11, 5.6))
+    ax.set_xscale("log")
+    ax.set_xlim(0.5, 3000)
+    ax.set_ylim(min(ys) - 0.6, max(ys) + 0.9)
+    ax.xaxis.set_major_formatter(
+        matplotlib.ticker.FuncFormatter(lambda v, _: "%g" % v)
+    )
+    ax.xaxis.grid(True, color=GRID, linewidth=0.8)
+    ax.set_axisbelow(True)
+    for side in ("top", "right", "left"):
+        ax.spines[side].set_visible(False)
+    ax.spines["bottom"].set_color(AXIS)
+    ax.tick_params(length=0, labelsize=12)
+    prev = None
+    for y, (family, part, native, best) in zip(ys, data):
+        if family != prev:
+            ax.text(0.55, y + 0.5, family, color=INK, fontsize=13)
+            prev = family
+        if best is not None:
+            carrier, lo, hi = best
+            ax.plot((native, lo), (y, y), color=MUTED, linewidth=1, zorder=1)
+            ax.plot(
+                (lo, hi),
+                (y, y),
+                color=color[carrier],
+                linewidth=11,
+                solid_capstyle="butt",
+                zorder=2,
+            )
+            text = "%.0f-%.0fx native (%s)" % (
+                lo / native,
+                hi / native,
+                carrier,
+            )
+            win = hi > native
+        else:
+            hi = native
+            text = "%g native; no int8 or bf16 figure listed" % native
+            win = False
+        ax.plot(
+            native,
+            y,
+            "o",
+            color=GRAY,
+            markersize=11,
+            markeredgecolor=SURFACE,
+            markeredgewidth=2,
+            zorder=3,
+        )
+        ax.text(
+            max(hi, native) * 1.25,
+            y,
+            text,
+            va="center",
+            fontsize=13,
+            color=INK if win else INK_2,
+            fontweight="bold" if win else None,
+        )
+    ax.set_yticks(ys)
+    ax.set_yticklabels([d[1] for d in data], color=INK_2, fontsize=13)
+    ax.set_xlabel(
+        "TFLOPS (log): native FP64, or FP64-equivalent of Ozaki-2 at n=4096",
+        fontsize=12,
+        labelpad=10,
+    )
+    handles = [
+        plt.Line2D(
+            [], [], marker="o", linestyle="", color=GRAY, markersize=10
+        ),
+        plt.Line2D([], [], color=BLUE, linewidth=8),
+        plt.Line2D([], [], color=ORANGE, linewidth=8),
+    ]
+    fig.legend(
+        handles,
+        [
+            "native FP64",
+            "Ozaki-2 on int8",
+            "Ozaki-2 on bf16",
+        ],
+        loc="lower center",
+        ncol=3,
+        frameon=False,
+        labelcolor=INK_2,
+        fontsize=12,
+    )
+    fig.subplots_adjust(bottom=0.2)
+    save(fig, "bifurcation.png")
+
+
 def isa():
     """Slots of the best target over each target's own, per mix, for all
     instructions and for the work alone (without the instructions that only
@@ -815,5 +949,6 @@ if __name__ == "__main__":
     transfer()
     ozaki_amd()
     channel()
+    bifurcation()
     isa()
     isa_score()
