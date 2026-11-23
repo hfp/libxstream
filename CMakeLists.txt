@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.14 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 
 set(LIBXSTREAM_VERSION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/version.txt")
 if(NOT EXISTS "${LIBXSTREAM_VERSION_FILE}")
@@ -110,11 +110,7 @@ if(NOT EXISTS "${LIBXSTREAM_VERSION_SCRIPT}")
   message(FATAL_ERROR "Missing ${LIBXSTREAM_VERSION_SCRIPT}")
 endif()
 
-# not REQUIRED: needs CMake 3.18
-find_program(SH_EXECUTABLE NAMES bash sh)
-if(NOT SH_EXECUTABLE)
-  message(FATAL_ERROR "No shell found (SH_EXECUTABLE)")
-endif()
+find_program(SH_EXECUTABLE NAMES bash sh REQUIRED)
 
 execute_process(
   COMMAND "${SH_EXECUTABLE}" "${LIBXSTREAM_VERSION_SCRIPT}" libxstream -1
