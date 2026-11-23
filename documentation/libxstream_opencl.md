@@ -51,7 +51,7 @@ On NVIDIA the default leaves USM off and no device memory pool is created. An ex
 | `LIBXSTREAM_NLOCKS` | Lock domains, 1 to 4 (main, memory, stream, event); default: 1 |
 | `LIBXSTREAM_NCCS` | Intel compute command streamers per device (`ZEX_NUMBER_OF_CCS`, unless set): 1 or 2, other non-zero: 4; default: 0 (not set) |
 | `LIBXSTREAM_INTEL` | Overrides the detected Intel level: 0 = not Intel, 1 = GPU, 2 = GPU with XMX |
-| `LIBXSTREAM_NV` | Overrides the detected NVIDIA level: 0 = not NVIDIA, 1 = generic, 2 = SM 7.5+, 3 = SM 8.0+, 4 = SM 9.0+, 5 = SM 10.0 to 10.2 (tensor memory with int8) |
+| `LIBXSTREAM_NV` | Overrides the detected NVIDIA level: 0 = not NVIDIA, 1 = generic, 2 = SM 7.5+, 3 = SM 8.0+, 4 = SM 9.0+, 5 = SM 10.x and 11.x (tensor memory), 6 = as 5 with bf16 instead of int8 (set here, or by a caller that probes the rates) |
 | `LIBXSTREAM_BIGGRF` | 1: Intel kernels are built with `-cl-intel-256-GRF-per-thread`; default: 0 |
 | `LIBXSTREAM_ATOMICS` | FP atomics of kernels built with `libxstream_opencl_flags_atomics`: non-zero number = force native, `cmpxchg` or `xchg` = emulation, 0 = unsynchronized updates (not thread-safe); default: detected (an AMD device's builtin atomics are test-compiled once per precision, emulated if not accepted) |
 | `LIBXSTREAM_BARRIER` | 0: such kernels are built without a work-group barrier definition; default: defined |

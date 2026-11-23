@@ -583,6 +583,12 @@ char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_name, i
 int ozaki_mulhi_probe(int* emulate);
 
 /**
+ * The matrix engine's bf16 rate over its int8 rate (operations per second), timed
+ * on the device with mma.sync. EXIT_SUCCESS means the probe ran and ratio is set.
+ */
+int ozaki_carrier_probe(double* ratio);
+
+/**
  * N-panel width for the pipelined path, or N itself when panelling does not
  * apply (small N, too few tiles to keep the device busy, or npanel == 1).
  * Chosen jointly with the tile: the panel must stay a multiple of tn so tiles

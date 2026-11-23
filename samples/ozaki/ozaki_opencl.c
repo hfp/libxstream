@@ -905,6 +905,25 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   }
 
   /**
+   * Level 6 leaves int8 for bf16 where the matrix engine's int8 rate falls short of
+   * its bf16 rate (Blackwell Ultra: 0.15 against 2.2 dense POPS/PFLOPS per GPU), so
+   * the bf16 carrier becomes the default. Level 5 is where the question arises: the
+   * carrier probe decides it unless LIBXSTREAM_NV or OZAKI_BF16 already did. On
+   * GH200 the bf16 GEMM took 9% more of the peak-normalized time than int8, hence
+   * bf16 only past that margin.
+   */
+  nv = (int)devinfo->nv;
+  if (5 == nv && 0 != gpu && NULL == getenv("LIBXSTREAM_NV") && NULL == getenv("OZAKI_BF16")) {
+    double ratio = 0;
+    if (EXIT_SUCCESS == ozaki_carrier_probe(&ratio)) {
+      if (1.09 < ratio) nv = 6;
+      if (0 > verbosity || 2 < verbosity) {
+        fprintf(stderr, "INFO OZAKI: bf16 runs at %.2fx the int8 rate - level %i\n", ratio, nv);
+      }
+    }
+  }
+
+  /**
    * Symmetric residues (|r| <= m/2) rather than unsigned ones. Both fold the one moduli
    * table: the signed representation used to come with a table of its own, up to 128, and
    * that is what this retires - signing the larger moduli carries the same bit budget in
@@ -921,7 +940,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
    */
   { const char *const env_bf16 = getenv("OZAKI_BF16");
     const char *const env_sym = getenv("OZAKI_SYMRES");
-    use_bf16 = (NULL != env_bf16 && 0 != atoi(env_bf16));
+    use_bf16 = (NULL != env_bf16) ? (0 != atoi(env_bf16)) : (6 <= nv && 0 != gpu);
     use_sym = (NULL != env_sym) ? (0 != atoi(env_sym))
       : (use_bf16 || maxk > ozaki_crt_window(use_bf16, 0 /*unsigned*/));
   }
@@ -993,8 +1012,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   ctx->oztrim = oztrim;
   ctx->ndecomp = ndecomp;
   ctx->verbosity = verbosity;
-
-  nv = (int)devinfo->nv;
 
   /* Environment-driven tuning */
   env = getenv("OZAKI_WG");

@@ -193,9 +193,13 @@ bound.
 instructions (`tcgen05`, accumulators in tensor memory, A from registers
 through tensor memory, B by bulk copies). int8 needs `sm_100a` (not
 `sm_103a`), `OZAKI_BF16=1` runs on every part with tensor memory. It is on
-by default at `LIBXSTREAM_NV=5` (compute capability 10.0 to 10.2, e.g., B200
-and GB200) and a request below; it is not probed: a failed patch refuses the
-kernel. `LIBXSTREAM_NV=4` or `OZAKI_WGMMA=0` turns the default off.
+by default from `LIBXSTREAM_NV=5` (compute capability 10.x and 11.x, e.g.,
+B200, GB200, B300) and a request below; it is not probed: a failed patch
+refuses the kernel. `LIBXSTREAM_NV=4` or `OZAKI_WGMMA=0` turns the default
+off. At level 5, a probe times int8 against bf16 matrix instructions and
+raises the level to 6 where bf16 is the faster carrier (e.g., B300, whose
+int8 rate is a fifteenth of its bf16 rate); level 6 makes `OZAKI_BF16=1` the
+default. `LIBXSTREAM_NV` or `OZAKI_BF16` set explicitly skips the probe.
 `OZAKI_TCGEN05=2` uses the program as built, like `OZAKI_WGMMA=2`.
 
 `OZAKI_BKMAJOR=1` applies to the `mma.sync` and dp4a paths, not to

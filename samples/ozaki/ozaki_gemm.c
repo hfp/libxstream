@@ -11,6 +11,7 @@
 #include "ozaki_kernels.h"
 #include <libxs/libxs_hash.h>
 #include <libxs/libxs_mem.h>
+#include <libxs/libxs_timer.h>
 
 /* Descriptor strides the probe's marker states, as OZAKI_WGMMA_DESC does in ozaki2.cl. */
 #define OZAKI_WGMMA_SBO 8
@@ -33,6 +34,9 @@
 
 /* Values the 64-bit mul_hi is checked on (ozaki_mulhi_probe). */
 #define OZAKI_MULHI_PROBE_N 8
+
+/* Seconds a probe kernel runs at least, so the launch does not dominate (ozaki_carrier_probe). */
+#define OZAKI_CARRIER_PROBE_SECONDS 2E-3
 
 
 /**
@@ -277,6 +281,93 @@ int ozaki_mulhi_probe(int* emulate)
   }
   if (NULL != buffer) clReleaseMemObject(buffer);
   if (NULL != kernel) clReleaseKernel(kernel);
+  if (NULL != program) clReleaseProgram(program);
+  return result;
+}
+
+
+/* One launch of a carrier-probe kernel over n iterations, timed on the host. */
+static int ozaki_carrier_time(cl_kernel kernel, size_t gsize, size_t lsize, int n, double* seconds)
+{
+  const libxstream_opencl_stream_t* const stream = libxstream_opencl_stream_default();
+  libxs_timer_tick_t t0 = 0, t1 = 0;
+  int result = EXIT_SUCCESS;
+  CL_CHECK(result, clSetKernelArg(kernel, 0, sizeof(int), &n));
+  if (EXIT_SUCCESS == result) t0 = libxs_timer_tick();
+  CL_CHECK(result, clEnqueueNDRangeKernel(stream->queue, kernel, 1, NULL, &gsize, &lsize, 0, NULL, NULL));
+  CL_CHECK(result, clFinish(stream->queue));
+  if (EXIT_SUCCESS == result) {
+    t1 = libxs_timer_tick();
+    *seconds = libxs_timer_duration(t0, t1);
+  }
+  return result;
+}
+
+
+/**
+ * The matrix engine's bf16 rate over its int8 rate, measured: two kernels issue the
+ * same number of independent mma.sync (int8 m16n8k32 and bf16 m16n8k16, available
+ * from SM 8.0, so no splice is needed) over every compute unit, and their times give
+ * the ratio of operations per second. The iteration count grows until a launch runs
+ * long enough to be timed; a slow device (a simulator) stops at the first.
+ *
+ * A plain launch, as ozaki_mulhi_probe, so a LIBXSTREAM_PROFILE report shows nothing
+ * of it. The asm statements are volatile and need no result to stay.
+ */
+int ozaki_carrier_probe(double* ratio)
+{
+  static const char source[] =
+    "#define S8(D0, D1, D2, D3) __asm__ volatile(\"mma.sync.aligned.m16n8k32.row.col.s32.s8.s8.s32 \" \\\n"
+    "  \"{%0,%1,%2,%3}, {%4,%4,%4,%4}, {%4,%4}, {%0,%1,%2,%3};\" : \"+r\"(D0), \"+r\"(D1), \"+r\"(D2), \"+r\"(D3) : \"r\"(a))\n"
+    "#define BF16(D0, D1, D2, D3) __asm__ volatile(\"mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 \" \\\n"
+    "  \"{%0,%1,%2,%3}, {%4,%4,%4,%4}, {%4,%4}, {%0,%1,%2,%3};\" : \"+f\"(D0), \"+f\"(D1), \"+f\"(D2), \"+f\"(D3) : \"r\"(a))\n"
+    "kernel void ozaki_carrier_s8(int n)\n{\n"
+    "  const uint a = 0x01010101u;\n"
+    "  int d[16] = {0}, i;\n"
+    "  for (i = 0; i < n; ++i) {\n"
+    "    S8(d[0], d[1], d[2], d[3]); S8(d[4], d[5], d[6], d[7]);\n"
+    "    S8(d[8], d[9], d[10], d[11]); S8(d[12], d[13], d[14], d[15]);\n"
+    "  }\n}\n"
+    "kernel void ozaki_carrier_bf16(int n)\n{\n"
+    "  const uint a = 0x3F803F80u;\n"
+    "  float d[16] = {0}; int i;\n"
+    "  for (i = 0; i < n; ++i) {\n"
+    "    BF16(d[0], d[1], d[2], d[3]); BF16(d[4], d[5], d[6], d[7]);\n"
+    "    BF16(d[8], d[9], d[10], d[11]); BF16(d[12], d[13], d[14], d[15]);\n"
+    "  }\n}\n";
+  const libxstream_opencl_stream_t* const stream = libxstream_opencl_stream_default();
+  const cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
+  const size_t lsize = 256;
+  cl_program program = NULL;
+  cl_kernel kernel[2] = {NULL, NULL};
+  double seconds[2] = {0, 0};
+  cl_uint nunits = 0;
+  size_t gsize = 0;
+  int n = 8;
+  int result = (NULL != ratio && NULL != stream && NULL != stream->queue) ? EXIT_SUCCESS : EXIT_FAILURE;
+  if (EXIT_SUCCESS == result) {
+    result = libxstream_opencl_program(0 /*source*/, source, "oz2_carrier_probe", "" /*build_params*/, "" /*build_options*/,
+      NULL /*try_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &program);
+  }
+  if (EXIT_SUCCESS == result) result = libxstream_opencl_kernel_query(program, "ozaki_carrier_s8", &kernel[0]);
+  if (EXIT_SUCCESS == result) result = libxstream_opencl_kernel_query(program, "ozaki_carrier_bf16", &kernel[1]);
+  CL_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &nunits, NULL));
+  gsize = (0 < nunits ? (size_t)nunits : 1) * lsize;
+  /* the int8 kernel, longer each time, until a launch can be timed; then both once more */
+  if (EXIT_SUCCESS == result) result = ozaki_carrier_time(kernel[0], gsize, lsize, n, &seconds[0]);
+  while (EXIT_SUCCESS == result && OZAKI_CARRIER_PROBE_SECONDS > seconds[0] && (1 << 20) > n) {
+    n *= 4;
+    result = ozaki_carrier_time(kernel[0], gsize, lsize, n, &seconds[0]);
+  }
+  if (EXIT_SUCCESS == result) result = ozaki_carrier_time(kernel[0], gsize, lsize, n, &seconds[0]);
+  if (EXIT_SUCCESS == result) result = ozaki_carrier_time(kernel[1], gsize, lsize, n, &seconds[1]);
+  if (EXIT_SUCCESS == result) {
+    /* m16n8k32 int8 is 8192 operations per instruction, m16n8k16 bf16 4096 */
+    result = (0 < seconds[1]) ? EXIT_SUCCESS : EXIT_FAILURE;
+    if (EXIT_SUCCESS == result) *ratio = 0.5 * seconds[0] / seconds[1];
+  }
+  if (NULL != kernel[1]) clReleaseKernel(kernel[1]);
+  if (NULL != kernel[0]) clReleaseKernel(kernel[0]);
   if (NULL != program) clReleaseProgram(program);
   return result;
 }
