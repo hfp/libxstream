@@ -150,7 +150,7 @@ for dim in x, y, z:
 
 Use matrix compute units but without giving up accuracy.
 
-<span style="opacity: 0.4; font-size: 50%;">
+<span class="dim">
 [ConvStencil 2024] stencil-as-matmul on NVIDIA TC,
 [Ichimura+ 2025] INT8 TC elastic wave FE</span>
 
@@ -316,7 +316,7 @@ matches the long-leg stencil's dispersion behavior.
 Instead of applying the long-leg radius-4 operator directly,  
 use compact operators over time.
 
-<span style="opacity: 0.4; font-size: 50%;">
+<span class="dim">
 [Dablain 1986] cascaded Laplacians,
 [Liu&Sen 2009] time-space optimized explicit,
 [Zhang+ 2016] operator splitting for compact FD</span>

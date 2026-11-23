@@ -47,3 +47,20 @@
   color: #51cf66;
   font-weight: bold;
 }
+
+/* Recede without hiding: supporting detail (URLs, provenance, captions). */
+.reveal .dim {
+  opacity: 0.4;
+  font-size: 50%;
+}
+
+/* A period or status on a heading. Sits on the heading baseline, so it must
+   not inherit the heading's weight or uppercasing. */
+.reveal h2 .when {
+  opacity: 0.45;
+  font-size: 45%;
+  font-weight: normal;
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: nowrap;
+}

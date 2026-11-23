@@ -37,7 +37,7 @@ There the builtins failed; now they are **test-compiled at runtime**:
 | gfx1100, gfx1201 (RDNA 3-4) | accepted | rejected: cmpxchg |
 | gfx1030, gfx1031 (RDNA 2) | rejected: cmpxchg | rejected: cmpxchg |
 
-<span style="opacity: 0.4; font-size: 50%;">Found by the first CI run and fixed the same day. A rejected builtin is detection, not a failure: LIBXSTREAM_FALLBACK=0 does not refuse it.</span>
+<span class="dim">Found by the first CI run and fixed the same day. A rejected builtin is detection, not a failure: LIBXSTREAM_FALLBACK=0 does not refuse it.</span>
 
 ---
 
@@ -93,7 +93,7 @@ A kernel's counts as a mixture of the mixes counted on the same target:
 - **Bytes and the VALU mix** as categories: the mixtures match much better
 - Still behind three constants: small kernels do not saturate like the mixes
 
-<span style="opacity: 0.4; font-size: 50%;">One timing campaign throughout; median factor off with PantheonSim 0.2.1: 1.5-2.0. An earlier campaign gave 0.13-0.47 (three mixes, old counts): sensitive to the mixes' times.</span>
+<span class="dim">One timing campaign throughout; median factor off with PantheonSim 0.2.1: 1.5-2.0. An earlier campaign gave 0.13-0.47 (three mixes, old counts): sensitive to the mixes' times.</span>
 
 ---
 
@@ -109,7 +109,7 @@ A kernel's counts as a mixture of the mixes counted on the same target:
 | RDNA 2-4 (RX 6700 XT ... RX 9070 XT) | 0.81-0.83 | 1.33-1.39 | 5.2-5.6 |
 | memory instructions instead of bytes | 0.70-0.80 | 1.24-1.51 | 4.5-11.6 |
 
-<span style="opacity: 0.4; font-size: 50%;">Non-negative least squares on relative error, which predicts low: measured/predicted 1.19-1.28 (geometric mean). The Ozaki GEMMs are predicted, not fitted: DPAS on the B390.</span>
+<span class="dim">Non-negative least squares on relative error, which predicts low: measured/predicted 1.19-1.28 (geometric mean). The Ozaki GEMMs are predicted, not fitted: DPAS on the B390.</span>
 
 ---
 
@@ -149,7 +149,7 @@ From GH200 by datasheet ratios, with **published** bandwidth and GEMM efficiency
 
 <img class="wide" style="max-height: 50vh" src="assets/ozaki-amd.png" alt="Ozaki-2 projected for AMD against native FP64"/>
 
-<span style="opacity: 0.4; font-size: 50%;">* Nothing published: the range of MI250X, MI300X, MI325X. Against peak: DGEMM reaches 50% on MI250X, favoring the upper end. Sources: specs.csv, published.csv.</span>
+<span class="dim">* Nothing published: the range of MI250X, MI300X, MI325X. Against peak: DGEMM reaches 50% on MI250X, favoring the upper end. Sources: specs.csv, published.csv.</span>
 
 ---
 
@@ -159,7 +159,7 @@ Where each part crosses its native FP64 matrix peak:
 
 <img class="wide" style="max-height: 55vh" src="assets/channel.png" alt="Ozaki-2 against native FP64 over the port's GEMM efficiency"/>
 
-<span style="opacity: 0.4; font-size: 50%;">Shaded: AMD's lowest published GEMM efficiency to NVIDIA's, labeled with the curves' values (the bars take each part's own efficiency and, at the top, NVIDIA's memory efficiency). MI300X is 5% below MI325X. Sources: specs.csv, published.csv, ozaki-kernels.csv.</span>
+<span class="dim">Shaded: AMD's lowest published GEMM efficiency to NVIDIA's, labeled with the curves' values (the bars take each part's own efficiency and, at the top, NVIDIA's memory efficiency). MI300X is 5% below MI325X. Sources: specs.csv, published.csv, ozaki-kernels.csv.</span>
 
 ---
 
@@ -169,7 +169,7 @@ Where native FP64 is cut, emulation on the matrix engines gives it back:
 
 <img class="wide" style="max-height: 55vh" src="assets/bifurcation.png" alt="Native FP64 against Ozaki-2 on sibling parts that split over FP64"/>
 
-<span style="opacity: 0.4; font-size: 50%;">Ozaki-2 at n=4096 from GH200's kernel times, each part on its better carrier, from AMD's lowest published GEMM efficiency relative to NVIDIA's up to NVIDIA's. MI400: as announced by AMD. Sources: bifurcation.csv, ozaki-bf16.csv, published.csv, ozaki-kernels.csv.</span>
+<span class="dim">Ozaki-2 at n=4096 from GH200's kernel times, each part on its better carrier, from AMD's lowest published GEMM efficiency relative to NVIDIA's up to NVIDIA's. MI400: as announced by AMD. Sources: bifurcation.csv, ozaki-bf16.csv, published.csv, ozaki-kernels.csv.</span>
 
 ---
 
@@ -177,7 +177,7 @@ Where native FP64 is cut, emulation on the matrix engines gives it back:
 
 <img class="wide" style="max-height: 62vh" src="assets/isa-score.png" alt="One score per target: slots of the best target over its own, geometric mean over the named mixes"/>
 
-<span style="opacity: 0.4; font-size: 50%;">Geometric mean over the five mixes (<a href="assets/isa.png">per mix</a>), the line below a score spanning them. Slots per work-item: per wave (AMD), per warp (NVIDIA), per thread (Intel); work alone leaves out what only schedules. Simulated AMD machine code, NVIDIA SASS (ptxas), Intel (ocloc), single precision. Source: isa.csv.</span>
+<span class="dim">Geometric mean over the five mixes (<a href="assets/isa.png">per mix</a>), the line below a score spanning them. Slots per work-item: per wave (AMD), per warp (NVIDIA), per thread (Intel); work alone leaves out what only schedules. Simulated AMD machine code, NVIDIA SASS (ptxas), Intel (ocloc), single precision. Source: isa.csv.</span>
 
 ---
 
