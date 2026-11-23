@@ -9,7 +9,7 @@
 ******************************************************************************/
 /* Device BLAS (libxstream_blas.h): every entry point against the host if a plugin serves the device,
  * with the copies and the work enqueued without synchronizing in between (the stream keeps the order),
- * and a refusal of every call otherwise. */
+ * a refusal of every call otherwise, and nothing without a device. */
 #include <libxstream/libxstream_blas.h>
 #include <math.h>
 #include <stdio.h>
@@ -112,9 +112,13 @@ static int check(libxstream_stream_t* stream, int f64)
 int main(void)
 {
   libxstream_stream_t* stream = NULL;
-  int result = libxstream_init(), xmem = 0;
-  if (EXIT_SUCCESS == result) result = libxstream_stream_create(&stream, "blas", LIBXSTREAM_STREAM_DEFAULT);
-  if (EXIT_SUCCESS == result) {
+  int result = libxstream_init(), xmem = 0, ndevices = 0;
+  if (EXIT_SUCCESS == result) result = libxstream_device_count(&ndevices);
+  if (EXIT_SUCCESS == result && 0 < ndevices) {
+    result = libxstream_stream_create(&stream, "blas", LIBXSTREAM_STREAM_DEFAULT);
+  }
+  else if (EXIT_SUCCESS == result) printf("device BLAS: no device\n");
+  if (EXIT_SUCCESS == result && NULL != stream) {
     const char* const name = libxstream_blas_query(stream, &xmem);
     if (NULL != name && 0 != xmem) {
       result = check(stream, 1);

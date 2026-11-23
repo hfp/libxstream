@@ -117,7 +117,11 @@ static int libxstream_blas_f64(libxs_data_t datatype)
 
 LIBXSTREAM_API const char* libxstream_blas_query(libxstream_stream_t* stream, int* xmem)
 {
-  const libxstream_blas_plugin_t* const plugin = libxstream_blas_find(stream);
+  const libxstream_blas_plugin_t* plugin = libxstream_blas_find(stream);
+  /* a plugin which fails its self-test refuses every call, hence it is not reported */
+  if (NULL != plugin && NULL != plugin->probe && 0 != plugin->probe(libxstream_opencl_config.device.context, stream->queue)) {
+    plugin = NULL;
+  }
   if (NULL != xmem) *xmem = (NULL != plugin ? plugin->xmem : 0);
   return (NULL != plugin ? plugin->name : NULL);
 }

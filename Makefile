@@ -196,7 +196,8 @@ OBJFILES := $(patsubst %,$(BLDDIR)/intel64/%.o,$(basename $(notdir $(SRCFILES)))
 # the SYCL runtime (CMPLR_ROOT, icx, or next to MKL), and oneMKL's SYCL library are found, and
 # dropped otherwise (SYCL=0 drops it as well). Libraries are linked by path (oneAPI's lib directory
 # also holds an OpenCL loader) with an RPATH, since the SYCL runtime loads its backend by name, and
-# MKL's Intel interface supplies the *_64 CBLAS names oneMKL calls.
+# MKL's Intel interface supplies the *_64 CBLAS names oneMKL calls. MKL is linked statically unless
+# BLAS_STATIC=0 (or no archives are found), which keeps a consumer's MKL threading layer apart.
 SYCL ?= 1
 ifneq (0,$(SYCL))
   PLUGIN_MKLROOT := $(firstword $(MKLROOT) $(wildcard /opt/intel/oneapi/mkl/latest))
@@ -206,6 +207,7 @@ ifneq (0,$(SYCL))
     $(if $(wildcard $(DIR)/include/sycl/sycl.hpp),$(if $(wildcard $(DIR)/lib/libsycl.$(DLIBEXT)),$(call qapath,$(DIR))))))
   ifneq (,$(and $(PLUGIN_MKLDIR),$(PLUGIN_SYCLROOT),$(call which,$(CXX))))
     MKLPLUGIN := $(if $(filter-out 1 2,$(BUILD))$(filter-out 0,$(ANALYZE)),,$(OUTDIR)/libxstream_mkl.$(DLIBEXT))
+    PLUGIN_STATIC := $(if $(wildcard $(PLUGIN_MKLDIR)/libmkl_core.$(SLIBEXT)),$(BLAS_STATIC),0)
     # found by a static library (or executable) as well, which has no directory of its own
     DFLAGS += -DLIBXSTREAM_BLAS_PLUGIN_DIR=\"$(abspath $(OUTDIR))\"
   endif
@@ -327,8 +329,7 @@ ifneq (,$(MKLPLUGIN))
 $(MKLPLUGIN): $(OUTDIR)/.make $(ROOTSRC)/libxstream_mkl.cpp $(ROOTSRC)/libxstream_blas_plugin.h $(LNKSTATE)
 	$(CXX) $(CXXFLAGS) $(CTARGET) $(PICFLAG) -std=c++17 -shared -isystem $(PLUGIN_SYCLROOT)/include \
 		$(ROOTSRC)/libxstream_mkl.cpp -o $@ $(PLUGIN_MKLDIR)/libmkl_sycl_blas.$(DLIBEXT) \
-		$(PLUGIN_SYCLROOT)/lib/libsycl.$(DLIBEXT) $(PLUGIN_MKLDIR)/libmkl_intel_lp64.$(DLIBEXT) \
-		$(PLUGIN_MKLDIR)/libmkl_sequential.$(DLIBEXT) $(PLUGIN_MKLDIR)/libmkl_core.$(DLIBEXT) \
+		$(PLUGIN_SYCLROOT)/lib/libsycl.$(DLIBEXT) $(call mkl_ldflags,$(PLUGIN_MKLDIR),intel_lp64,sequential,$(PLUGIN_STATIC)) \
 		-Wl,--disable-new-dtags -Wl,-rpath,$(PLUGIN_MKLDIR) -Wl,-rpath,$(PLUGIN_SYCLROOT)/lib
 endif
 

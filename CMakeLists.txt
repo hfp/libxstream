@@ -210,6 +210,8 @@ endif()
 # oneMKL's SYCL library are found, unless LIBXSTREAM_SYCL is OFF. MKL's Intel
 # interface supplies the *_64 CBLAS names oneMKL calls.
 option(LIBXSTREAM_SYCL "Device BLAS by oneMKL's SYCL interface (if found)" ON)
+option(LIBXSTREAM_MKL_STATIC
+       "MKL linked statically into the device BLAS (if the archives are found)" ON)
 include(CheckLanguage)
 check_language(CXX)
 if(LIBXSTREAM_SYCL AND CMAKE_CXX_COMPILER)
@@ -251,12 +253,23 @@ if(LIBXSTREAM_SYCL AND CMAKE_CXX_COMPILER)
     # the SYCL headers as system headers of this file only: they bring CL headers
     target_compile_options(
       libxstream_mkl PRIVATE -isystem "${LIBXSTREAM_SYCL_INCLUDE_DIR}" -std=c++17)
+    # static MKL keeps a consumer's MKL threading layer apart (libmkl_sycl_blas is shared only)
+    if(LIBXSTREAM_MKL_STATIC
+       AND EXISTS "${LIBXSTREAM_MKLDIR}/libmkl_core${CMAKE_STATIC_LIBRARY_SUFFIX}")
+      set(LIBXSTREAM_MKL_SUFFIX "${CMAKE_STATIC_LIBRARY_SUFFIX}")
+      set(LIBXSTREAM_MKL_GROUP_BEGIN "-Wl,--start-group")
+      set(LIBXSTREAM_MKL_GROUP_END "-Wl,--end-group")
+    else()
+      set(LIBXSTREAM_MKL_SUFFIX "${CMAKE_SHARED_LIBRARY_SUFFIX}")
+    endif()
     target_link_libraries(
       libxstream_mkl
       PRIVATE "${LIBXSTREAM_MKL_SYCL_BLAS}" "${LIBXSTREAM_SYCL_LIBRARY}"
-              "${LIBXSTREAM_MKLDIR}/libmkl_intel_lp64${CMAKE_SHARED_LIBRARY_SUFFIX}"
-              "${LIBXSTREAM_MKLDIR}/libmkl_sequential${CMAKE_SHARED_LIBRARY_SUFFIX}"
-              "${LIBXSTREAM_MKLDIR}/libmkl_core${CMAKE_SHARED_LIBRARY_SUFFIX}")
+              ${LIBXSTREAM_MKL_GROUP_BEGIN}
+              "${LIBXSTREAM_MKLDIR}/libmkl_intel_lp64${LIBXSTREAM_MKL_SUFFIX}"
+              "${LIBXSTREAM_MKLDIR}/libmkl_core${LIBXSTREAM_MKL_SUFFIX}"
+              "${LIBXSTREAM_MKLDIR}/libmkl_sequential${LIBXSTREAM_MKL_SUFFIX}"
+              ${LIBXSTREAM_MKL_GROUP_END})
     get_filename_component(LIBXSTREAM_SYCLDIR "${LIBXSTREAM_SYCL_LIBRARY}"
                            DIRECTORY)
     set_target_properties(

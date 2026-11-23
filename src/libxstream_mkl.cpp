@@ -13,10 +13,12 @@
 #include "libxstream_blas_plugin.h"
 #include <sycl/sycl.hpp>
 #include <sycl/backend/opencl.hpp>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <exception>
 #include <mutex>
+#include <stdexcept>
 #include <vector>
 
 /**
@@ -58,14 +60,14 @@ sycl::event dgmm(sycl::queue& queue, side left_right, std::int64_t m, std::int64
 namespace {
 namespace blas = oneapi::mkl::blas::column_major;
 
-/* pointers a batch reads on the device, hence USM until its work is done */
+/* arguments of a batch (libxstream_mkl_args_t), freed when its work is done */
 struct libxstream_mkl_pending_t {
   sycl::event event;
-  void* pointers;
+  void* args;
 };
 
 /**
- * The SYCL context made of the OpenCL context, whether oneMKL passed its self-test, and the pointers
+ * The SYCL context made of the OpenCL context, whether oneMKL passed its self-test, and the arguments
  * still in flight. An interop object neither retains nor releases its OpenCL handle, hence a queue is
  * made per call (a cached one could outlive the stream). Never destroyed: the SYCL runtime may be
  * gone by the time the process exits.
@@ -89,7 +91,7 @@ oneapi::mkl::transpose libxstream_mkl_trans(char t)
   return ('N' == t || 'n' == t) ? oneapi::mkl::transpose::nontrans : oneapi::mkl::transpose::trans;
 }
 
-/* Frees the pointers whose work completed (all of them after waiting if wait is true). */
+/* Frees the arguments whose work completed (all of them after waiting if wait is true). */
 void libxstream_mkl_reap(libxstream_mkl_state_t& state, bool wait)
 {
   std::vector<libxstream_mkl_pending_t> keep;
@@ -98,41 +100,57 @@ void libxstream_mkl_reap(libxstream_mkl_state_t& state, bool wait)
     if (sycl::info::event_command_status::complete ==
         p.event.get_info<sycl::info::event::command_execution_status>())
     {
-      sycl::free(p.pointers, *state.context);
+      sycl::free(p.args, *state.context);
     }
     else keep.push_back(p);
   }
   state.pending.swap(keep);
 }
 
+/**
+ * Arguments of a batch, which oneMKL reads when the work runs (a host task on a CPU device), hence
+ * in USM until the work is done rather than on the stack of the caller.
+ */
 template <typename T>
-sycl::event libxstream_mkl_gemm(sycl::queue& queue, void* pointers, char transa, char transb, int m, int n, int k,
+struct libxstream_mkl_args_t {
+  const T* p[3]; /* A, B, C */
+  std::int64_t m, n, k, lda, ldb, ldc, size;
+  T alpha, beta;
+  oneapi::mkl::transpose transa, transb;
+  oneapi::mkl::uplo uplo;
+};
+
+template <typename T>
+sycl::event libxstream_mkl_gemm(sycl::queue& queue, void* args, char transa, char transb, int m, int n, int k,
   double alpha, const void* a, int lda, const void* b, int ldb, double beta, void* c, int ldc)
 {
-  const oneapi::mkl::transpose ta = libxstream_mkl_trans(transa), tb = libxstream_mkl_trans(transb);
-  const std::int64_t mm = m, nn = n, kk = k, la = lda, lb = ldb, lc = ldc, size = 1;
-  const T fa = static_cast<T>(alpha), fb = static_cast<T>(beta);
-  const T** const p = static_cast<const T**>(pointers);
-  p[0] = static_cast<const T*>(a);
-  p[1] = static_cast<const T*>(b);
-  p[2] = static_cast<const T*>(c);
-  return blas::gemm_batch(queue, &ta, &tb, &mm, &nn, &kk, &fa, p, &la, p + 1, &lb, &fb, const_cast<T**>(p + 2), &lc,
-    1 /*group_count*/, &size, std::vector<sycl::event>());
+  libxstream_mkl_args_t<T>* const x = static_cast<libxstream_mkl_args_t<T>*>(args);
+  x->p[0] = static_cast<const T*>(a);
+  x->p[1] = static_cast<const T*>(b);
+  x->p[2] = static_cast<const T*>(c);
+  x->m = m; x->n = n; x->k = k; x->lda = lda; x->ldb = ldb; x->ldc = ldc; x->size = 1;
+  x->alpha = static_cast<T>(alpha);
+  x->beta = static_cast<T>(beta);
+  x->transa = libxstream_mkl_trans(transa);
+  x->transb = libxstream_mkl_trans(transb);
+  return blas::gemm_batch(queue, &x->transa, &x->transb, &x->m, &x->n, &x->k, &x->alpha, x->p, &x->lda, x->p + 1,
+    &x->ldb, &x->beta, const_cast<T**>(x->p + 2), &x->ldc, 1 /*group_count*/, &x->size, std::vector<sycl::event>());
 }
 
 template <typename T>
-sycl::event libxstream_mkl_syrk(sycl::queue& queue, void* pointers, char uplo, char trans, int n, int k, double alpha,
+sycl::event libxstream_mkl_syrk(sycl::queue& queue, void* args, char uplo, char trans, int n, int k, double alpha,
   const void* a, int lda, double beta, void* c, int ldc)
 {
-  const oneapi::mkl::uplo ul = (('U' == uplo || 'u' == uplo) ? oneapi::mkl::uplo::upper : oneapi::mkl::uplo::lower);
-  const oneapi::mkl::transpose t = libxstream_mkl_trans(trans);
-  const std::int64_t nn = n, kk = k, la = lda, lc = ldc, size = 1;
-  const T fa = static_cast<T>(alpha), fb = static_cast<T>(beta);
-  const T** const p = static_cast<const T**>(pointers);
-  p[0] = static_cast<const T*>(a);
-  p[1] = static_cast<const T*>(c);
-  return blas::syrk_batch(queue, &ul, &t, &nn, &kk, &fa, p, &la, &fb, const_cast<T**>(p + 1), &lc, 1 /*group_count*/,
-    &size, std::vector<sycl::event>());
+  libxstream_mkl_args_t<T>* const x = static_cast<libxstream_mkl_args_t<T>*>(args);
+  x->p[0] = static_cast<const T*>(a);
+  x->p[2] = static_cast<const T*>(c);
+  x->n = n; x->k = k; x->lda = lda; x->ldc = ldc; x->size = 1;
+  x->alpha = static_cast<T>(alpha);
+  x->beta = static_cast<T>(beta);
+  x->transa = libxstream_mkl_trans(trans);
+  x->uplo = (('U' == uplo || 'u' == uplo) ? oneapi::mkl::uplo::upper : oneapi::mkl::uplo::lower);
+  return blas::syrk_batch(queue, &x->uplo, &x->transa, &x->n, &x->k, &x->alpha, x->p, &x->lda, &x->beta,
+    const_cast<T**>(x->p + 2), &x->ldc, 1 /*group_count*/, &x->size, std::vector<sycl::event>());
 }
 
 template <typename T>
@@ -153,8 +171,8 @@ bool libxstream_mkl_selftest_type(sycl::queue& queue)
   bool result = true;
   int i, j, p;
   T* const d = sycl::malloc_device<T>(m * k + k * n + m * m + m, queue);
-  void* const pointers = sycl::malloc_shared(3 * sizeof(void*), queue);
-  if (nullptr == d || nullptr == pointers) throw std::bad_alloc();
+  void* const args = sycl::malloc_shared(sizeof(libxstream_mkl_args_t<T>), queue);
+  if (nullptr == d || nullptr == args) throw std::bad_alloc();
   for (i = 0; i < m * k; ++i) ha[i] = static_cast<T>(i % 5 - 2);
   for (i = 0; i < k * n; ++i) hb[i] = static_cast<T>(i % 3 - 1);
   for (i = 0; i < m; ++i) hx[i] = static_cast<T>(i + 2);
@@ -169,7 +187,7 @@ bool libxstream_mkl_selftest_type(sycl::queue& queue)
       }
     }
     queue.memcpy(d + m * k + k * n, hc.data(), sizeof(T) * m * n).wait_and_throw();
-    libxstream_mkl_gemm<T>(queue, pointers, 'N', 'N', m, n, k, 2.0, d, m, d + m * k, k, 1.0, d + m * k + k * n, m)
+    libxstream_mkl_gemm<T>(queue, args, 'N', 'N', m, n, k, 2.0, d, m, d + m * k, k, 1.0, d + m * k + k * n, m)
       .wait_and_throw();
     queue.memcpy(hc.data(), d + m * k + k * n, sizeof(T) * m * n).wait_and_throw();
     for (i = 0; i < m * n; ++i) result = (result && ref[i] == hc[i]);
@@ -183,7 +201,7 @@ bool libxstream_mkl_selftest_type(sycl::queue& queue)
       }
     }
     queue.memcpy(d + m * k + k * n, hc.data(), sizeof(T) * m * m).wait_and_throw();
-    libxstream_mkl_syrk<T>(queue, pointers, 'L', 'N', m, k, 1.0, d, m, 0.0, d + m * k + k * n, m).wait_and_throw();
+    libxstream_mkl_syrk<T>(queue, args, 'L', 'N', m, k, 1.0, d, m, 0.0, d + m * k + k * n, m).wait_and_throw();
     queue.memcpy(hc.data(), d + m * k + k * n, sizeof(T) * m * m).wait_and_throw();
     for (i = 0; i < m * m; ++i) result = (result && ref[i] == hc[i]);
   }
@@ -196,7 +214,7 @@ bool libxstream_mkl_selftest_type(sycl::queue& queue)
     queue.memcpy(hc.data(), d + m * k + k * n, sizeof(T) * m * n).wait_and_throw();
     for (i = 0; i < m * n; ++i) result = (result && ref[i] == hc[i]);
   }
-  sycl::free(pointers, queue);
+  sycl::free(args, queue);
   sycl::free(d, queue);
   return result;
 }
@@ -206,7 +224,7 @@ bool libxstream_mkl_selftest_type(sycl::queue& queue)
  * other work), after the context is set up and oneMKL passed its self-test. Returns zero on success.
  */
 template <typename F>
-int libxstream_mkl_run(void* context, void* queue, int npointers, F work)
+int libxstream_mkl_run(void* context, void* queue, std::size_t nargs, F work)
 {
   libxstream_mkl_state_t& state = libxstream_mkl_state();
   int result = -1;
@@ -229,11 +247,15 @@ int libxstream_mkl_run(void* context, void* queue, int npointers, F work)
         }
       }
       if (0 < state.status) {
-        void* const pointers = (0 < npointers ? sycl::malloc_shared(npointers * sizeof(void*), q) : nullptr);
-        if (0 < npointers && nullptr == pointers) throw std::bad_alloc();
+        void* const args = (0 < nargs ? sycl::malloc_shared(nargs, q) : nullptr);
+        if (0 < nargs && nullptr == args) throw std::bad_alloc();
+        /* on a CPU, oneMKL runs host tasks which the OpenCL queue does not order: synchronous */
+        const bool host = q.get_device().is_cpu();
         libxstream_mkl_reap(state, false);
-        const sycl::event event = work(q, pointers);
-        if (nullptr != pointers) state.pending.push_back(libxstream_mkl_pending_t{event, pointers});
+        if (host && CL_SUCCESS != clFinish(static_cast<cl_command_queue>(queue))) throw std::runtime_error("clFinish");
+        sycl::event event = work(q, args);
+        if (host) event.wait_and_throw();
+        if (nullptr != args) state.pending.push_back(libxstream_mkl_pending_t{event, args});
         result = 0;
       }
     }
@@ -244,12 +266,24 @@ int libxstream_mkl_run(void* context, void* queue, int npointers, F work)
   return result;
 }
 
+/* Bytes of the arguments of a batch. */
+std::size_t libxstream_mkl_nargs(int f64)
+{
+  return (0 != f64 ? sizeof(libxstream_mkl_args_t<double>) : sizeof(libxstream_mkl_args_t<float>));
+}
+
+/* Sets up the context and runs the self-test (once per context), enqueuing nothing. */
+int libxstream_mkl_probe_entry(void* context, void* queue)
+{
+  return libxstream_mkl_run(context, queue, 0, [](sycl::queue&, void*) { return sycl::event(); });
+}
+
 int libxstream_mkl_gemm_entry(void* context, void* queue, int f64, char transa, char transb, int m, int n, int k,
   double alpha, const void* a, int lda, const void* b, int ldb, double beta, void* c, int ldc)
 {
-  return libxstream_mkl_run(context, queue, 3, [=](sycl::queue& q, void* pointers) {
-    return (0 != f64 ? libxstream_mkl_gemm<double>(q, pointers, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)
-                     : libxstream_mkl_gemm<float>(q, pointers, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc));
+  return libxstream_mkl_run(context, queue, libxstream_mkl_nargs(f64), [=](sycl::queue& q, void* args) {
+    return (0 != f64 ? libxstream_mkl_gemm<double>(q, args, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)
+                     : libxstream_mkl_gemm<float>(q, args, transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc));
   });
 }
 
@@ -257,9 +291,9 @@ int libxstream_mkl_syrk_entry(void* context, void* queue, int f64, char uplo, ch
   const void* a, int lda, const void* b, int ldb, double beta, void* c, int ldc)
 {
   (void)ldb;
-  return (nullptr == b ? libxstream_mkl_run(context, queue, 2, [=](sycl::queue& q, void* pointers) {
-    return (0 != f64 ? libxstream_mkl_syrk<double>(q, pointers, uplo, trans, n, k, alpha, a, lda, beta, c, ldc)
-                     : libxstream_mkl_syrk<float>(q, pointers, uplo, trans, n, k, alpha, a, lda, beta, c, ldc));
+  return (nullptr == b ? libxstream_mkl_run(context, queue, libxstream_mkl_nargs(f64), [=](sycl::queue& q, void* args) {
+    return (0 != f64 ? libxstream_mkl_syrk<double>(q, args, uplo, trans, n, k, alpha, a, lda, beta, c, ldc)
+                     : libxstream_mkl_syrk<float>(q, args, uplo, trans, n, k, alpha, a, lda, beta, c, ldc));
   })
                        : -1); /* SYR2K is declined: there is no group interface of it */
 }
@@ -281,6 +315,7 @@ extern "C" __attribute__((visibility("default"))) int libxstream_blas_plugin(lib
   if (nullptr != table && LIBXSTREAM_BLAS_PLUGIN_VERSION == table->version) {
     table->name = "mkl";
     table->xmem = 1; /* Intel USM of libxstream_mem_allocate */
+    table->probe = libxstream_mkl_probe_entry;
     table->gemm = libxstream_mkl_gemm_entry;
     table->syrk = libxstream_mkl_syrk_entry;
     table->dgmm = libxstream_mkl_dgmm_entry;
