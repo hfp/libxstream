@@ -43,13 +43,12 @@ repos:
 
 # black -l79 owns line length: E501 only ever fires on what a formatter cannot
 # split (a long string literal), so flake8 does not second-guess it. E203
-# contradicts black by design. E741 is one open finding in scripts/md2pptx.py:
-# drop that exclusion once the variable is renamed.
+# contradicts black by design.
 - repo: https://github.com/PyCQA/flake8
   rev: 7.1.1
   hooks:
   - id: flake8
-    args: ["--extend-ignore=E203,E501,E741"]
+    args: ["--extend-ignore=E203,E501"]
 
 # Type-checking is scoped to the tooling, not to sample code.
 - repo: https://github.com/pre-commit/mirrors-mypy

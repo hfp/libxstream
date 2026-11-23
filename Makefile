@@ -407,6 +407,18 @@ mkslides:
 #	@mkslides build $(DOCDIR)/$(SLIDES) -d site/$(SLIDES)
 	@mkslides serve $(DOCDIR)/$(SLIDES)
 
+# The deck as a PDF with selectable text, through LIBXS's scripts/deck2typst.py:
+# it needs pandoc and "pip install typst", and names what is missing.
+.PHONY: mkslides-pdf
+mkslides-pdf:
+	@if [ -e "$(LIBXSROOT)/scripts/deck2typst.py" ]; then \
+		$(PYTHON) $(LIBXSROOT)/scripts/deck2typst.py $(ROOTDIR)/$(DOCDIR)/$(SLIDES)/index.md \
+			$(ROOTDIR)/$(DOCDIR)/$(PROJECT)_$(SLIDES).pdf; \
+	else \
+		echo "mkslides-pdf: no LIBXS with scripts/deck2typst.py (LIBXSROOT)" >&2; \
+		exit 1; \
+	fi
+
 .PHONY: mkdocs-tests
 mkdocs-tests: $(TSTMDS)
 

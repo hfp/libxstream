@@ -538,6 +538,7 @@ above. Version and amalgamated headers are generated too. Edit the source, then:
 make documentation   # PDFs
 make mkdocs          # serve the site with live reload
 make mkslides        # serve a slide deck (SLIDES=<topic>)
+make mkslides-pdf    # the deck as a PDF (pandoc, pip install typst)
 ```
 
 The Makefile is authoritative about what is generated from what.
