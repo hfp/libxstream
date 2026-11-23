@@ -560,12 +560,14 @@ def channel():
     save(fig, "channel.png")
 
 
-def bifurcation():
+def bifurcation_data():
     """Sibling parts that split over FP64 (an HPC part keeps it, an AI part
-    cuts it): native FP64 against Ozaki-2's FP64-equivalent at n=4096 from
-    GH200 as in model(), on the better carrier of the part (int8, or bf16 from
-    GH200's bf16 times), from AMD's lowest published GEMM efficiency relative
-    to NVIDIA's (and the bandwidth fractions published) up to NVIDIA's."""
+    cuts it), as [(family, name, native, best)]: native FP64 against Ozaki-2's
+    FP64-equivalent at n=4096 from GH200 as in model(), best = (carrier, low,
+    high) on the better carrier of the part (int8, or bf16 from GH200's bf16
+    times), from AMD's lowest published GEMM efficiency relative to NVIDIA's
+    (and the bandwidth fractions published) up to NVIDIA's; None where no
+    carrier figure is listed."""
     s, pub, a, bw_a, nv, effs, fracs, tflops = model()
     parts = {r["part"]: r for r in rows("bifurcation.csv")}
     bf = {r["kernel"]: float(r["gh200_ms"]) for r in rows("ozaki-bf16.csv")}
@@ -599,6 +601,13 @@ def bifurcation():
                         best = (carrier, lo, hi)
         name = "%s (%s)" % (part, r["role"]) if r["role"] else part
         data.append((r["family"], name, native, best))
+    return data
+
+
+def bifurcation():
+    """bifurcation_data() over a log axis: native FP64 as a dot, Ozaki-2's
+    range as a bar in the carrier's color."""
+    data = bifurcation_data()
     color = {"int8": BLUE, "bf16": ORANGE}
     ys, y, prev = [], 0.0, None
     for family, *_ in data:
