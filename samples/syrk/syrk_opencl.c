@@ -139,6 +139,7 @@ static int syrk_opencl_submit(void* vctx, const libxs_syrk_t* plan, const void* 
     const cl_int m = panel->m, w = panel->w, r0 = panel->r0, c0 = panel->c0, k = plan->shape.k;
     const cl_int lda = plan->shape.lda, ldb = (0 != twok ? plan->shape.ldb : plan->shape.lda);
     const cl_int trans = ('N' != plan->shape.trans), ctwok = twok, hasd = (NULL != ctx->weights);
+    const cl_int upper = ('U' == plan->shape.uplo);
     const cl_double alpha64 = panel->alpha;
     const cl_float alpha32 = (cl_float)panel->alpha;
     const size_t bt = (size_t)SYRK_OPENCL_BS * SYRK_OPENCL_RB;
@@ -176,6 +177,7 @@ static int syrk_opencl_submit(void* vctx, const libxs_syrk_t* plan, const void* 
       status |= clSetKernelArg(kernel, 13, sizeof(cl_int), &hasd);
       if (0 != f64) status |= clSetKernelArg(kernel, 14, sizeof(cl_double), &alpha64);
       else status |= clSetKernelArg(kernel, 14, sizeof(cl_float), &alpha32);
+      status |= clSetKernelArg(kernel, 15, sizeof(cl_int), &upper);
       if (CL_SUCCESS != status) result = EXIT_FAILURE;
     }
     if (EXIT_SUCCESS == result) {

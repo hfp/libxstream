@@ -31,11 +31,12 @@
 
 /**
  * out (m x w, compact) := alpha * (op(A)[r0..] * D * op(B)[c0..]^T), plus op(B) * D * op(A)^T for
- * SYR2K (b != a). D is diag(d) if hasd is non-zero. The host keeps the triangle of the result.
+ * SYR2K (b != a). D is diag(d) if hasd is non-zero. The host keeps the triangle (upper or lower) of
+ * the result, hence a block of work-groups wholly outside of it is skipped.
  */
 __attribute__((reqd_work_group_size(BS, BS, 1))) kernel void syrk_panel(global T* restrict out,
   global const T* restrict a, global const T* restrict b, global const T* restrict d, int m, int w, int r0, int c0,
-  int k, int lda, int ldb, int trans, int twok, int hasd, T alpha)
+  int k, int lda, int ldb, int trans, int twok, int hasd, T alpha, int upper)
 {
   local T lx[BK][BT + 1], ly[BK][BT + 1];
   const int tx = (int)get_local_id(0), ty = (int)get_local_id(1);
@@ -43,6 +44,7 @@ __attribute__((reqd_work_group_size(BS, BS, 1))) kernel void syrk_panel(global T
   const int tid = ty * BS + tx;
   T acc[RB][RB];
   int term = 0, u, v;
+  if (0 != upper ? (r0 + i0 > c0 + j0 + BT - 1) : (r0 + i0 + BT - 1 < c0 + j0)) return; /* the whole work-group */
   for (u = 0; u < RB; ++u) {
     for (v = 0; v < RB; ++v) acc[u][v] = 0;
   }
