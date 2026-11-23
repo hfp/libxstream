@@ -15,6 +15,9 @@ OMP = 1
 SYM = 0
 OCL = 2
 
+# MPI=1: build with the MPI wrapper of the C compiler (distributed plans, one device per rank)
+MPI ?= 0
+
 # arguments of syrk.x for the test target: n, k, timed repetitions
 TESTARG ?= 300 200 1
 
@@ -55,6 +58,13 @@ else
     DFLAGS += -D__LIBXSTREAM -DLIBXSTREAM_SOURCE
     XSTREAM_SRCDEP := $(wildcard $(DEPDIR)/src/*.c) $(wildcard $(DEPDIR)/src/*.h)
   endif
+endif
+
+ifneq (0,$(MPI))
+  MPICC ?= mpicc
+  CC := $(MPICC)
+  LD := $(MPICC)
+  DFLAGS += -D__MPI
 endif
 
 # include directories

@@ -10,6 +10,7 @@
 #ifndef SYRK_OPENCL_H
 #define SYRK_OPENCL_H
 
+#include <libxstream/libxstream_opencl.h>
 #include <libxs/libxs_syrk.h>
 
 
