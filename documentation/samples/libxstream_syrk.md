@@ -9,7 +9,12 @@ cd samples/syrk
 make
 ```
 
-Requires an OpenCL runtime, LIBXS in a sibling directory, and a host BLAS for the reference.
+Requires an OpenCL runtime, LIBXS in a sibling directory, and a host BLAS for the reference. `make MPI=1` builds with the MPI wrapper of the C compiler (`MPICC`, default `mpicc`): every rank then holds its share of k, C is block-cyclic on a near-square grid of the ranks (blocks of 64), and the reference is LIBXS' distributed plan on the host.
+
+```bash
+make MPI=1
+mpiexec -n 4 ./syrk.x 1088 54272 2
+```
 
 ## Run
 
