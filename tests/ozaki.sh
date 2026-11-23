@@ -131,7 +131,14 @@ cases() {
       local TCSEL=""
       if [ 2 = "${TC}" ]; then TCSEL=" OZAKI_TCGEN05=${TC}"; fi
       echo "oz2_${TAG}6_n${N}_double|OZAKI=2 ${VAR}=6${TCSEL}|${N}"
-      echo "oz2_probe_n${N}_double|OZAKI=2${TCSEL}|${N}"
+      # simulated, the probe's decision rests on no real timing, so the prime run and
+      # the measured run may decide differently; without the fifth generation there is
+      # no offline splice that both have to agree on
+      if [ 2 = "${TC}" ]; then
+        echo "oz2_probe_n${N}_double|OZAKI=2 OZAKI_WGMMA=0|${N}"
+      else
+        echo "oz2_probe_n${N}_double|OZAKI=2|${N}"
+      fi
       echo "oz2bf16_tcgen05_n${N}_double|OZAKI=2 OZAKI_BF16=1 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_TCGEN05=${TC}|${N}"
       echo "oz2bf16u8_tcgen05_n${N}_double|OZAKI=2 OZAKI_BF16=1 ${VAR}=${TOP} OZAKI_TCGEN05=${TC}|${N}"
       echo "oz2bf16_tcgen05wide_n${N}_double|OZAKI=2 OZAKI_BF16=1 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_TCGEN05=${TC} ${WIDE}|${N}"
@@ -211,7 +218,9 @@ for SPEC in ${GPUS}; do
     LOG=${LOGS}/logs/run-${TARGET}-${NAME}.log
     PRIME=${LOGS}/logs/prime-${TARGET}-${NAME}.log
     TCGEN05=$(value OZAKI_TCGEN05 "${SETENV}")
-    if [[ "${NAME}" =~ _(nv5|nv6|probe)_ ]]; then TCGEN05=${TCGEN05:-1}; fi
+    if [[ "${NAME}" =~ _(nv5|nv6|probe)_ ]] && [ "0" != "$(value OZAKI_WGMMA "${SETENV}")" ]; then
+      TCGEN05=${TCGEN05:-1}
+    fi
     # the fifth generation takes the warp-group geometry, which the configuration names as such
     WGMMA=$(value OZAKI_WGMMA "${SETENV}")
     WGMMA=${WGMMA:-${TCGEN05}}
