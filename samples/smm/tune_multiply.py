@@ -668,7 +668,7 @@ class SmmTuner(MeasurementInterface):
         expand=True,
     ):
         """Append integer-parameter to either params or paramt list"""
-        value_key = "OPENCL_LIBSMM_SMM_{}".format(name)
+        value_key = "LIBSMM_SMM_{}".format(name)
         value_env = os.getenv(value_key)
         attribute = getattr(self, name.lower(), None)
         tunable = value_env in default_enable_tune
@@ -703,9 +703,9 @@ class SmmTuner(MeasurementInterface):
         mnk = (envs["M"], envs["N"], envs["K"]) if "M" in envs else self.mnk
         env_exe = " ".join(map(str, envlist))
         if verbose is not None and 0 != int(verbose):
-            msg = env_exe.replace("OPENCL_LIBSMM_SMM_", "")
+            msg = env_exe.replace("LIBSMM_SMM_", "")
             print("{}: {}".format("x".join(map(str, mnk)), msg))
-        env_std = "OMP_PROC_BIND=TRUE OPENCL_LIBSMM_SMM_S=0"
+        env_std = "OMP_PROC_BIND=TRUE LIBSMM_SMM_S=0"
         env_jit = "NEO_CACHE_PERSISTENT=0 CUDA_CACHE_DISABLE=1"
         env_check = "CHECK={}".format(check if check is not None else 1)
         env_intrn = "{} {}".format(  # consider device-id
@@ -753,7 +753,7 @@ class SmmTuner(MeasurementInterface):
 
     def environment(self, config):
         return [
-            "OPENCL_LIBSMM_SMM_{}={}".format(key, config[key])
+            "LIBSMM_SMM_{}={}".format(key, config[key])
             for key in sorted(config.keys())
             if 2 == len(key)
         ]
@@ -819,7 +819,7 @@ class SmmTuner(MeasurementInterface):
                 else:
                     print(".", end="", flush=True)
         elif not skip:  # return non-competitive/bad result in case of an error
-            failed = runcmd[0].replace("OPENCL_LIBSMM_SMM_", "")
+            failed = runcmd[0].replace("LIBSMM_SMM_", "")
             if message:
                 msg = "{} - FAILED".format(message)
             else:
@@ -1128,9 +1128,7 @@ class SmmTuner(MeasurementInterface):
             self.gfsave = self.gflops
         # check return code (consider not saving parameters)
         if 0 != result and not final:  # incorrect result
-            failed = " ".join(map(str, cfgenv)).replace(
-                "OPENCL_LIBSMM_SMM_", ""
-            )
+            failed = " ".join(map(str, cfgenv)).replace("LIBSMM_SMM_", "")
             mnk = "x".join(map(str, self.mnk))
             print("FAILED[{}] {}: {}".format(result, mnk, failed), flush=True)
             return
@@ -1306,7 +1304,7 @@ if __name__ == "__main__":
         "-bm",
         "--initial-bm",
         type=int,
-        default=env_intvalue("OPENCL_LIBSMM_SMM_BM", "0"),
+        default=env_intvalue("LIBSMM_SMM_BM", "0"),
         nargs="?",
         dest="bm",
         help="Block/tile size (0:auto)",
@@ -1315,7 +1313,7 @@ if __name__ == "__main__":
         "-bn",
         "--initial-bn",
         type=int,
-        default=env_intvalue("OPENCL_LIBSMM_SMM_BN", "0"),
+        default=env_intvalue("LIBSMM_SMM_BN", "0"),
         nargs="?",
         dest="bn",
         help="Block/tile size (0:auto)",
@@ -1324,7 +1322,7 @@ if __name__ == "__main__":
         "-bk",
         "--initial-bk",
         type=int,
-        default=env_intvalue("OPENCL_LIBSMM_SMM_BK", "0"),
+        default=env_intvalue("LIBSMM_SMM_BK", "0"),
         nargs="?",
         dest="bk",
         help="Block size (0:auto)",
@@ -1333,7 +1331,7 @@ if __name__ == "__main__":
         "-ws",
         "--initial-ws",
         type=int,
-        default=env_intvalue("OPENCL_LIBSMM_SMM_WS", "0"),
+        default=env_intvalue("LIBSMM_SMM_WS", "0"),
         nargs="?",
         dest="ws",
         help="Minimum WG-size (0:auto)",
@@ -1342,7 +1340,7 @@ if __name__ == "__main__":
         "-wg",
         "--initial-wg",
         type=int,
-        default=env_intvalue("OPENCL_LIBSMM_SMM_WG", "0"),
+        default=env_intvalue("LIBSMM_SMM_WG", "0"),
         dest="wg",
         help="Size of WG: subgroups (-1), tight (0), round-up (1), PoT (2)",
     )
@@ -1350,7 +1348,7 @@ if __name__ == "__main__":
         "-lu",
         "--initial-lu",
         type=int,
-        default=env_intvalue("OPENCL_LIBSMM_SMM_LU", "-1"),
+        default=env_intvalue("LIBSMM_SMM_LU", "-1"),
         dest="lu",
         help="Loop unroll (-2) full, (-1) no hints (default),"
         + " (0) inner, (1) outer-dehint, (2) block-m",
@@ -1359,7 +1357,7 @@ if __name__ == "__main__":
         "-nz",
         "--initial-nz",
         type=int,
-        default=env_intvalue("OPENCL_LIBSMM_SMM_NZ", "0"),
+        default=env_intvalue("LIBSMM_SMM_NZ", "0"),
         dest="nz",
         help="Check (1) atomic increment to be non-zero (0:off)",
     )
@@ -1367,7 +1365,7 @@ if __name__ == "__main__":
         "-al",
         "--initial-al",
         type=int,
-        default=env_intvalue("OPENCL_LIBSMM_SMM_AL", "0"),
+        default=env_intvalue("LIBSMM_SMM_AL", "0"),
         dest="al",
         help="Access: transposed (0), linear (1)",
     )
@@ -1375,7 +1373,7 @@ if __name__ == "__main__":
         "-tb",
         "--initial-tb",
         type=int,
-        default=env_intvalue("OPENCL_LIBSMM_SMM_TB", "0"),
+        default=env_intvalue("LIBSMM_SMM_TB", "0"),
         dest="tb",
         help="Matrix B: untracked (0), tracked (1)",
     )
@@ -1383,7 +1381,7 @@ if __name__ == "__main__":
         "-tc",
         "--initial-tc",
         type=int,
-        default=env_intvalue("OPENCL_LIBSMM_SMM_TC", "1"),
+        default=env_intvalue("LIBSMM_SMM_TC", "1"),
         dest="tc",
         help="Matrix C: untracked (0), tracked (1)",
     )
@@ -1391,7 +1389,7 @@ if __name__ == "__main__":
         "-ap",
         "--initial-ap",
         type=int,
-        default=env_intvalue("OPENCL_LIBSMM_SMM_AP", "0"),
+        default=env_intvalue("LIBSMM_SMM_AP", "0"),
         dest="ap",
         help="Params: global (0), shared (1)",
     )
@@ -1399,7 +1397,7 @@ if __name__ == "__main__":
         "-aa",
         "--initial-aa",
         type=int,
-        default=env_intvalue("OPENCL_LIBSMM_SMM_AA", "0"),
+        default=env_intvalue("LIBSMM_SMM_AA", "0"),
         dest="aa",
         help="Matrix A: global (0), shared (1), register (2)",
     )
@@ -1407,7 +1405,7 @@ if __name__ == "__main__":
         "-ab",
         "--initial-ab",
         type=int,
-        default=env_intvalue("OPENCL_LIBSMM_SMM_AB", "0"),
+        default=env_intvalue("LIBSMM_SMM_AB", "0"),
         dest="ab",
         help="Matrix B: global (0), shared (1), register (2)",
     )
@@ -1415,7 +1413,7 @@ if __name__ == "__main__":
         "-ac",
         "--initial-ac",
         type=int,
-        default=env_intvalue("OPENCL_LIBSMM_SMM_AC", "0"),
+        default=env_intvalue("LIBSMM_SMM_AC", "0"),
         dest="ac",
         help="Matrix C: register (0), shared (1)",
     )
@@ -1423,7 +1421,7 @@ if __name__ == "__main__":
         "-bs",
         "--initial-bs",
         type=int,
-        default=env_intvalue("OPENCL_LIBSMM_SMM_BS", "0"),
+        default=env_intvalue("LIBSMM_SMM_BS", "0"),
         nargs="?",
         dest="bs",
         help="Minibatch size (0:auto)",
@@ -1474,25 +1472,25 @@ if __name__ == "__main__":
             raise RuntimeError("Cannot read {}.".format(args.expand))
         os.makedirs(args.jsondir, exist_ok=True)
         exit(csv_expand(args.expand, args.jsondir, args.csvsep))
-    # OPENCL_LIBSMM_SMM_xx=tune|enabled|on must be given to permit tuning)
-    if os.getenv("OPENCL_LIBSMM_SMM_WS") not in default_enable_tune:
-        os.environ["OPENCL_LIBSMM_SMM_WS"] = "{}".format(args.ws)
+    # LIBSMM_SMM_xx=tune|enabled|on must be given to permit tuning)
+    if os.getenv("LIBSMM_SMM_WS") not in default_enable_tune:
+        os.environ["LIBSMM_SMM_WS"] = "{}".format(args.ws)
     # fix tunables according to level of tuning
     if 1 <= args.tlevel or 0 > args.tlevel:
-        os.environ["OPENCL_LIBSMM_SMM_BM"] = "{}".format(args.bm)
-        os.environ["OPENCL_LIBSMM_SMM_BN"] = "{}".format(args.bn)
-        os.environ["OPENCL_LIBSMM_SMM_AL"] = "{}".format(args.al)
+        os.environ["LIBSMM_SMM_BM"] = "{}".format(args.bm)
+        os.environ["LIBSMM_SMM_BN"] = "{}".format(args.bn)
+        os.environ["LIBSMM_SMM_AL"] = "{}".format(args.al)
     if 2 <= args.tlevel or 0 > args.tlevel:
-        os.environ["OPENCL_LIBSMM_SMM_TB"] = "{}".format(args.tb)
-        os.environ["OPENCL_LIBSMM_SMM_TC"] = "{}".format(args.tc)
-        os.environ["OPENCL_LIBSMM_SMM_AP"] = "{}".format(args.ap)
-        os.environ["OPENCL_LIBSMM_SMM_AC"] = "{}".format(args.ac)
-        os.environ["OPENCL_LIBSMM_SMM_NZ"] = "{}".format(args.nz)
+        os.environ["LIBSMM_SMM_TB"] = "{}".format(args.tb)
+        os.environ["LIBSMM_SMM_TC"] = "{}".format(args.tc)
+        os.environ["LIBSMM_SMM_AP"] = "{}".format(args.ap)
+        os.environ["LIBSMM_SMM_AC"] = "{}".format(args.ac)
+        os.environ["LIBSMM_SMM_NZ"] = "{}".format(args.nz)
     if 3 <= args.tlevel:
-        os.environ["OPENCL_LIBSMM_SMM_BK"] = "{}".format(args.bk)
-        os.environ["OPENCL_LIBSMM_SMM_WG"] = "{}".format(args.wg)
+        os.environ["LIBSMM_SMM_BK"] = "{}".format(args.bk)
+        os.environ["LIBSMM_SMM_WG"] = "{}".format(args.wg)
     if 4 <= args.tlevel:
-        os.environ["OPENCL_LIBSMM_SMM_LU"] = "{}".format(args.lu)
+        os.environ["LIBSMM_SMM_LU"] = "{}".format(args.lu)
     if 0 == args.mb:
         args.mb = 64
     # construct and start tuner instance

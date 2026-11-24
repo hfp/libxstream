@@ -219,7 +219,7 @@
 #  error "ROWLANE stores C column-major (no CLINEAR)"
 #endif
 
-/* Bits per shape field of a packed param_format (host: DBM_OPENCL_LIBSMM_PFORMAT) */
+/* Bits per shape field of a packed param_format (host: DBM_LIBSMM_PFORMAT) */
 #if !defined(PFORMAT) || (0 >= PFORMAT)
 #  undef PFORMAT
 #  define PFORMAT 8

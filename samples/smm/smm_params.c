@@ -10,8 +10,8 @@
 #include "smm_acc_opencl.h"
 #include <libxs/libxs_math.h>
 
-#define OPENCL_LIBSMM_AI(M, N, K, TYPESIZE) ((2.0 * (M) * (N) * (K)) / ((TYPESIZE) * (K) * ((M) + (N))))
-#define OPENCL_LIBSMM_TYPESIZE(TYPEID) \
+#define LIBSMM_AI(M, N, K, TYPESIZE) ((2.0 * (M) * (N) * (K)) / ((TYPESIZE) * (K) * ((M) + (N))))
+#define LIBSMM_TYPESIZE(TYPEID) \
     (dbcsr_type_real_8 == (TYPEID) ? ((int)sizeof(double)) : (dbcsr_type_real_4 == (TYPEID) ? ((int)sizeof(float)) : 0 /*unknown*/))
 
 #if defined(__cplusplus)
@@ -19,8 +19,8 @@ extern "C" {
 #endif
 
 
-int opencl_libsmm_write_trans_params(FILE* stream, int only_key, const opencl_libsmm_transkey_t* key,
-  const opencl_libsmm_trans_t* config, const char* delim, const char* begin, const char* close)
+int libsmm_write_trans_params(FILE* stream, int only_key, const libsmm_transkey_t* key,
+  const libsmm_trans_t* config, const char* delim, const char* begin, const char* close)
   {
   int result = 0;
   if (NULL != stream) {
@@ -48,7 +48,7 @@ int opencl_libsmm_write_trans_params(FILE* stream, int only_key, const opencl_li
 }
 
 
-int opencl_libsmm_write_smm_params(FILE* stream, int only_key, const opencl_libsmm_smmkey_t* key, const opencl_libsmm_smm_t* config,
+int libsmm_write_smm_params(FILE* stream, int only_key, const libsmm_smmkey_t* key, const libsmm_smm_t* config,
   const char* delim, const char* begin, const char* close)
     {
   int result = 0;
@@ -87,8 +87,8 @@ int opencl_libsmm_write_smm_params(FILE* stream, int only_key, const opencl_libs
 }
 
 
-int opencl_libsmm_read_smm_params(char* parambuf, opencl_libsmm_smmkey_t* key, opencl_libsmm_smm_t* value,
-  opencl_libsmm_perfest_t* perfest, char* device, int* key_ok)
+int libsmm_read_smm_params(char* parambuf, libsmm_smmkey_t* key, libsmm_smm_t* value,
+  libsmm_perfest_t* perfest, char* device, int* key_ok)
     {
   const char* const end = parambuf + strlen(parambuf); /* before strtok */
   char* s = strtok(parambuf, LIBXS_DELIMS);
@@ -247,7 +247,7 @@ int opencl_libsmm_read_smm_params(char* parambuf, opencl_libsmm_smmkey_t* key, o
     switch (key->type) {
       case dbcsr_type_real_8:
         if (NULL != perfest && 0 < gflops) {
-          const double ratio = gflops / OPENCL_LIBSMM_AI(key->m, key->n, key->k, sizeof(double));
+          const double ratio = gflops / LIBSMM_AI(key->m, key->n, key->k, sizeof(double));
           libxs_kahan_sum(log(ratio), &perfest->gf_ai_dratio_sumlog, &perfest->gf_ai_dratio_kahan);
           if (perfest->gf_ai_dratio_max < ratio) perfest->gf_ai_dratio_max = ratio;
           ++perfest->dcount;
@@ -255,7 +255,7 @@ int opencl_libsmm_read_smm_params(char* parambuf, opencl_libsmm_smmkey_t* key, o
         break;
       case dbcsr_type_real_4:
         if (NULL != perfest && 0 < gflops) {
-          const double ratio = gflops / OPENCL_LIBSMM_AI(key->m, key->n, key->k, sizeof(float));
+          const double ratio = gflops / LIBSMM_AI(key->m, key->n, key->k, sizeof(float));
           libxs_kahan_sum(log(ratio), &perfest->gf_ai_sratio_sumlog, &perfest->gf_ai_sratio_kahan);
           if (perfest->gf_ai_sratio_max < ratio) perfest->gf_ai_sratio_max = ratio;
           ++perfest->scount;

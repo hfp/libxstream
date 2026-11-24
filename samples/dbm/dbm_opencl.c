@@ -21,10 +21,10 @@
 #  error "OpenCL kernel source code not found!"
 #endif
 
-#if defined(OPENCL_LIBSMM_PFORMAT)
-#  define DBM_OPENCL_LIBSMM_PFORMAT OPENCL_LIBSMM_PFORMAT
+#if defined(LIBSMM_PFORMAT)
+#  define DBM_LIBSMM_PFORMAT LIBSMM_PFORMAT
 #else
-#  define DBM_OPENCL_LIBSMM_PFORMAT 8
+#  define DBM_LIBSMM_PFORMAT 8
 #endif
 
 #define DBM_OPENCL_CMEM LIBXSTREAM_CMEM
@@ -32,7 +32,7 @@
 #define DBM_TIMER_TICK() libxs_timer_tick()
 #define DBM_TIMER_TICKINT libxs_timer_tick_t
 
-#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
+#if 0 < DBM_LIBSMM_PFORMAT
 #  define DBM_OPENCL_DBCSR_TYPE_REAL_8 3
 #endif
 
@@ -69,19 +69,19 @@ static size_t dbm_multiply_opencl_run_sumn, dbm_multiply_opencl_run_flops;
 static size_t dbm_multiply_opencl_run_multi, dbm_multiply_opencl_run_wflops;
 /* Distinct C-blocks per launch (reuse of C within a launch) */
 static size_t dbm_multiply_opencl_run_ncdist;
-#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
+#if 0 < DBM_LIBSMM_PFORMAT
 static int dbm_multiply_opencl_smm /*= 0*/;
 #endif
 
-#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
-int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack,
+#if 0 < DBM_LIBSMM_PFORMAT
+int libsmm_acc_process_ext(const int* host_param_stack, const int* dev_param_stack,
   int stack_size, int datatype, const void* dev_a_data, const void* dev_b_data,
   void* dev_c_data, int m_max, int n_max, int k_max, int max_kernel_dim, int def_mnk,
   void* stream, void* c_stream, int param_format, void* event);
-LIBXS_PRAGMA_WEAK(opencl_libsmm_acc_process)
+LIBXS_PRAGMA_WEAK(libsmm_acc_process_ext)
 /* the miniapp links LIBSMM without DBCSR, which otherwise initializes it */
-extern int opencl_libsmm_initialized;
-LIBXS_PRAGMA_WEAK(opencl_libsmm_initialized)
+extern int libsmm_initialized;
+LIBXS_PRAGMA_WEAK(libsmm_initialized)
 int libsmm_acc_init(void);
 LIBXS_PRAGMA_WEAK(libsmm_acc_init)
 #endif
@@ -123,11 +123,11 @@ static void dbm_multiply_opencl_initialize(void)
   const libxstream_opencl_config_t* const config = &libxstream_opencl_config;
   LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, config->lock_main);
   if (0 == dbm_multiply_opencl_initialized) {
-#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
+#if 0 < DBM_LIBSMM_PFORMAT
     const char* const smm_env = getenv("DBM_MULTIPLY_SMM");
     const int smm = (NULL == smm_env ? 0 /*default*/ : atoi(smm_env));
     dbm_multiply_opencl_smm = LIBXS_MIN(
-      1 != smm ? smm : 64, (1 << (DBM_OPENCL_LIBSMM_PFORMAT - 1)) - 1);
+      1 != smm ? smm : 64, (1 << (DBM_LIBSMM_PFORMAT - 1)) - 1);
 #endif
     if (2 <= config->verbosity || 0 > config->verbosity) {
       atexit(dbm_multiply_opencl_report);
@@ -138,13 +138,13 @@ static void dbm_multiply_opencl_initialize(void)
 }
 
 
-#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
+#if 0 < DBM_LIBSMM_PFORMAT
 /* Whether LIBSMM is linked and initialized, which is pulled if needed. */
 static int dbm_multiply_opencl_smm_ready(void)
 {
   int result = 0;
-  if (NULL != &opencl_libsmm_initialized && NULL != libsmm_acc_init) {
-    result = (0 < LIBXS_ATOMIC_LOAD(&opencl_libsmm_initialized, LIBXS_ATOMIC_SEQ_CST));
+  if (NULL != &libsmm_initialized && NULL != libsmm_acc_init) {
+    result = (0 < LIBXS_ATOMIC_LOAD(&libsmm_initialized, LIBXS_ATOMIC_SEQ_CST));
 #  if defined(_OPENMP)
     if (0 == result && 0 == omp_get_thread_num()) /* LIBSMM accepts the main thread only */
 #  else
@@ -247,11 +247,11 @@ static int dbm_multiply_gpu_launch_info(dbm_multiply_gpu_launch_info_t* info, co
     info->fill = (int)(100 * mnk / ((size_t)ntasks * info->max_m * info->max_n * info->max_k));
   }
   else {
-#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
-    const int mask = (1 << DBM_OPENCL_LIBSMM_PFORMAT) - 1;
+#if 0 < DBM_LIBSMM_PFORMAT
+    const int mask = (1 << DBM_LIBSMM_PFORMAT) - 1;
     info->max_m = mask & (param_format);
-    info->max_n = mask & (param_format >> (DBM_OPENCL_LIBSMM_PFORMAT));
-    info->max_k = mask & (param_format >> (DBM_OPENCL_LIBSMM_PFORMAT * 2));
+    info->max_n = mask & (param_format >> (DBM_LIBSMM_PFORMAT));
+    info->max_k = mask & (param_format >> (DBM_LIBSMM_PFORMAT * 2));
     info->mnk_changes = 0; /* homogeneous */
     info->fill = 100;
 #else
@@ -295,7 +295,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
   const libxstream_opencl_config_t* const config = &libxstream_opencl_config;
   const int verbosity = config->verbosity, trace = (0 > verbosity || 2 < verbosity);
   int result = EXIT_SUCCESS, task_complete = 0;
-#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
+#if 0 < DBM_LIBSMM_PFORMAT
   int dbcsr = 0;
 #endif
   LIBXS_ASSERT(NULL != pack_a_data && NULL != pack_b_data && NULL != shard_c_data);
@@ -314,12 +314,12 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
     if (0 == LIBXS_ATOMIC_LOAD(&dbm_multiply_opencl_initialized, LIBXS_ATOMIC_SEQ_CST)) {
       dbm_multiply_opencl_initialize();
     }
-#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
+#if 0 < DBM_LIBSMM_PFORMAT
     if (0 == task_complete && (0 != dbm_multiply_opencl_smm || 0 != trace)) {
       task_complete = dbm_multiply_gpu_launch_info(
         &task, params_host, ntasks, param_format, 0 == trace);
     }
-    if (NULL == opencl_libsmm_acc_process || 0 >= dbm_multiply_opencl_smm ||
+    if (NULL == libsmm_acc_process_ext || 0 >= dbm_multiply_opencl_smm ||
         0 != task.mnk_changes || dbm_multiply_opencl_smm < task.max_m ||
         dbm_multiply_opencl_smm < task.max_n || dbm_multiply_opencl_smm < task.max_k ||
         0 == task.max_k || 1 != alpha || 0 == dbm_multiply_opencl_smm_ready())
@@ -450,7 +450,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
             " -DBN=%i -DSM=%i -DLU=%i -DSG=%i -DINTEL=%i -DNV=%i -DPFORMAT=%i",
             0 != gpu ? "-DGPU" : "", 0 == clinear ? "" : "-DCLINEAR", cmem, bn, sm, lu,
             (int)sgsize, (int)(0 != devinfo->intel), (int)(0 != devinfo->nv),
-            DBM_OPENCL_LIBSMM_PFORMAT);
+            DBM_LIBSMM_PFORMAT);
           if (0 != precision) {
             offset += (size_t)LIBXS_SNPRINTF(
               base_flags + offset, sizeof(base_flags) - offset, " -DPRECISION=%i", precision);
@@ -673,14 +673,14 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
           NULL /*wait_list*/, NULL /*event*/, nflops, nbytes);
       }
     }
-#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
+#if 0 < DBM_LIBSMM_PFORMAT
     else { /* homogeneous */
-      result |= opencl_libsmm_acc_process(params_host, params, ntasks,
+      result |= libsmm_acc_process_ext(params_host, params, ntasks,
         DBM_OPENCL_DBCSR_TYPE_REAL_8, pack_a_data, pack_b_data, shard_c_data, task.max_m,
         task.max_n, task.max_k, dbm_multiply_opencl_smm, 1 /*homogeneous*/, stream,
         NULL /*c_stream*/,
-        task.max_m | task.max_n << DBM_OPENCL_LIBSMM_PFORMAT |
-          (task.max_k << (DBM_OPENCL_LIBSMM_PFORMAT * 2)),
+        task.max_m | task.max_n << DBM_LIBSMM_PFORMAT |
+          (task.max_k << (DBM_LIBSMM_PFORMAT * 2)),
         NULL);
       dbcsr = 1;
     }
@@ -694,7 +694,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
       const DBM_TIMER_TICKINT stop = DBM_TIMER_TICK();
       const double dhost = DBM_TIMER_DIFF(start, stop);
       const double diter = (0 < start2 ? DBM_TIMER_DIFF(start, start2) : dhost);
-#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
+#if 0 < DBM_LIBSMM_PFORMAT
       const char* const kind = (0 == dbcsr ? "DBM" : "SMM");
 #else
       const char* const kind = "DBM";
@@ -714,7 +714,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
 dbm_multiply_opencl_launch_fn_t dbm_multiply_opencl_smm_launch_fn(void)
 {
   dbm_multiply_opencl_launch_fn_t result = NULL;
-#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
+#if 0 < DBM_LIBSMM_PFORMAT
   if (0 == LIBXS_ATOMIC_LOAD(&dbm_multiply_opencl_initialized, LIBXS_ATOMIC_SEQ_CST)) {
     dbm_multiply_opencl_initialize();
   }

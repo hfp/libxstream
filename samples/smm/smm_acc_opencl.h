@@ -13,17 +13,17 @@
 #include <libxstream/libxstream_opencl.h>
 #include <libxs/libxs_reg.h>
 
-#if !defined(OPENCL_LIBSMM_F32_OFF) && defined(__DBCSR_ACC) && 0
-# define OPENCL_LIBSMM_F32_OFF
+#if !defined(LIBSMM_F32_OFF) && defined(__DBCSR_ACC) && 0
+# define LIBSMM_F32_OFF
 #endif
-#if !defined(OPENCL_LIBSMM_F32) && !defined(OPENCL_LIBSMM_F32_OFF)
-# define OPENCL_LIBSMM_F32
+#if !defined(LIBSMM_F32) && !defined(LIBSMM_F32_OFF)
+# define LIBSMM_F32
 #endif
-#if !defined(OPENCL_LIBSMM_F64) && !defined(OPENCL_LIBSMM_F64_OFF)
-# define OPENCL_LIBSMM_F64
+#if !defined(LIBSMM_F64) && !defined(LIBSMM_F64_OFF)
+# define LIBSMM_F64
 #endif
-#if !defined(OPENCL_LIBSMM_PFORMAT) && 1
-# define OPENCL_LIBSMM_PFORMAT 8
+#if !defined(LIBSMM_PFORMAT) && 1
+# define LIBSMM_PFORMAT 8
 #endif
 /* keeps the first failure in RESULT and reports every one */
 #if !defined(LIBXSTREAM_CHECK)
@@ -43,39 +43,39 @@ extern "C" {
 #endif
 
 /** Type for querying transpose kernel configuration. */
-typedef struct opencl_libsmm_transkey_t {
+typedef struct libsmm_transkey_t {
   libsmm_acc_data_t type; /* must be the 1st data member */
   int m, n;
-} opencl_libsmm_transkey_t;
+} libsmm_transkey_t;
 
 /** Type for transpose kernel configuration. */
-typedef struct opencl_libsmm_trans_t {
+typedef struct libsmm_trans_t {
   cl_kernel kernel; /* must be the 1st data member */
   size_t wgsize;
   int bs;
-} opencl_libsmm_trans_t;
+} libsmm_trans_t;
 
 /** Type for querying norms kernel configuration (its size tells the registry entry apart). */
-typedef struct opencl_libsmm_normskey_t {
+typedef struct libsmm_normskey_t {
   libsmm_acc_data_t type; /* must be the 1st data member */
-} opencl_libsmm_normskey_t;
+} libsmm_normskey_t;
 
 /** Type for norms kernel configuration. */
-typedef struct opencl_libsmm_norms_t {
+typedef struct libsmm_norms_t {
   cl_kernel kernel; /* must be the 1st data member */
   size_t wgsize;
-} opencl_libsmm_norms_t;
+} libsmm_norms_t;
 
 /** Type for querying SMM-kernel configuration. */
-typedef struct opencl_libsmm_smmkey_t {
+typedef struct libsmm_smmkey_t {
   libsmm_acc_data_t type; /* must be the 1st data member */
   int m, n, k;
   /* device matching configuration (parameters) */
   unsigned int devuid;
-} opencl_libsmm_smmkey_t;
+} libsmm_smmkey_t;
 
 /** Type for SMM-kernel configuration. */
-typedef struct opencl_libsmm_smm_t {
+typedef struct libsmm_smm_t {
   cl_kernel kernel[2]; /* must be the 1st data member */
   size_t wgsize[2];
   double gflops;
@@ -87,25 +87,25 @@ typedef struct opencl_libsmm_smm_t {
    * zero is a value, so only the bit does.
    */
   int unset;
-} opencl_libsmm_smm_t;
+} libsmm_smm_t;
 
 /** Whether parameter INDEX (0 for bs, ..., 15 for flags) of CONFIG has no value. */
-#define OPENCL_LIBSMM_UNSET(CONFIG, INDEX) (0 != ((CONFIG)->unset & (1 << (INDEX))))
+#define LIBSMM_UNSET(CONFIG, INDEX) (0 != ((CONFIG)->unset & (1 << (INDEX))))
 
 /** Type to collect statistics about tuned SMM-kernels */
-typedef struct opencl_libsmm_perfest_t {
+typedef struct libsmm_perfest_t {
   double gf_ai_sratio_max, gf_ai_sratio_sumlog, gf_ai_sratio_kahan;
   double gf_ai_dratio_max, gf_ai_dratio_sumlog, gf_ai_dratio_kahan;
   size_t scount, dcount;
-} opencl_libsmm_perfest_t;
+} libsmm_perfest_t;
 
 
 /** Globals shared across SMM translation units. */
-extern int opencl_libsmm_initialized;
-extern libxs_registry_t* opencl_libsmm_registry;
+extern int libsmm_initialized;
+extern libxs_registry_t* libsmm_registry;
 
 /** Returns environment variable's value for given domain and key. */
-const char* opencl_libsmm_getenv(const char domain[], const char key[]);
+const char* libsmm_getenv(const char domain[], const char key[]);
 
 /**
  * TRANS-kernel: write key and tunables into a (file-)stream.
@@ -115,12 +115,12 @@ const char* opencl_libsmm_getenv(const char domain[], const char key[]);
  * if values or names are written.
  * Returns the number of characters written (negative if error).
  */
-int opencl_libsmm_write_trans_params(FILE* stream, int only_key, const opencl_libsmm_transkey_t* key,
-  const opencl_libsmm_trans_t* config, const char* delim, const char* begin, const char* close);
+int libsmm_write_trans_params(FILE* stream, int only_key, const libsmm_transkey_t* key,
+  const libsmm_trans_t* config, const char* delim, const char* begin, const char* close);
 
 /**
  * SMM-kernel: write key and tunables into a (file-)stream.
- * The environment variable OPENCL_LIBSMM_SMM_PARAMS="<output>"
+ * The environment variable LIBSMM_SMM_PARAMS="<output>"
  * reproduces a configuration. If config=NULL, key/parameter
  * names are written. The arguments delim, begin, and close
  * are optional as well (can be NULL).
@@ -128,24 +128,24 @@ int opencl_libsmm_write_trans_params(FILE* stream, int only_key, const opencl_li
  * if values or names are written.
  * Returns the number of characters written (negative if error).
  */
-int opencl_libsmm_write_smm_params(FILE* stream, int only_key, const opencl_libsmm_smmkey_t* key, const opencl_libsmm_smm_t* config,
+int libsmm_write_smm_params(FILE* stream, int only_key, const libsmm_smmkey_t* key, const libsmm_smm_t* config,
   const char* delim, const char* begin, const char* close);
 
 /** Tokenize parambuf and initialize key/value pair. */
-int opencl_libsmm_read_smm_params(char* parambuf, opencl_libsmm_smmkey_t* key, opencl_libsmm_smm_t* value,
-  opencl_libsmm_perfest_t* perfest, char* device, int* key_ok);
+int libsmm_read_smm_params(char* parambuf, libsmm_smmkey_t* key, libsmm_smm_t* value,
+  libsmm_perfest_t* perfest, char* device, int* key_ok);
 
 libxstream_bool_t libsmm_acc_process_suitable(
   libxstream_bool_t def_mnk, libsmm_acc_data_t datatype, int stack_size, int m_max, int n_max, int k_max, int max_kernel_dim);
 
-#if defined(OPENCL_LIBSMM_PFORMAT) && (0 < OPENCL_LIBSMM_PFORMAT)
-typedef int (*opencl_libsmm_acc_dbm_launch_fn_t)(void* stream, double alpha, int ntasks, int param_format, const int* shape,
+#if defined(LIBSMM_PFORMAT) && (0 < LIBSMM_PFORMAT)
+typedef int (*libsmm_acc_dbm_launch_fn_t)(void* stream, double alpha, int ntasks, int param_format, const int* shape,
   const int* params_host, const int* params, const double* pack_a_data, const double* pack_b_data, double* shard_c_data);
 /** Enables DBM-kernel for LIBSMM (reverse reuse), which libsmm_acc_init otherwise pulls from samples/dbm if linked. */
-void opencl_libsmm_acc_set_dbm_launch_fn(opencl_libsmm_acc_dbm_launch_fn_t launch_fn);
+void libsmm_acc_set_dbm_launch_fn(libsmm_acc_dbm_launch_fn_t launch_fn);
 
 /** Backend-specific variant of libsmm_acc_process, which allows to easier reuse LIBSMM kernels. */
-int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, int stack_size, libsmm_acc_data_t datatype,
+int libsmm_acc_process_ext(const int* host_param_stack, const int* dev_param_stack, int stack_size, libsmm_acc_data_t datatype,
   const void* dev_a_data, const void* dev_b_data, void* dev_c_data, int m_max, int n_max, int k_max, int max_kernel_dim,
   libxstream_bool_t def_mnk, void* stream, void* c_stream, int param_format, cl_event* event);
 #endif

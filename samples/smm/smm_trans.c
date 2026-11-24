@@ -17,18 +17,18 @@
 #if !defined(OPENCL_KERNELS_SOURCE_TRANSPOSE)
 #  error "OpenCL transpose-kernel code not found!"
 #endif
-#if !defined(OPENCL_LIBSMM_KERNELNAME_TRANS)
-#  define OPENCL_LIBSMM_KERNELNAME_TRANS "trans"
+#if !defined(LIBSMM_KERNELNAME_TRANS)
+#  define LIBSMM_KERNELNAME_TRANS "trans"
 #endif
-#if !defined(OPENCL_LIBSMM_NLOCKS_TRANS)
-#  define OPENCL_LIBSMM_NLOCKS_TRANS 16
+#if !defined(LIBSMM_NLOCKS_TRANS)
+#  define LIBSMM_NLOCKS_TRANS 16
 #endif
-#if !defined(OPENCL_LIBSMM_DEFAULT_BS)
-#  define OPENCL_LIBSMM_DEFAULT_BS 8
+#if !defined(LIBSMM_DEFAULT_BS)
+#  define LIBSMM_DEFAULT_BS 8
 #endif
-#define OPENCL_LIBSMM_TYPESIZE(TYPEID) \
+#define LIBSMM_TYPESIZE(TYPEID) \
     (dbcsr_type_real_8 == (TYPEID) ? ((int)sizeof(double)) : (dbcsr_type_real_4 == (TYPEID) ? ((int)sizeof(float)) : 0 /*unknown*/))
-#define OPENCL_LIBSMM_TRANSENV(KEY) opencl_libsmm_getenv("OPENCL_LIBSMM_TRANS", KEY)
+#define LIBSMM_TRANSENV(KEY) libsmm_getenv("LIBSMM_TRANS", KEY)
 
 #if defined(__cplusplus)
 extern "C" {
@@ -44,13 +44,13 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
   LIBXS_ASSERT(0 < m && 0 < n);
   if (0 != stack_size && 1 != mn &&
       (
-#if defined(OPENCL_LIBSMM_F64)
+#if defined(LIBSMM_F64)
         dbcsr_type_real_8 == datatype
 #else
         0
 #endif
         ||
-#if defined(OPENCL_LIBSMM_F32)
+#if defined(LIBSMM_F32)
         dbcsr_type_real_4 == datatype
 #else
         0
@@ -58,33 +58,33 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         ) &&
       mn <= (max_kernel_dim * max_kernel_dim))
   {
-    static libxs_lock_t locks[OPENCL_LIBSMM_NLOCKS_TRANS];
+    static libxs_lock_t locks[LIBSMM_NLOCKS_TRANS];
     const libxs_timer_tick_t start = libxs_timer_tick();
-    opencl_libsmm_trans_t* config;
+    libsmm_trans_t* config;
     libxs_lock_t* lock = locks;
-    opencl_libsmm_transkey_t key;
-#if (1 < OPENCL_LIBSMM_NLOCKS_TRANS)
+    libsmm_transkey_t key;
+#if (1 < LIBSMM_NLOCKS_TRANS)
     unsigned int hash;
 #endif
     LIBXS_MEMZERO(&key); /* potentially heterogeneous key-data (alignment gaps) */
     key.type = datatype;
     key.m = m;
     key.n = n; /* initialize key */
-#if (1 < OPENCL_LIBSMM_NLOCKS_TRANS)
-    LIBXS_ASSERT(!(OPENCL_LIBSMM_NLOCKS_TRANS & (OPENCL_LIBSMM_NLOCKS_TRANS - 1))); /* POT */
+#if (1 < LIBSMM_NLOCKS_TRANS)
+    LIBXS_ASSERT(!(LIBSMM_NLOCKS_TRANS & (LIBSMM_NLOCKS_TRANS - 1))); /* POT */
     hash = libxs_hash(&key, sizeof(key), 25071975 /*seed*/);
-    lock += LIBXS_MOD2(hash, OPENCL_LIBSMM_NLOCKS_TRANS);
+    lock += LIBXS_MOD2(hash, LIBSMM_NLOCKS_TRANS);
 #endif
     /* calling clSetKernelArg/clEnqueueNDRangeKernel must be consistent */
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, lock);
-    config = (opencl_libsmm_trans_t*)libxs_registry_get(
-      opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
+    config = (libsmm_trans_t*)libxs_registry_get(
+      libsmm_registry, &key, sizeof(key), libxs_registry_lock(libsmm_registry));
     if (NULL == config) {
       char buffer[LIBXSTREAM_BUFFERSIZE], build_params[LIBXSTREAM_BUFFERSIZE];
       char fname[LIBXSTREAM_MAXSTRLEN];
       int nchar = LIBXS_SNPRINTF(fname, sizeof(fname),
         /* kernel name are meant to be unambiguous (BLAS-typeprefix and kernelsize) */
-        "x" OPENCL_LIBSMM_KERNELNAME_TRANS "%ix%i", m, n);
+        "x" LIBSMM_KERNELNAME_TRANS "%ix%i", m, n);
 #if defined(__DBCSR_ACC)
       int routine_handle;
       c_dbcsr_timeset(LIBSMM_ACC_TRANSPOSE_ROUTINE_NAME_STRPTR, LIBSMM_ACC_TRANSPOSE_ROUTINE_NAME_LENPTR, &routine_handle);
@@ -92,17 +92,17 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
       if (0 < nchar && (int)sizeof(fname) > nchar) {
         const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
         const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
-        const char *const env_cl = OPENCL_LIBSMM_TRANSENV("BUILDOPTS"), *const env_bm = OPENCL_LIBSMM_TRANSENV("BM");
-        const char* const env_bs = OPENCL_LIBSMM_TRANSENV("BS");
+        const char *const env_cl = LIBSMM_TRANSENV("BUILDOPTS"), *const env_bm = LIBSMM_TRANSENV("BM");
+        const char* const env_bs = LIBSMM_TRANSENV("BS");
         const char* const cmem = (EXIT_SUCCESS != libxstream_opencl_use_cmem_size(devinfo, 0) ? "global" : "constant");
         const char* const build_format = "-DCONSTANT=%s -DFN=%s -DSM=%i -DSN=%i -DWG=%i -DT=%s -DBS=%i -DSLM_PAD=%i";
         const char* tname = "";
         const int blockm = ((NULL == env_bm || '\0' == *env_bm) ? 0 : atoi(env_bm));
         const int bm = (0 >= blockm ? m : LIBXS_MIN(blockm, m));
-        const int typesize = OPENCL_LIBSMM_TYPESIZE(datatype);
+        const int typesize = LIBSMM_TYPESIZE(datatype);
         const int slm_pad = (LIBXS_ISPOT(n * typesize) ? 1 : 0);
-        int tbs = ((NULL == env_bs || '\0' == *env_bs) ? OPENCL_LIBSMM_DEFAULT_BS : atoi(env_bs));
-        opencl_libsmm_trans_t new_config;
+        int tbs = ((NULL == env_bs || '\0' == *env_bs) ? LIBSMM_DEFAULT_BS : atoi(env_bs));
+        libsmm_trans_t new_config;
         LIBXS_MEMZERO(&new_config);
         if (1 >= tbs) tbs = 1;
         switch (datatype) {
@@ -146,16 +146,16 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
                 }
               }
               if (EXIT_SUCCESS == result) {
-                config = (opencl_libsmm_trans_t*)libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key), &new_config,
-                  sizeof(new_config), libxs_registry_lock(opencl_libsmm_registry));
+                config = (libsmm_trans_t*)libxs_registry_set(libsmm_registry, &key, sizeof(key), &new_config,
+                  sizeof(new_config), libxs_registry_lock(libsmm_registry));
                 if (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {
                   const double duration = libxs_timer_duration(start, libxs_timer_tick());
                   LIBXS_STDIO_ACQUIRE();
                   fprintf(stderr, "INFO ACC/LIBSMM: TRANS-kernel ");
-                  opencl_libsmm_write_trans_params(
+                  libsmm_write_trans_params(
                     stderr, 0 /*only_key*/, &key, NULL /*config*/, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
                   fprintf(stderr, "=");
-                  opencl_libsmm_write_trans_params(
+                  libsmm_write_trans_params(
                     stderr, 0 /*only_key*/, &key, config, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
                   fprintf(stderr, " gen=%.1f ms\n", 1E3 * duration);
                   LIBXS_STDIO_RELEASE();
@@ -201,16 +201,16 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
       LIBXSTREAM_CHECK(result,
         libxstream_opencl_launch_work((libxstream_stream_t*)stream, config->kernel, 1 /*work_dim*/, NULL /*offset*/, &work_size,
           &config->wgsize, 0, NULL, NULL, 0 /*nflops*/,
-          (size_t)stack_size * OPENCL_LIBSMM_TYPESIZE(datatype) * 2 * mn /*nbytes*/),
+          (size_t)stack_size * LIBSMM_TYPESIZE(datatype) * 2 * mn /*nbytes*/),
         "launch transpose kernel");
       /* eventually update performance counters inside of locked region */
       if ((3 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) && EXIT_SUCCESS == result) {
         LIBXS_STDIO_ACQUIRE();
         fprintf(stderr, "INFO ACC/LIBSMM: TRANS-kernel ");
-        opencl_libsmm_write_trans_params(
+        libsmm_write_trans_params(
           stderr, 1 /*only_key*/, &key, NULL /*config*/, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
         fprintf(stderr, "=");
-        opencl_libsmm_write_trans_params(stderr, 1 /*only_key*/, &key, config, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
+        libsmm_write_trans_params(stderr, 1 /*only_key*/, &key, config, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
         fprintf(stderr, " ss=%i\n", stack_size);
         LIBXS_STDIO_RELEASE();
       }

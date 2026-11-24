@@ -21,7 +21,6 @@ is built).
 | ELEM_TYPE     | `double` | Element precision: `double` or `float`                     |
 | WITH_GPU      | `GPUVER` | Device for tuned parameters (PVC, A100, ...), see below    |
 | SYM           | 0        | Non-zero also keeps comments in the embedded kernel source |
-| SYCL          | 1        | 0: no oneMKL for stacks beyond the kernels (see below)     |
 
 `make test` builds and runs `acc_bench.x` with its defaults.
 
@@ -34,14 +33,11 @@ A CMake project (e.g., DBCSR) builds LIBSMM into its own target with
 `libxstream_add_smm(<target>)` after `find_package(libxstream)`, which also
 generates `smm_kernels.h` into the target's build tree.
 
-Stacks beyond the kernels (`double` with M·N > MAX_KERNEL_DIM²) go to oneMKL
-where MKL is used and oneAPI's SYCL runtime is in reach (`CMPLR_ROOT`, `icx`, or
-next to MKL). The C++ compiler at hand builds `smm_sycl.cpp`, no SYCL compiler is
-needed, and `SYCL=0` (Make) or `LIBXSTREAM_SMM_SYCL=OFF` (CMake) disables it.
-This needs Intel USM device memory (`LIBXSTREAM_USM=1`, the default on an Intel
-discrete GPU, and on an integrated GPU together with `LIBXSTREAM_XHINTS`), and a
-program built by CMake needs oneAPI's libraries on the library path. Otherwise,
-or if oneMKL fails its self-test, such a stack is computed on the host as before.
+Stacks beyond the kernels (M·N > MAX_KERNEL_DIM², `double` or `float`) go to
+the [device BLAS](../../documentation/libxstream_opencl.md#device-blas) where it
+serves the device (oneMKL on an Intel device, loaded at runtime), as batches of
+GEMMs in which no C block repeats. Otherwise, such a stack is computed on the
+host as before.
 
 A Makefile project (e.g., CP2K's DBM miniapp) includes `smm.mk` instead,
 optionally setting `LIBXSTREAM_SMM_GENDIR` (directory of the generated
@@ -67,7 +63,7 @@ The first argument can be a file with one set of parameters per line.
 The batchsize argument accepts K/M/G suffixes for memory-budget mode.
 A negative batchsize, e.g., -30000, draws a random multiple of 100 up to
 its magnitude (also via `BATCHSIZE_SMM`). Any shape is handed to LIBSMM: one
-beyond the kernels runs through oneMKL (see above) or is reported unsuitable.
+beyond the kernels runs through the device BLAS (see above) or is reported unsuitable.
 
 | Argument  | Default         | Description                            |
 |-----------|-----------------|----------------------------------------|
@@ -119,65 +115,64 @@ generated kernels) are described on the LIBXSTREAM OpenCL page.
 
 Transpose kernel:
 
-| Variable                      | Default | Description                             |
-|-------------------------------|---------|-----------------------------------------|
-| OPENCL_LIBSMM_TRANS_BUILDOPTS | -       | Extra OpenCL build options              |
-| OPENCL_LIBSMM_TRANS_INPLACE   | 0       | Non-zero: in-place if square (no LDS)   |
-| OPENCL_LIBSMM_TRANS_BM        | auto    | Block size in M-direction (0 < BM <= M) |
-| OPENCL_LIBSMM_TRANS_BS        | 8       | Matrices per work-group                 |
-| OPENCL_LIBSMM_TRANS_PARAMS    | -       | 0: ignore TRANS_BM and TRANS_BS         |
-| OPENCL_LIBSMM_TRANS_PREDICT   | -       | Positive: ignore TRANS_BM and TRANS_BS  |
+| Variable               | Default | Description                             |
+|------------------------|---------|-----------------------------------------|
+| LIBSMM_TRANS_BUILDOPTS | -       | Extra OpenCL build options              |
+| LIBSMM_TRANS_BM        | auto    | Block size in M-direction (0 < BM <= M) |
+| LIBSMM_TRANS_BS        | 8       | Matrices per work-group                 |
+| LIBSMM_TRANS_PARAMS    | -       | 0: ignore TRANS_BM and TRANS_BS         |
+| LIBSMM_TRANS_PREDICT   | -       | Positive: ignore TRANS_BM and TRANS_BS  |
 
 Multiply kernel:
 
-| Variable                       | Default  | Description                                                          |
-|--------------------------------|----------|----------------------------------------------------------------------|
-| OPENCL_LIBSMM_SMM_BUILDOPTS    | -        | Extra OpenCL build options                                           |
-| OPENCL_LIBSMM_SMM_KERNEL       | -        | OpenCL source file replacing the embedded multiply kernel            |
-| OPENCL_LIBSMM_SMM_PARAMS       | auto     | CSV/model file, a parameter row, or 0 for plain defaults (see below) |
-| OPENCL_LIBSMM_SMM_PREDICT      | 0        | Model: -1=off (default if PARAMS=0), 0=untuned shapes, 1=all shapes  |
-| OPENCL_LIBSMM_SMM_PREDICT_CONF | 0        | Confidence a predicted parameter needs; below, its default is used   |
-| OPENCL_LIBSMM_SMM_DEVID        | -        | Device ID whose parameters are used, e.g., `0x0bd5`                  |
-| OPENCL_LIBSMM_SMM_S            | 64       | BS > 1 needs a batch of at least BS×S; negative: always BS=1         |
-| OPENCL_LIBSMM_SMM_BS           | auto     | Intra-kernel mini-batchsize                                          |
-| OPENCL_LIBSMM_SMM_BM           | auto     | Block size in M-direction (0 < BM <= M), ignored if LU > 1           |
-| OPENCL_LIBSMM_SMM_BN           | auto     | Block size in N-direction (0 < BN <= N)                              |
-| OPENCL_LIBSMM_SMM_BK           | auto     | Block size BK (0 < BK <= M)                                          |
-| OPENCL_LIBSMM_SMM_WS           | max(M,N) | Minimum work-group size (WS <= M·N)                                  |
-| OPENCL_LIBSMM_SMM_WG           | auto     | Work-group size: 0=exact, non-zero=sub-group multiple, 2=power of 2  |
-| OPENCL_LIBSMM_SMM_LU           | auto     | Unrolling: -2=full, -1=no hints, 0=inner, 1=outer, >1=LU blocks of M |
-| OPENCL_LIBSMM_SMM_NZ           | 0        | 1: skip atomic updates of zero values                                |
-| OPENCL_LIBSMM_SMM_AL           | 0        | Ignored in this build                                                |
-| OPENCL_LIBSMM_SMM_TB           | 0        | 1: load B (AB=2) only when it changes within a mini-batch            |
-| OPENCL_LIBSMM_SMM_TC           | 1        | 1: write C back only when it changes                                 |
-| OPENCL_LIBSMM_SMM_AP           | 0        | Parameter stack: 0=global, 1=shared                                  |
-| OPENCL_LIBSMM_SMM_AA           | auto     | A-matrix: 0=global, 1=shared, 2=register                             |
-| OPENCL_LIBSMM_SMM_AB           | auto     | B-matrix: 0=global, 1=shared, 2=register                             |
-| OPENCL_LIBSMM_SMM_AC           | 0        | C-matrix: 0=register, 1=shared                                       |
-| OPENCL_LIBSMM_SMM_XF           | 0        | 1: 256 GRF per thread on Intel GPUs (see below)                      |
+| Variable                | Default  | Description                                                          |
+|-------------------------|----------|----------------------------------------------------------------------|
+| LIBSMM_SMM_BUILDOPTS    | -        | Extra OpenCL build options                                           |
+| LIBSMM_SMM_KERNEL       | -        | OpenCL source file replacing the embedded multiply kernel            |
+| LIBSMM_SMM_PARAMS       | auto     | CSV/model file, a parameter row, or 0 for plain defaults (see below) |
+| LIBSMM_SMM_PREDICT      | 0        | Model: -1=off (default if PARAMS=0), 0=untuned shapes, 1=all shapes  |
+| LIBSMM_SMM_PREDICT_CONF | 0        | Confidence a predicted parameter needs; below, its default is used   |
+| LIBSMM_SMM_DEVID        | -        | Device ID whose parameters are used, e.g., `0x0bd5`                  |
+| LIBSMM_SMM_S            | 64       | BS > 1 needs a batch of at least BS×S; negative: always BS=1         |
+| LIBSMM_SMM_BS           | auto     | Intra-kernel mini-batchsize                                          |
+| LIBSMM_SMM_BM           | auto     | Block size in M-direction (0 < BM <= M), ignored if LU > 1           |
+| LIBSMM_SMM_BN           | auto     | Block size in N-direction (0 < BN <= N)                              |
+| LIBSMM_SMM_BK           | auto     | Block size BK (0 < BK <= M)                                          |
+| LIBSMM_SMM_WS           | max(M,N) | Minimum work-group size (WS <= M·N)                                  |
+| LIBSMM_SMM_WG           | auto     | Work-group size: 0=exact, non-zero=sub-group multiple, 2=power of 2  |
+| LIBSMM_SMM_LU           | auto     | Unrolling: -2=full, -1=no hints, 0=inner, 1=outer, >1=LU blocks of M |
+| LIBSMM_SMM_NZ           | 0        | 1: skip atomic updates of zero values                                |
+| LIBSMM_SMM_AL           | 0        | Ignored in this build                                                |
+| LIBSMM_SMM_TB           | 0        | 1: load B (AB=2) only when it changes within a mini-batch            |
+| LIBSMM_SMM_TC           | 1        | 1: write C back only when it changes                                 |
+| LIBSMM_SMM_AP           | 0        | Parameter stack: 0=global, 1=shared                                  |
+| LIBSMM_SMM_AA           | auto     | A-matrix: 0=global, 1=shared, 2=register                             |
+| LIBSMM_SMM_AB           | auto     | B-matrix: 0=global, 1=shared, 2=register                             |
+| LIBSMM_SMM_AC           | 0        | C-matrix: 0=register, 1=shared                                       |
+| LIBSMM_SMM_XF           | 0        | 1: 256 GRF per thread on Intel GPUs (see below)                      |
 
 Defaults apply where no tuned or predicted parameter exists.
-`OPENCL_LIBSMM_SMM_XF` defaults to 1 if `OPENCL_LIBSMM_SMM_BUILDOPTS`
+`LIBSMM_SMM_XF` defaults to 1 if `LIBSMM_SMM_BUILDOPTS`
 contains `-cl-intel-256-GRF-per-thread`. A value of
-`OPENCL_LIBSMM_SMM_PREDICT` above 1 also selects a LIBXS prediction mode.
+`LIBSMM_SMM_PREDICT` above 1 also selects a LIBXS prediction mode.
 
-`OPENCL_LIBSMM_SMM_PARAMS=0` runs with plain defaults: no tuned table, no
-prediction (unless `OPENCL_LIBSMM_SMM_PREDICT` is set), and the two-letter
-variables above (`OPENCL_LIBSMM_SMM_BS` to `_XF`) are ignored, as they are
-with a positive `OPENCL_LIBSMM_SMM_PREDICT`. In the default build, whose
-tuned parameters come from the models, `OPENCL_LIBSMM_SMM_PREDICT=-1` alone
+`LIBSMM_SMM_PARAMS=0` runs with plain defaults: no tuned table, no
+prediction (unless `LIBSMM_SMM_PREDICT` is set), and the two-letter
+variables above (`LIBSMM_SMM_BS` to `_XF`) are ignored, as they are
+with a positive `LIBSMM_SMM_PREDICT`. In the default build, whose
+tuned parameters come from the models, `LIBSMM_SMM_PREDICT=-1` alone
 already drops all tuned parameters.
 
-`OPENCL_LIBSMM_SMM_PARAMS` given a CSV file applies its parameters to any
+`LIBSMM_SMM_PARAMS` given a CSV file applies its parameters to any
 device (device matching is off). Instead of a file, it also takes one
 parameter row: the CSV columns without DEVICE, S, and GFLOPS, e.g.,
 `3;23;23;23;8;23;1;1;23;0;-1;0;0;0;1;0;2;0;0` (TYPEID;M;N;K;BS;...;AC).
 
-`OPENCL_LIBSMM_SMM_PARAMS` given a saved prediction model (a file written by
+`LIBSMM_SMM_PARAMS` given a saved prediction model (a file written by
 `predict_params.x`, e.g., trained on part of a table) uses it in place of the
 embedded models. The embedded tuned parameters still apply unless
-`OPENCL_LIBSMM_SMM_PREDICT` is positive.
-`OPENCL_LIBSMM_SMM_PREDICT_CONF` is compared with a forest model's
+`LIBSMM_SMM_PREDICT` is positive.
+`LIBSMM_SMM_PREDICT_CONF` is compared with a forest model's
 calibrated probability, and with the confidence of any other model.
 
 The full list of tunable parameters is available via
@@ -223,10 +218,10 @@ predict_params.x rf trees8 params/tune_multiply_PVC.csv params/tune_multiply_PVC
 ./acc_bench.x 5 30000 13 5 7
 
 # Plain defaults
-OPENCL_LIBSMM_SMM_PARAMS=0 ./acc_bench.x 5 30000 13 5 7
+LIBSMM_SMM_PARAMS=0 ./acc_bench.x 5 30000 13 5 7
 
 # Load from a specific CSV file
-OPENCL_LIBSMM_SMM_PARAMS=params/tune_multiply_PVC.csv ./acc_bench.x 5 30000 13 5 7
+LIBSMM_SMM_PARAMS=params/tune_multiply_PVC.csv ./acc_bench.x 5 30000 13 5 7
 ```
 
 Rebuild with a specific device's parameters embedded:
@@ -345,30 +340,30 @@ and `-d` removes them:
 
 Useful options:
 
-| Option              | Meaning                                      |
-|---------------------|----------------------------------------------|
-| --stop-after N      | Stop the search after N seconds              |
-| -p path             | JSON directory; without a shape, merge it    |
-| -s size             | Benchmark batch size, also called stack size |
-| -a level            | Tuning level: 0=all ... 4=least tunables     |
-| -m [mode]           | Merge JSON files into a CSV file (see above) |
-| -M file             | Write the JSON files of a CSV file (see -p)  |
-| -o file             | CSV output file                              |
-| -u [device]         | Update JSON device names (see above)         |
-| -c [epsilon]        | Validate JSON entries                        |
-| --prefer fast\|new  | Duplicate winner; without a shape, merge     |
-| -d                  | Delete losing duplicates during merge        |
-| -x                  | Write GFLOPS as 0 into the CSV file          |
-| -e char             | CSV separator (default: `;`)                 |
-| -r count            | Repetitions per benchmark run (0: default)   |
-| -mb size            | Largest mini-batch size to try (default: 64) |
-| --timeout seconds   | Limit per benchmark run (0: none)            |
-| -q                  | Skip configurations with AA=1 or AB=1        |
-| -v                  | Print the settings of each run               |
+| Option            | Meaning                                      |                                          |
+|-------------------|----------------------------------------------|------------------------------------------|
+| --stop-after N    | Stop the search after N seconds              |                                          |
+| -p path           | JSON directory; without a shape, merge it    |                                          |
+| -s size           | Benchmark batch size, also called stack size |                                          |
+| -a level          | Tuning level: 0=all ... 4=least tunables     |                                          |
+| -m [mode]         | Merge JSON files into a CSV file (see above) |                                          |
+| -M file           | Write the JSON files of a CSV file (see -p)  |                                          |
+| -o file           | CSV output file                              |                                          |
+| -u [device]       | Update JSON device names (see above)         |                                          |
+| -c [epsilon]      | Validate JSON entries                        |                                          |
+| --prefer fast\    | new                                          | Duplicate winner; without a shape, merge |
+| -d                | Delete losing duplicates during merge        |                                          |
+| -x                | Write GFLOPS as 0 into the CSV file          |                                          |
+| -e char           | CSV separator (default: `;`)                 |                                          |
+| -r count          | Repetitions per benchmark run (0: default)   |                                          |
+| -mb size          | Largest mini-batch size to try (default: 64) |                                          |
+| --timeout seconds | Limit per benchmark run (0: none)            |                                          |
+| -q                | Skip configurations with AA=1 or AB=1        |                                          |
+| -v                | Print the settings of each run               |                                          |
 
-Setting `OPENCL_LIBSMM_SMM_<X>` (e.g., `OPENCL_LIBSMM_SMM_BS=8`) fixes
+Setting `LIBSMM_SMM_<X>` (e.g., `LIBSMM_SMM_BS=8`) fixes
 that parameter during tuning. A value of `tune`, `enabled`, or `on`
-keeps it tunable unless the tuning level fixes it. `OPENCL_LIBSMM_SMM_WS`
+keeps it tunable unless the tuning level fixes it. `LIBSMM_SMM_WS`
 is fixed unless set to `tune`.
 
 If a shared LIBXS library loads (`LIBXS_LIB` names the file or its

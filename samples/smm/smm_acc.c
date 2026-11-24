@@ -17,16 +17,16 @@
 #  include <omp.h>
 #endif
 
-#define OPENCL_LIBSMM_SMMENV(KEY) opencl_libsmm_getenv("OPENCL_LIBSMM_SMM", KEY)
+#define LIBSMM_SMMENV(KEY) libsmm_getenv("LIBSMM_SMM", KEY)
 #if !defined(OPENCL_KERNELS_SOURCE_NORMS)
 #  error "OpenCL norms-kernel code not found!"
 #endif
-#if !defined(OPENCL_LIBSMM_KERNELNAME_NORMS)
-#  define OPENCL_LIBSMM_KERNELNAME_NORMS "dnorms"
+#if !defined(LIBSMM_KERNELNAME_NORMS)
+#  define LIBSMM_KERNELNAME_NORMS "dnorms"
 #endif
 /* a power of two (the kernel reduces by halving) */
-#if !defined(OPENCL_LIBSMM_NORMS_WG)
-#  define OPENCL_LIBSMM_NORMS_WG 64
+#if !defined(LIBSMM_NORMS_WG)
+#  define LIBSMM_NORMS_WG 64
 #endif
 /**
  * Confidence below which a predicted parameter is not used and receives its default
@@ -34,8 +34,8 @@
  * forest's kernels ran 1.69x the defaults ungated and 1.29x at a threshold of 0.5,
  * since a parameter it predicts wrongly is still faster than the default on average.
  */
-#if !defined(OPENCL_LIBSMM_PREDICT_CONF)
-#  define OPENCL_LIBSMM_PREDICT_CONF 0
+#if !defined(LIBSMM_PREDICT_CONF)
+#  define LIBSMM_PREDICT_CONF 0
 #endif
 
 #if defined(OPENCL_KERNELS_PREDICT_MODELS)
@@ -48,23 +48,23 @@ extern "C" {
 #endif
 
 /* Defined in smm_kernel.c */
-extern opencl_libsmm_acc_dbm_launch_fn_t opencl_libsmm_acc_dbm_launch_fn;
+extern libsmm_acc_dbm_launch_fn_t libsmm_acc_dbm_launch_fn;
 /* track initialization status of LIBSMM */
-int opencl_libsmm_initialized;
+int libsmm_initialized;
 /* registry for dispatch/register of SMM and transpose kernels */
-libxs_registry_t* opencl_libsmm_registry;
-/* OPENCL_LIBSMM_SMM_DEVID override (0 = not set, use actual device) */
-unsigned int opencl_libsmm_devuid;
+libxs_registry_t* libsmm_registry;
+/* LIBSMM_SMM_DEVID override (0 = not set, use actual device) */
+unsigned int libsmm_devuid;
 #if defined(OPENCL_KERNELS_PREDICT_MODELS)
-libxs_predict_t* opencl_libsmm_predict_model;
-static int opencl_libsmm_predict_mode; /* -1=disabled, 0=fallback(default), 1=force */
-/* confidence a predicted parameter needs to be used (OPENCL_LIBSMM_SMM_PREDICT_CONF) */
-double opencl_libsmm_predict_conf;
+libxs_predict_t* libsmm_predict_model;
+static int libsmm_predict_mode; /* -1=disabled, 0=fallback(default), 1=force */
+/* confidence a predicted parameter needs to be used (LIBSMM_SMM_PREDICT_CONF) */
+double libsmm_predict_conf;
 #endif
 
 #if defined(OPENCL_KERNELS_PREDICT_MODELS)
-/** A saved model read from a file (OPENCL_LIBSMM_SMM_PARAMS), or NULL (e.g., a CSV-file). */
-static libxs_predict_t* opencl_libsmm_predict_file(const char* filename) {
+/** A saved model read from a file (LIBSMM_SMM_PARAMS), or NULL (e.g., a CSV-file). */
+static libxs_predict_t* libsmm_predict_file(const char* filename) {
   libxs_predict_t* result = NULL;
   FILE* const file = fopen(filename, "rb");
   if (NULL != file) {
@@ -85,9 +85,9 @@ static libxs_predict_t* opencl_libsmm_predict_file(const char* filename) {
 }
 #endif
 
-#if defined(OPENCL_LIBSMM_PFORMAT) && (0 < OPENCL_LIBSMM_PFORMAT)
+#if defined(LIBSMM_PFORMAT) && (0 < LIBSMM_PFORMAT)
 /* samples/dbm when linked: pulled rather than pushed since a constructor is not available below C99 */
-opencl_libsmm_acc_dbm_launch_fn_t dbm_multiply_opencl_smm_launch_fn(void);
+libsmm_acc_dbm_launch_fn_t dbm_multiply_opencl_smm_launch_fn(void);
 LIBXS_PRAGMA_WEAK(dbm_multiply_opencl_smm_launch_fn)
 #endif
 
@@ -100,18 +100,18 @@ LIBXS_PRAGMA_WEAK(dbm_multiply_opencl_smm_launch_fn)
  * A CPU adopts only an exact match (UID or name): the entries nearest to a CPU are
  * tuned for GPUs, which the defaults serve a CPU better than.
  */
-static int opencl_libsmm_device_match(unsigned int* uid) {
+static int libsmm_device_match(unsigned int* uid) {
   const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
   const int ndevices = (int)(sizeof(OPENCL_KERNELS_DEVICES) / sizeof(*OPENCL_KERNELS_DEVICES));
   char name[LIBXSTREAM_BUFFERSIZE];
   int result;
-  *uid = (0 != opencl_libsmm_devuid) ? opencl_libsmm_devuid : libxstream_opencl_config.device.uid;
+  *uid = (0 != libsmm_devuid) ? libsmm_devuid : libxstream_opencl_config.device.uid;
   if (EXIT_SUCCESS != libxstream_opencl_device_name(device_id, name, LIBXSTREAM_BUFFERSIZE, NULL /*platform*/,
                         0 /*platform_maxlen*/, /*cleanup*/ 1))
   {
     *name = '\0';
   }
-  else if (0 == opencl_libsmm_devuid && 1 >= libxstream_opencl_config.devmatch) {
+  else if (0 == libsmm_devuid && 1 >= libxstream_opencl_config.devmatch) {
     libxstream_opencl_device_uid(device_id, name, uid);
   }
   result = libxstream_opencl_device_match(name, *uid, OPENCL_KERNELS_DEVICES, ndevices);
@@ -135,13 +135,13 @@ int libsmm_acc_init(void) {
 #if defined(_OPENMP)
   /* initialization/finalization is not meant to be thread-safe */
   int result = ((0 == omp_in_parallel() || /*main*/ 0 == omp_get_thread_num()) ? EXIT_SUCCESS : EXIT_FAILURE);
-#  pragma omp critical(opencl_libsmm_initialized)
+#  pragma omp critical(libsmm_initialized)
 #else
   int result = EXIT_SUCCESS;
 #endif
-  ++opencl_libsmm_initialized;
+  ++libsmm_initialized;
   /* multiple calls to libsmm_acc_init are not considered as an error */
-  if (1 == opencl_libsmm_initialized) {
+  if (1 == libsmm_initialized) {
 #if !defined(__DBCSR_ACC)
     /**
      * DBCSR shall call libxstream_init as well as libsmm_acc_init (since both interfaces are used).
@@ -153,43 +153,43 @@ int libsmm_acc_init(void) {
 #endif
     libxs_init();
     if (EXIT_SUCCESS == result) {
-      opencl_libsmm_registry = libxs_registry_create();
-      if (NULL == opencl_libsmm_registry) result = EXIT_FAILURE;
+      libsmm_registry = libxs_registry_create();
+      if (NULL == libsmm_registry) result = EXIT_FAILURE;
     }
-#if defined(OPENCL_LIBSMM_PFORMAT) && (0 < OPENCL_LIBSMM_PFORMAT)
-    if (EXIT_SUCCESS == result && NULL == opencl_libsmm_acc_dbm_launch_fn && NULL != dbm_multiply_opencl_smm_launch_fn) {
-      opencl_libsmm_acc_dbm_launch_fn = dbm_multiply_opencl_smm_launch_fn();
+#if defined(LIBSMM_PFORMAT) && (0 < LIBSMM_PFORMAT)
+    if (EXIT_SUCCESS == result && NULL == libsmm_acc_dbm_launch_fn && NULL != dbm_multiply_opencl_smm_launch_fn) {
+      libsmm_acc_dbm_launch_fn = dbm_multiply_opencl_smm_launch_fn();
     }
 #endif
     if (EXIT_SUCCESS == result) {
-      opencl_libsmm_perfest_t perfest;
-      char* const env_params = getenv("OPENCL_LIBSMM_SMM_PARAMS"); /* !opencl_libsmm_getenv */
-      const char* const env_devid = OPENCL_LIBSMM_SMMENV("DEVID");
+      libsmm_perfest_t perfest;
+      char* const env_params = getenv("LIBSMM_SMM_PARAMS"); /* !libsmm_getenv */
+      const char* const env_devid = LIBSMM_SMMENV("DEVID");
       int params_model = 0;
 #if defined(OPENCL_KERNELS_PREDICT_MODELS)
-      const char* const env_predict = OPENCL_LIBSMM_SMMENV("PREDICT");
-      const char* const env_conf = OPENCL_LIBSMM_SMMENV("PREDICT_CONF");
+      const char* const env_predict = LIBSMM_SMMENV("PREDICT");
+      const char* const env_conf = LIBSMM_SMMENV("PREDICT_CONF");
       /* PARAMS=0 means plain defaults: no prediction either unless PREDICT asks for it */
-      opencl_libsmm_predict_mode = (NULL == env_predict || '\0' == *env_predict)
+      libsmm_predict_mode = (NULL == env_predict || '\0' == *env_predict)
         ? ((NULL != env_params && '0' == *env_params) ? -1 : 0) : atoi(env_predict);
       /* unset is the default; zero is a threshold too, and takes every prediction */
-      opencl_libsmm_predict_conf = (NULL == env_conf || '\0' == *env_conf) ? OPENCL_LIBSMM_PREDICT_CONF : atof(env_conf);
+      libsmm_predict_conf = (NULL == env_conf || '\0' == *env_conf) ? LIBSMM_PREDICT_CONF : atof(env_conf);
       /* PARAMS may name a saved model rather than a CSV-file: it replaces the embedded models */
       if (NULL != env_params && '\0' != *env_params && '0' != *env_params) {
-        libxs_predict_t* const model = opencl_libsmm_predict_file(env_params);
+        libxs_predict_t* const model = libsmm_predict_file(env_params);
         if (NULL != model) {
-          if (0 <= opencl_libsmm_predict_mode) opencl_libsmm_predict_model = model;
+          if (0 <= libsmm_predict_mode) libsmm_predict_model = model;
           else libxs_predict_destroy(model);
           params_model = 1;
         }
       }
 #endif
-      opencl_libsmm_devuid = (NULL == env_devid || '\0' == *env_devid)
+      libsmm_devuid = (NULL == env_devid || '\0' == *env_devid)
         ? 0 : LIBXS_CAST_UINT(strtoul(env_devid, NULL, 0));
       LIBXS_MEMZERO(&perfest);
       if ((NULL == env_params || '0' != *env_params)
 #if defined(OPENCL_KERNELS_PREDICT_MODELS)
-          && 0 >= opencl_libsmm_predict_mode
+          && 0 >= libsmm_predict_mode
 #endif
       )
       {
@@ -197,8 +197,8 @@ int libsmm_acc_init(void) {
 #if defined(OPENCL_KERNELS_DEVICES)
         const int ndevices_params = (int)(sizeof(OPENCL_KERNELS_DEVICES) / sizeof(*OPENCL_KERNELS_DEVICES));
 #endif
-        opencl_libsmm_smm_t config;
-        opencl_libsmm_smmkey_t key, key_direct;
+        libsmm_smm_t config;
+        libsmm_smmkey_t key, key_direct;
         int key_direct_skip = 0, ntuned = 0;
         if (0 == params_model && NULL != env_params && '\0' != *env_params) { /* filename */
           FILE* const file = fopen(env_params, "r");
@@ -206,17 +206,17 @@ int libsmm_acc_init(void) {
             /* consume first line, check for device entry, and skip CSV header */
             if (NULL != fgets(buffer, LIBXSTREAM_BUFFERSIZE, file)) {
               char* const device = (NULL != libxs_stristr(buffer, "device") ? bufname : NULL);
-              opencl_libsmm_perfest_t* const gflops = (NULL != libxs_stristr(buffer, "gflops") ? &perfest : NULL);
+              libsmm_perfest_t* const gflops = (NULL != libxs_stristr(buffer, "gflops") ? &perfest : NULL);
               while (NULL != fgets(buffer, LIBXSTREAM_BUFFERSIZE, file)) { /* read params from CSV-file */
-                if (EXIT_SUCCESS == opencl_libsmm_read_smm_params(buffer, &key, &config, gflops, device, NULL /*key_ok*/)) {
-                  opencl_libsmm_smm_t* config_init;
+                if (EXIT_SUCCESS == libsmm_read_smm_params(buffer, &key, &config, gflops, device, NULL /*key_ok*/)) {
+                  libsmm_smm_t* config_init;
                   libxstream_opencl_config.devmatch = 0; /* disable device-match */
                   key.devuid = 0;
-                  config_init = (opencl_libsmm_smm_t*)libxs_registry_get(
-                    opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
+                  config_init = (libsmm_smm_t*)libxs_registry_get(
+                    libsmm_registry, &key, sizeof(key), libxs_registry_lock(libsmm_registry));
                   if (NULL == config_init) {
-                    if (NULL == libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key), &config, sizeof(config),
-                                  libxs_registry_lock(opencl_libsmm_registry)))
+                    if (NULL == libxs_registry_set(libsmm_registry, &key, sizeof(key), &config, sizeof(config),
+                                  libxs_registry_lock(libsmm_registry)))
                     {
                       result = EXIT_FAILURE;
                       break;
@@ -242,13 +242,13 @@ int libsmm_acc_init(void) {
             }
             fclose(file);
           }
-          else if (EXIT_SUCCESS == opencl_libsmm_read_smm_params(
+          else if (EXIT_SUCCESS == libsmm_read_smm_params(
                                      env_params, &key_direct, &config, NULL /*perfest*/, NULL /*device*/, &key_direct_skip))
           {
-            /* try OPENCL_LIBSMM_SMM_PARAMS as string of kernel parameters (not device-specific) */
+            /* try LIBSMM_SMM_PARAMS as string of kernel parameters (not device-specific) */
             LIBXS_ASSERT(0 == key_direct.devuid && 0 != key_direct_skip);
-            if (NULL != libxs_registry_set(opencl_libsmm_registry, &key_direct, sizeof(key_direct), &config, sizeof(config),
-                          libxs_registry_lock(opencl_libsmm_registry)))
+            if (NULL != libxs_registry_set(libsmm_registry, &key_direct, sizeof(key_direct), &config, sizeof(config),
+                          libxs_registry_lock(libsmm_registry)))
             {
               libxstream_opencl_config.devmatch = 0; /* disable device-match */
               ntuned = 1;
@@ -266,29 +266,29 @@ int libsmm_acc_init(void) {
           const char *line = OPENCL_KERNELS_PARAMS_SMM, *next;
           const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
           unsigned int default_uid;
-          const int active_match = opencl_libsmm_device_match(&default_uid);
+          const int active_match = libsmm_device_match(&default_uid);
           do {
             next = strchr(line, '\n');
             if (NULL != next && next < (line + LIBXSTREAM_BUFFERSIZE)) {
               const int len = next - line;
               memcpy(buffer, line, len);
               buffer[len] = '\0';
-              if (EXIT_SUCCESS == opencl_libsmm_read_smm_params(/* read params from embedded params */
+              if (EXIT_SUCCESS == libsmm_read_smm_params(/* read params from embedded params */
                                     buffer, &key, &config, &perfest, bufname /*consume name/id*/, NULL /*key_ok*/))
               {
                 if (0 == key_direct_skip || 0 != memcmp(&key_direct, &key, (const char*)&key.k - (const char*)&key)) {
-                  opencl_libsmm_smm_t* config_init;
+                  libsmm_smm_t* config_init;
                   const int i = atoi(bufname);
                   if (0 >= ndevices_params || 0 == libxstream_opencl_config.devmatch || 0 > i || ndevices_params <= i ||
                       EXIT_SUCCESS != libxstream_opencl_device_uid(NULL /*device*/, OPENCL_KERNELS_DEVICES[i], &key.devuid))
                   {
                     key.devuid = 0;
                   }
-                  config_init = (opencl_libsmm_smm_t*)libxs_registry_get(
-                    opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry)); /* duplicate? */
+                  config_init = (libsmm_smm_t*)libxs_registry_get(
+                    libsmm_registry, &key, sizeof(key), libxs_registry_lock(libsmm_registry)); /* duplicate? */
                   if (NULL == config_init) {
-                    if (NULL != libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key), &config, sizeof(config),
-                                  libxs_registry_lock(opencl_libsmm_registry)))
+                    if (NULL != libxs_registry_set(libsmm_registry, &key, sizeof(key), &config, sizeof(config),
+                                  libxs_registry_lock(libsmm_registry)))
                     {
                       ++ntuned;
                     }
@@ -302,10 +302,10 @@ int libsmm_acc_init(void) {
                   }
                   if (active_match == i && 0 != default_uid) {
                     key.devuid = default_uid;
-                    config_init = (opencl_libsmm_smm_t*)libxs_registry_get(
-                      opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
-                    if (NULL != config_init || NULL != libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key), &config,
-                                                         sizeof(config), libxs_registry_lock(opencl_libsmm_registry)))
+                    config_init = (libsmm_smm_t*)libxs_registry_get(
+                      libsmm_registry, &key, sizeof(key), libxs_registry_lock(libsmm_registry));
+                    if (NULL != config_init || NULL != libxs_registry_set(libsmm_registry, &key, sizeof(key), &config,
+                                                         sizeof(config), libxs_registry_lock(libsmm_registry)))
                     {
                       static int info = 0;
                       if (0 == info && 0 == libxs_nrank() && 0 != libxstream_opencl_config.verbosity &&
@@ -359,11 +359,11 @@ int libsmm_acc_init(void) {
 #endif
       }
 #if defined(OPENCL_KERNELS_PREDICT_MODELS) && defined(OPENCL_KERNELS_DEVICES)
-      if (EXIT_SUCCESS == result && 0 <= opencl_libsmm_predict_mode) {
+      if (EXIT_SUCCESS == result && 0 <= libsmm_predict_mode) {
         const opencl_kernels_predict_entry_t* entry;
         const opencl_kernels_predict_entry_t* best = NULL;
         unsigned int uid;
-        const int predict_match = (0 == params_model) ? opencl_libsmm_device_match(&uid) : -1;
+        const int predict_match = (0 == params_model) ? libsmm_device_match(&uid) : -1;
         if (0 <= predict_match) {
           for (entry = OPENCL_KERNELS_PREDICT_MODELS; NULL != entry->data; ++entry) {
             if (entry->device_id == predict_match) {
@@ -382,47 +382,47 @@ int libsmm_acc_init(void) {
           }
         }
         if (NULL != best) {
-          opencl_libsmm_predict_model = libxs_predict_load(best->data, (size_t)(best->data_end - best->data));
+          libsmm_predict_model = libxs_predict_load(best->data, (size_t)(best->data_end - best->data));
         }
-        if (NULL != opencl_libsmm_predict_model) {
-          if (opencl_libsmm_predict_mode > 1
-            && 0 == ((opencl_libsmm_predict_mode - 1)
+        if (NULL != libsmm_predict_model) {
+          if (libsmm_predict_mode > 1
+            && 0 == ((libsmm_predict_mode - 1)
               & ~(LIBXS_PREDICT_INTERPOLATE | LIBXS_PREDICT_CLASSIFY | LIBXS_PREDICT_TEMPORAL)))
           {
-            libxs_predict_set_mode(opencl_libsmm_predict_model, opencl_libsmm_predict_mode - 1);
+            libxs_predict_set_mode(libsmm_predict_model, libsmm_predict_mode - 1);
           }
-          if (NULL != opencl_libsmm_predict_model && 0 == libxs_nrank() &&
+          if (NULL != libsmm_predict_model && 0 == libxs_nrank() &&
               (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
           {
             libxs_predict_query_t qinfo;
             LIBXS_MEMZERO(&qinfo);
-            libxs_predict_query(opencl_libsmm_predict_model, &qinfo);
+            libxs_predict_query(libsmm_predict_model, &qinfo);
             fprintf(stderr, "INFO ACC/LIBSMM: PREDICT model loaded (%d entries, %d clusters, %.1fx) for \"%s\"\n",
               qinfo.nentries, qinfo.nclusters, qinfo.compression,
               (NULL != best) ? OPENCL_KERNELS_DEVICES[best->device_id] : env_params);
           }
 #  if !defined(OPENCL_KERNELS_PARAMS_SMM)
-          if (NULL != opencl_libsmm_predict_model && 0 >= opencl_libsmm_predict_mode
+          if (NULL != libsmm_predict_model && 0 >= libsmm_predict_mode
               && (NULL == env_params || '0' != *env_params))
           {
             libxs_predict_query_t qinfo;
             int i, npreloaded = 0;
             LIBXS_MEMZERO(&qinfo);
-            libxs_predict_query(opencl_libsmm_predict_model, &qinfo);
+            libxs_predict_query(libsmm_predict_model, &qinfo);
             for (i = 0; i < qinfo.nentries && EXIT_SUCCESS == result; ++i) {
               double inputs[3], outputs[16];
-              opencl_libsmm_smmkey_t key;
-              opencl_libsmm_smm_t config;
-              libxs_predict_get(opencl_libsmm_predict_model, i, inputs, outputs);
+              libsmm_smmkey_t key;
+              libsmm_smm_t config;
+              libxs_predict_get(libsmm_predict_model, i, inputs, outputs);
               LIBXS_MEMZERO(&key);
               key.type = dbcsr_type_real_8;
               key.m = LIBXS_ROUNDX(int, inputs[0]);
               key.n = LIBXS_ROUNDX(int, inputs[1]);
               key.k = LIBXS_ROUNDX(int, inputs[2]);
-              key.devuid = (0 != opencl_libsmm_devuid)
-                ? opencl_libsmm_devuid : libxstream_opencl_config.device.uid;
-              if (NULL != libxs_registry_get(opencl_libsmm_registry, &key, sizeof(key),
-                              libxs_registry_lock(opencl_libsmm_registry)))
+              key.devuid = (0 != libsmm_devuid)
+                ? libsmm_devuid : libxstream_opencl_config.device.uid;
+              if (NULL != libxs_registry_get(libsmm_registry, &key, sizeof(key),
+                              libxs_registry_lock(libsmm_registry)))
               {
                 continue;
               }
@@ -443,8 +443,8 @@ int libsmm_acc_init(void) {
               config.ab = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[13]), 0, 2);
               config.ac = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[14]), 0, 1);
               config.flags = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[15]), 0, 1);
-              if (NULL != libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key), &config, sizeof(config),
-                              libxs_registry_lock(opencl_libsmm_registry)))
+              if (NULL != libxs_registry_set(libsmm_registry, &key, sizeof(key), &config, sizeof(config),
+                              libxs_registry_lock(libsmm_registry)))
               {
                 ++npreloaded;
               }
@@ -477,38 +477,38 @@ int libsmm_acc_finalize(void) {
 #if defined(_OPENMP)
   /* initialization/finalization is not meant to be thread-safe */
   int result = ((0 == omp_in_parallel() || /*main*/ 0 == omp_get_thread_num()) ? EXIT_SUCCESS : EXIT_FAILURE);
-#  pragma omp critical(opencl_libsmm_initialized)
+#  pragma omp critical(libsmm_initialized)
 #else
   int result = EXIT_SUCCESS;
 #endif
-  --opencl_libsmm_initialized;
+  --libsmm_initialized;
   /* multiple calls to libsmm_acc_finalize are not considered as an error */
-  if (0 == opencl_libsmm_initialized) {
+  if (0 == libsmm_initialized) {
     size_t cursor = 0, key_size = 0;
-    const void* regentry = libxs_registry_begin_length(opencl_libsmm_registry, NULL /*key*/, &key_size, &cursor);
+    const void* regentry = libxs_registry_begin_length(libsmm_registry, NULL /*key*/, &key_size, &cursor);
     for (; NULL != regentry;
-         regentry = libxs_registry_next_length(opencl_libsmm_registry, NULL /*key*/, &key_size, &cursor))
+         regentry = libxs_registry_next_length(libsmm_registry, NULL /*key*/, &key_size, &cursor))
     {
       /* trans-, norms- and SMM-entries share this registry and are told apart by the
-       * size of their key (only opencl_libsmm_smmkey_t carries two kernels) */
-      const int is_smm = (sizeof(opencl_libsmm_smmkey_t) == key_size);
-      /* opencl_libsmm_trans_t/opencl_libsmm_smm_t carry cl_kernel as 1st data member */
+       * size of their key (only libsmm_smmkey_t carries two kernels) */
+      const int is_smm = (sizeof(libsmm_smmkey_t) == key_size);
+      /* libsmm_trans_t/libsmm_smm_t carry cl_kernel as 1st data member */
       cl_kernel kernel = *(const cl_kernel*)regentry;
-      if (NULL == kernel && 0 != is_smm) kernel = ((const opencl_libsmm_smm_t*)regentry)->kernel[1];
+      if (NULL == kernel && 0 != is_smm) kernel = ((const libsmm_smm_t*)regentry)->kernel[1];
       if (NULL != kernel) {
         int result_entry = clReleaseKernel(kernel);
-        if (0 != is_smm && EXIT_SUCCESS == result_entry && kernel != ((const opencl_libsmm_smm_t*)regentry)->kernel[1]) {
-          kernel = ((const opencl_libsmm_smm_t*)regentry)->kernel[1]; /* release 2nd kernel */
+        if (0 != is_smm && EXIT_SUCCESS == result_entry && kernel != ((const libsmm_smm_t*)regentry)->kernel[1]) {
+          kernel = ((const libsmm_smm_t*)regentry)->kernel[1]; /* release 2nd kernel */
           if (NULL != kernel) result_entry = clReleaseKernel(kernel);
         }
         if (EXIT_SUCCESS != result_entry) result = result_entry;
       }
     }
-    libxs_registry_destroy(opencl_libsmm_registry);
-    opencl_libsmm_registry = NULL;
+    libxs_registry_destroy(libsmm_registry);
+    libsmm_registry = NULL;
 #if defined(OPENCL_KERNELS_PREDICT_MODELS)
-    libxs_predict_destroy(opencl_libsmm_predict_model);
-    opencl_libsmm_predict_model = NULL;
+    libxs_predict_destroy(libsmm_predict_model);
+    libsmm_predict_model = NULL;
 #endif
 #if !defined(__DBCSR_ACC)
     /**
@@ -536,7 +536,7 @@ libxstream_bool_t libsmm_acc_is_thread_safe(void) {
 }
 
 
-const char* opencl_libsmm_getenv(const char domain[], const char key[]) {
+const char* libsmm_getenv(const char domain[], const char key[]) {
   char buffer[LIBXSTREAM_BUFFERSIZE];
   const size_t keylen = strlen(key);
   const char* result = NULL;
@@ -580,12 +580,12 @@ libxstream_bool_t libsmm_acc_process_suitable(
       && mn <= (max_kernel_dim * max_kernel_dim) && k_max * n_max <= (max_kernel_dim * max_kernel_dim))
   {
     switch (datatype) {
-#if defined(OPENCL_LIBSMM_F64)
+#if defined(LIBSMM_F64)
       case dbcsr_type_real_8: {
         result = 1; /* true */
       } break;
 #endif
-#if defined(OPENCL_LIBSMM_F32)
+#if defined(LIBSMM_F32)
       case dbcsr_type_real_4: {
         result = 1; /* true */
       } break;
@@ -594,8 +594,8 @@ libxstream_bool_t libsmm_acc_process_suitable(
     }
   }
   if ((/*false*/ 0 == result) && (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity)) {
-    opencl_libsmm_smmkey_t key;
-    opencl_libsmm_smm_t dummy;
+    libsmm_smmkey_t key;
+    libsmm_smm_t dummy;
     key.type = datatype;
     key.m = m_max;
     key.n = n_max;
@@ -603,9 +603,9 @@ libxstream_bool_t libsmm_acc_process_suitable(
     LIBXS_MEMZERO(&dummy); /* mute warnings about potentially uninitialized data */
     LIBXS_STDIO_ACQUIRE();
     fprintf(stderr, "INFO ACC/LIBSMM: SMM-kernel ");
-    opencl_libsmm_write_smm_params(stderr, 1 /*only_key*/, &key, NULL /*config*/, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
+    libsmm_write_smm_params(stderr, 1 /*only_key*/, &key, NULL /*config*/, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
     fprintf(stderr, "=");
-    opencl_libsmm_write_smm_params(stderr, 1 /*only_key*/, &key, &dummy, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
+    libsmm_write_smm_params(stderr, 1 /*only_key*/, &key, &dummy, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
     fprintf(stderr, " ss=%i", stack_size);
     if (mn <= (max_kernel_dim * max_kernel_dim)) {
       fprintf(stderr, 0 != def_mnk ? " is ignored\n" : " is inhomogeneous\n");
@@ -623,19 +623,19 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
   libxstream_bool_t def_mnk, void* stream, void* c_stream)
     {
   int result = EXIT_SUCCESS;
-#if defined(OPENCL_LIBSMM_PFORMAT) && (0 < OPENCL_LIBSMM_PFORMAT)
+#if defined(LIBSMM_PFORMAT) && (0 < LIBSMM_PFORMAT)
   /* the shape packs into PFORMAT bits per extent, larger stacks take the other path */
-  if (dbcsr_type_real_8 == datatype && 0 != def_mnk && NULL != opencl_libsmm_acc_dbm_launch_fn &&
-      LIBXS_MAX(LIBXS_MAX(m_max, n_max), k_max) < (1 << (OPENCL_LIBSMM_PFORMAT - 1)))
+  if (dbcsr_type_real_8 == datatype && 0 != def_mnk && NULL != libsmm_acc_dbm_launch_fn &&
+      LIBXS_MAX(LIBXS_MAX(m_max, n_max), k_max) < (1 << (LIBSMM_PFORMAT - 1)))
   {
-    result = opencl_libsmm_acc_dbm_launch_fn(stream, 1.0 /*alpha*/, stack_size,
-      m_max | (n_max << OPENCL_LIBSMM_PFORMAT) | (k_max << (OPENCL_LIBSMM_PFORMAT * 2)), NULL /*shape*/, host_param_stack,
+    result = libsmm_acc_dbm_launch_fn(stream, 1.0 /*alpha*/, stack_size,
+      m_max | (n_max << LIBSMM_PFORMAT) | (k_max << (LIBSMM_PFORMAT * 2)), NULL /*shape*/, host_param_stack,
       dev_param_stack, (const double*)dev_a_data, (const double*)dev_b_data, (double*)dev_c_data);
   }
   else
 #endif
   {
-    result = opencl_libsmm_acc_process(host_param_stack, dev_param_stack, stack_size, datatype, dev_a_data, dev_b_data, dev_c_data,
+    result = libsmm_acc_process_ext(host_param_stack, dev_param_stack, stack_size, datatype, dev_a_data, dev_b_data, dev_c_data,
       m_max, n_max, k_max, max_kernel_dim, def_mnk, stream, c_stream, 0 /*param_format*/, NULL /*event*/);
   }
   return result;
@@ -647,36 +647,36 @@ int c_calculate_norms(const double* mat, int nblks, const int* offsets, const in
   LIBXS_ASSERT((NULL != mat && NULL != offsets && NULL != nelems && NULL != norms && NULL != stream_ptr) || 0 >= nblks);
   if (0 < nblks) {
     static libxs_lock_t lock;
-    opencl_libsmm_norms_t* config;
-    opencl_libsmm_normskey_t key;
+    libsmm_norms_t* config;
+    libsmm_normskey_t key;
     LIBXS_MEMZERO(&key);
     key.type = dbcsr_type_real_8;
     /* calling clSetKernelArg/clEnqueueNDRangeKernel must be consistent */
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &lock);
-    config = (opencl_libsmm_norms_t*)libxs_registry_get(
-      opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
+    config = (libsmm_norms_t*)libxs_registry_get(
+      libsmm_registry, &key, sizeof(key), libxs_registry_lock(libsmm_registry));
     if (NULL == config) {
       const char* const fp64ext[] = {"cl_khr_fp64"};
       if (EXIT_SUCCESS ==
           libxstream_opencl_device_ext(libxstream_opencl_config.devices[libxstream_opencl_config.device_id], fp64ext, 1))
       {
         char build_params[LIBXSTREAM_BUFFERSIZE];
-        opencl_libsmm_norms_t new_config;
+        libsmm_norms_t new_config;
         int nchar;
         LIBXS_MEMZERO(&new_config);
-        new_config.wgsize = OPENCL_LIBSMM_NORMS_WG;
+        new_config.wgsize = LIBSMM_NORMS_WG;
         while (1 < new_config.wgsize && libxstream_opencl_config.device.wgsize[0] < new_config.wgsize) new_config.wgsize >>= 1;
-        nchar = LIBXS_SNPRINTF(build_params, sizeof(build_params), "-DFN=%s -DWG=%i", OPENCL_LIBSMM_KERNELNAME_NORMS,
+        nchar = LIBXS_SNPRINTF(build_params, sizeof(build_params), "-DFN=%s -DWG=%i", LIBSMM_KERNELNAME_NORMS,
           LIBXS_CAST_INT(new_config.wgsize));
         if (0 < nchar && (int)sizeof(build_params) > nchar) {
-          result = libxstream_opencl_kernel(0 /*source_kind*/, OPENCL_KERNELS_SOURCE_NORMS, OPENCL_LIBSMM_KERNELNAME_NORMS,
+          result = libxstream_opencl_kernel(0 /*source_kind*/, OPENCL_KERNELS_SOURCE_NORMS, LIBSMM_KERNELNAME_NORMS,
             build_params, "" /*build_options*/, NULL /*try*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/,
             &new_config.kernel);
         }
         else result = EXIT_FAILURE;
         if (EXIT_SUCCESS == result) {
-          config = (opencl_libsmm_norms_t*)libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key), &new_config,
-            sizeof(new_config), libxs_registry_lock(opencl_libsmm_registry));
+          config = (libsmm_norms_t*)libxs_registry_set(libsmm_registry, &key, sizeof(key), &new_config,
+            sizeof(new_config), libxs_registry_lock(libsmm_registry));
           if (NULL == config) {
             clReleaseKernel(new_config.kernel);
             result = EXIT_FAILURE;

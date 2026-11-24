@@ -18,7 +18,7 @@ predict_params.x rf trees8 tune_multiply_PVC.csv tune_multiply_PVC.bin
 At build time, the matching CSV (or its model) is embedded (selected
 via `make WITH_GPU=<device>`). At runtime, parameters are selected by
 matching the device ID with fallback to the best-matching set. A CSV
-can also be loaded explicitly via `OPENCL_LIBSMM_SMM_PARAMS=<path>`,
+can also be loaded explicitly via `LIBSMM_SMM_PARAMS=<path>`,
 and then applies to any device.
 
 See the SMM sample README (`samples/smm/README.md`) for details on

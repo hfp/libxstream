@@ -18,8 +18,8 @@ over the tuner's overrides, and "generate" turns the strings into instances.
   shim_smm.py generate defs.txt float -o shim_smm_fp32.c
 
 BENCH32 is acc_bench built with ELEM_TYPE=float. The overrides only apply
-without OPENCL_LIBSMM_SMM_PARAMS=0 (it suppresses every one of them), and a
-batch above one needs OPENCL_LIBSMM_SMM_S=0 as the tuner sets it.
+without LIBSMM_SMM_PARAMS=0 (it suppresses every one of them), and a
+batch above one needs LIBSMM_SMM_S=0 as the tuner sets it.
 """
 
 import argparse
@@ -30,7 +30,7 @@ import subprocess
 import sys
 import tempfile
 
-P = "OPENCL_LIBSMM_SMM_"
+P = "LIBSMM_SMM_"
 # the tuner's parameters, one family at a time, and the transpose's own
 CONFIGS = [
     "",
@@ -54,8 +54,8 @@ CONFIGS = [
     P + "S=0 " + P + "BS=4 " + P + "BM=4 " + P + "BN=1 " + P + "BK=1",
     P + "S=0 " + P + "BS=4 " + P + "AA=0 " + P + "AB=0 " + P + "AC=0",
     P + "S=0 " + P + "BS=4 " + P + "AC=2 " + P + "BM=3 " + P + "BN=2",
-    "OPENCL_LIBSMM_TRANS_BM=4",
-    "OPENCL_LIBSMM_TRANS_BM=8 OPENCL_LIBSMM_TRANS_BS=4",
+    "LIBSMM_TRANS_BM=4",
+    "LIBSMM_TRANS_BM=8 LIBSMM_TRANS_BS=4",
 ]
 SHAPES = ["23 23 23", "5 7 9", "4 4 4", "32 32 32"]
 
