@@ -1280,7 +1280,15 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
          */
         rtm = (0 != biggrf && 1 == ctx->sb && 0 == (ozflags & OZAKI_SYMMETRIZE)) ? 4 : 2;
       }
-      else if ((0 != ctx->nv_mma || 0 != ctx->amd_mfma || 0 != ctx->amd_wmma) && 0 != gpu) {
+      /**
+       * WMMA: 4x2 against 2x2 on simulated RDNA4 (n=256..1024) is 25-28% fewer instructions
+       * and 16-22% fewer bytes in the same VGPRs (Scheme 1 sits at the 256 limit either way);
+       * 4x4 spills. Not promoted. Scheme 2 sets its own pair (crt_rtm below).
+       */
+      else if (0 != ctx->amd_wmma && 0 != gpu) {
+        rtm = 4;
+      }
+      else if ((0 != ctx->nv_mma || 0 != ctx->amd_mfma) && 0 != gpu) {
         rtm = 2;
       }
       else rtm = 1; /* NV dp4a: RTM>1 replicates the A-load 16x, measured 4x slower */
@@ -1735,8 +1743,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        * and the whole tile width in one instruction. Only the default configuration
        * is supported - hierarchical CRT, no K-grouping, PB=1 - which the gate
        * above enforces and the kernel restates with #error.
-       */
-      /**
+       *
        * WMMA: a wave loads its own fragments, so the bytes read go with the 16x16 tiles a
        * wave covers. 4x2 against 2x2 on simulated RDNA4 (n=256..1024, int8 GEMM): 0.75x the
        * bytes and 13-19% fewer instructions for 95 instead of 78 VGPRs; 4x4 (168 VGPRs)
