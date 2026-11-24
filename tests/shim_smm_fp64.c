@@ -1343,7 +1343,6 @@
 #define SLM_C 1
 #include "shim_smm_instance.h"
 
-#define INPLACE 0
 #define FN shim_dtrans_1
 #define SM 23
 #define SN 23
@@ -1353,7 +1352,6 @@
 #define SLM_PAD 0
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_dtrans_2
 #define SM 23
 #define SN 23
@@ -1363,7 +1361,6 @@
 #define SLM_PAD 0
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_dtrans_3
 #define SM 32
 #define SN 32
@@ -1373,7 +1370,6 @@
 #define SLM_PAD 1
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_dtrans_4
 #define SM 32
 #define SN 32
@@ -1383,7 +1379,6 @@
 #define SLM_PAD 1
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_dtrans_5
 #define SM 32
 #define SN 32
@@ -1393,7 +1388,6 @@
 #define SLM_PAD 1
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_dtrans_6
 #define SM 4
 #define SN 4
@@ -1403,7 +1397,6 @@
 #define SLM_PAD 1
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_dtrans_7
 #define SM 4
 #define SN 4
@@ -1413,7 +1406,6 @@
 #define SLM_PAD 1
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_dtrans_8
 #define SM 7
 #define SN 9
@@ -1423,7 +1415,6 @@
 #define SLM_PAD 0
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_dtrans_9
 #define SM 7
 #define SN 9
@@ -1433,7 +1424,6 @@
 #define SLM_PAD 0
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_dtrans_10
 #define SM 9
 #define SN 7
@@ -1443,31 +1433,10 @@
 #define SLM_PAD 0
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_dtrans_11
 #define SM 9
 #define SN 7
 #define WG 9
-#define T char8
-#define BS 8
-#define SLM_PAD 0
-#include "shim_smm_trans_instance.h"
-
-#define INPLACE 1
-#define FN shim_dtrans_12
-#define SM 23
-#define SN 23
-#define WG 23
-#define T char8
-#define BS 8
-#define SLM_PAD 0
-#include "shim_smm_trans_instance.h"
-
-#define INPLACE 1
-#define FN shim_dtrans_13
-#define SM 4
-#define SN 4
-#define WG 4
 #define T char8
 #define BS 8
 #define SLM_PAD 0
@@ -1558,9 +1527,7 @@ static const shim_trans_desc_t* const shim_trans_set[] = {
   &shim_dtrans_8_desc,
   &shim_dtrans_9_desc,
   &shim_dtrans_10_desc,
-  &shim_dtrans_11_desc,
-  &shim_dtrans_12_desc,
-  &shim_dtrans_13_desc
+  &shim_dtrans_11_desc
 };
 
 

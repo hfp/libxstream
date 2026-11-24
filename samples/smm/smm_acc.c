@@ -576,8 +576,8 @@ libxstream_bool_t libsmm_acc_process_suitable(
   const int mn = m_max * n_max;
   if (0 < mn && 0 < k_max && 0 < stack_size &&
       0 != def_mnk /*homogeneous*/
-      /* allow k_max to exceed max_kernel_dim, TODO: BLAS for large kernels (m,n) */
-      && mn <= (max_kernel_dim * max_kernel_dim))
+      /* k_max may exceed max_kernel_dim, but B must be transposed (libsmm_acc_transpose: k x n up to max_kernel_dim^2) */
+      && mn <= (max_kernel_dim * max_kernel_dim) && k_max * n_max <= (max_kernel_dim * max_kernel_dim))
   {
     switch (datatype) {
 #if defined(OPENCL_LIBSMM_F64)

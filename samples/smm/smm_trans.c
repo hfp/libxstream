@@ -95,17 +95,12 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         const char *const env_cl = OPENCL_LIBSMM_TRANSENV("BUILDOPTS"), *const env_bm = OPENCL_LIBSMM_TRANSENV("BM");
         const char* const env_bs = OPENCL_LIBSMM_TRANSENV("BS");
         const char* const cmem = (EXIT_SUCCESS != libxstream_opencl_use_cmem_size(devinfo, 0) ? "global" : "constant");
-        const char* const build_format = "-DCONSTANT=%s -DINPLACE=%i -DFN=%s -DSM=%i -DSN=%i -DWG=%i -DT=%s -DBS=%i -DSLM_PAD=%i";
-        const char *const env_inplace = OPENCL_LIBSMM_TRANSENV("INPLACE"), *tname = "";
-#if defined(OPENCL_LIBSMM_TRANS_INPLACE)
-        const int inplace = ((m == n) && (NULL == env_inplace ? 1 : ('0' != *env_inplace)));
-#else
-        const int inplace = ((m == n) && (NULL == env_inplace ? 0 : ('0' != *env_inplace)));
-#endif
+        const char* const build_format = "-DCONSTANT=%s -DFN=%s -DSM=%i -DSN=%i -DWG=%i -DT=%s -DBS=%i -DSLM_PAD=%i";
+        const char* tname = "";
         const int blockm = ((NULL == env_bm || '\0' == *env_bm) ? 0 : atoi(env_bm));
         const int bm = (0 >= blockm ? m : LIBXS_MIN(blockm, m));
         const int typesize = OPENCL_LIBSMM_TYPESIZE(datatype);
-        const int slm_pad = (0 != inplace ? 0 : (LIBXS_ISPOT(n * typesize) ? 1 : 0));
+        const int slm_pad = (LIBXS_ISPOT(n * typesize) ? 1 : 0);
         int tbs = ((NULL == env_bs || '\0' == *env_bs) ? OPENCL_LIBSMM_DEFAULT_BS : atoi(env_bs));
         opencl_libsmm_trans_t new_config;
         LIBXS_MEMZERO(&new_config);
@@ -125,7 +120,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         new_config.bs = tbs;
         nchar = LIBXS_SNPRINTF(buffer, sizeof(buffer), "%s", NULL == env_cl ? "" : env_cl);
         if (0 <= /*<*/ nchar && (int)sizeof(buffer) > nchar) {
-          nchar = LIBXS_SNPRINTF(build_params, sizeof(build_params), build_format, cmem, inplace, fname, m, n,
+          nchar = LIBXS_SNPRINTF(build_params, sizeof(build_params), build_format, cmem, fname, m, n,
             LIBXS_CAST_INT(new_config.wgsize), tname, tbs, slm_pad);
         }
         if ('\0' != *tname && 0 < nchar && (int)sizeof(build_params) > nchar) {
@@ -140,7 +135,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
               LIBXS_ASSERT(0 < wgsize_max);
               if (wgsize_max < new_config.wgsize) {
                 new_config.wgsize = wgsize_max;
-                nchar = LIBXS_SNPRINTF(build_params, sizeof(build_params), build_format, cmem, inplace, fname, m, n,
+                nchar = LIBXS_SNPRINTF(build_params, sizeof(build_params), build_format, cmem, fname, m, n,
                   LIBXS_CAST_INT(new_config.wgsize), tname, tbs, slm_pad);
                 if (0 < nchar && (int)sizeof(build_params) > nchar) {
                   result = libxstream_opencl_kernel(0 /*source_kind*/, OPENCL_KERNELS_SOURCE_TRANSPOSE, fname, build_params, buffer,

@@ -58,7 +58,7 @@ typedef struct {
 } shim_smm_desc_t;
 typedef struct {
   const char* name;
-  int m, n, bs, wg, inplace;
+  int m, n, bs, wg;
   shim_trans_launch_t launch;
 } shim_trans_desc_t;
 
@@ -179,8 +179,8 @@ static int shim_smm_transpose(const shim_trans_desc_t* desc, unsigned int seed)
       for (j = 0; j < n && EXIT_SUCCESS == result; ++j) {
         for (i = 0; i < m && EXIT_SUCCESS == result; ++i) {
           if (mat[s * mn + i * n + j] != org[s * mn + j * m + i]) {
-            fprintf(stderr, "shim: trans %s (%ix%i bs=%i wg=%i%s): block %i (%i,%i) = %g, expected %g\n", desc->name, m, n,
-              desc->bs, desc->wg, 0 != desc->inplace ? " inplace" : "", s, i, j, (double)mat[s * mn + i * n + j],
+            fprintf(stderr, "shim: trans %s (%ix%i bs=%i wg=%i): block %i (%i,%i) = %g, expected %g\n", desc->name, m, n,
+              desc->bs, desc->wg, s, i, j, (double)mat[s * mn + i * n + j],
               (double)org[s * mn + j * m + i]);
             result = EXIT_FAILURE;
           }

@@ -13,10 +13,6 @@
 #include <libxstream/libxstream_opencl.h>
 #include <libxs/libxs_reg.h>
 
-/* Inplace-transpose by default (corresponding environment variable exists also) */
-#if !defined(OPENCL_LIBSMM_TRANS_INPLACE) && 0
-# define OPENCL_LIBSMM_TRANS_INPLACE
-#endif
 #if !defined(OPENCL_LIBSMM_F32_OFF) && defined(__DBCSR_ACC) && 0
 # define OPENCL_LIBSMM_F32_OFF
 #endif

@@ -22,9 +22,7 @@ __attribute__((reqd_work_group_size(WG, 1, 1))) kernel void FN(
 {
 #endif
   const int gid = get_group_id(0), idx = get_local_id(0);
-#if (SM != SN) || (0 == INPLACE)
   local T buf[SM][SN + SLM_PAD]; /* local memory buffer */
-#endif
 #if (1 < BS)
   const int batchsize = min(bs, stack_size - bs * gid);
   int i;
@@ -39,48 +37,26 @@ __attribute__((reqd_work_group_size(WG, 1, 1))) kernel void FN(
 #if (WG == SM)
     const int m = idx;
     int n;
-#  if (SM != SN) || (0 == INPLACE)
     /* copy matrix elements into local buffer */
     for (n = 0; n < SN; ++n) buf[m][n] = mat[SM * n + m];
     barrier(CLK_LOCAL_MEM_FENCE);
     /* overwrite matrix elements (gather) */
     for (n = 0; n < SN; ++n) mat[SN * m + n] = buf[m][n];
-#  else
-    for (n = 0; n < m; ++n) {
-      const int a = SM * n + m;
-      const int b = SN * m + n;
-      const T tmp = mat[a];
-      mat[a] = mat[b];
-      mat[b] = tmp;
-    }
-#  endif
 #else
     T prv[SN]; /* private buffer */
     int m, n;
-#  if (SM != SN) || (0 == INPLACE)
     /* copy matrix elements into local buffer */
     for (m = idx; m < SM; m += WG) {
       for (n = 0; n < SN; ++n) buf[m][n] = mat[SM * n + m];
     }
     barrier(CLK_LOCAL_MEM_FENCE);
-#  endif
     for (m = idx; m < SM; m += WG) {
-#  if (SM != SN) || (0 == INPLACE)
       for (n = 0; n < SN; ++n) prv[n] = buf[m][n];
       /* overwrite matrix elements (gather) */
       for (n = 0; n < SN; ++n) mat[SN * m + n] = prv[n];
-#  else
-      for (n = 0; n < SN; ++n) prv[n] = mat[SM * n + m];
-      for (n = 0; n < m; ++n) {
-        const int a = SM * n + m;
-        const int b = SN * m + n;
-        mat[a] = mat[b];
-        mat[b] = prv[n];
-      }
-#  endif
     }
 #endif
-#if (1 < BS) && ((SM != SN) || (0 == INPLACE))
+#if (1 < BS)
     barrier(CLK_LOCAL_MEM_FENCE);
 #endif
   }

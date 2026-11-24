@@ -118,7 +118,6 @@ Transpose kernel:
 | Variable                      | Default | Description                             |
 |-------------------------------|---------|-----------------------------------------|
 | OPENCL_LIBSMM_TRANS_BUILDOPTS | -       | Extra OpenCL build options              |
-| OPENCL_LIBSMM_TRANS_INPLACE   | 0       | Non-zero: in-place if square (no LDS)   |
 | OPENCL_LIBSMM_TRANS_BM        | auto    | Block size in M-direction (0 < BM <= M) |
 | OPENCL_LIBSMM_TRANS_BS        | 8       | Matrices per work-group                 |
 | OPENCL_LIBSMM_TRANS_PARAMS    | -       | 0: ignore TRANS_BM and TRANS_BS         |

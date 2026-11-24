@@ -827,7 +827,6 @@
 #define SLM_C 1
 #include "shim_smm_instance.h"
 
-#define INPLACE 0
 #define FN shim_strans_1
 #define SM 23
 #define SN 23
@@ -837,7 +836,6 @@
 #define SLM_PAD 0
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_strans_2
 #define SM 23
 #define SN 23
@@ -847,7 +845,6 @@
 #define SLM_PAD 0
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_strans_3
 #define SM 32
 #define SN 32
@@ -857,7 +854,6 @@
 #define SLM_PAD 1
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_strans_4
 #define SM 32
 #define SN 32
@@ -867,7 +863,6 @@
 #define SLM_PAD 1
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_strans_5
 #define SM 32
 #define SN 32
@@ -877,7 +872,6 @@
 #define SLM_PAD 1
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_strans_6
 #define SM 4
 #define SN 4
@@ -887,7 +881,6 @@
 #define SLM_PAD 1
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_strans_7
 #define SM 4
 #define SN 4
@@ -897,7 +890,6 @@
 #define SLM_PAD 1
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_strans_8
 #define SM 7
 #define SN 9
@@ -907,7 +899,6 @@
 #define SLM_PAD 0
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_strans_9
 #define SM 7
 #define SN 9
@@ -917,7 +908,6 @@
 #define SLM_PAD 0
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_strans_10
 #define SM 9
 #define SN 7
@@ -927,7 +917,6 @@
 #define SLM_PAD 0
 #include "shim_smm_trans_instance.h"
 
-#define INPLACE 0
 #define FN shim_strans_11
 #define SM 9
 #define SN 7

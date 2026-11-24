@@ -54,7 +54,6 @@ CONFIGS = [
     P + "S=0 " + P + "BS=4 " + P + "BM=4 " + P + "BN=1 " + P + "BK=1",
     P + "S=0 " + P + "BS=4 " + P + "AA=0 " + P + "AB=0 " + P + "AC=0",
     P + "S=0 " + P + "BS=4 " + P + "AC=2 " + P + "BM=3 " + P + "BN=2",
-    "OPENCL_LIBSMM_TRANS_INPLACE=1",
     "OPENCL_LIBSMM_TRANS_BM=4",
     "OPENCL_LIBSMM_TRANS_BM=8 OPENCL_LIBSMM_TRANS_BS=4",
 ]
@@ -128,7 +127,7 @@ def generate(args):
     for line in open(args.defs).read().splitlines():
         d = parse(line)
         dd = dict(d)
-        is_trans = "INPLACE" in dd
+        is_trans = "SLM_PAD" in dd  # only the transpose has it
         want = ("char8" if "double" == elem else "float") if is_trans else elem
         if "FN" not in dd or dd.get("T") != want:
             continue

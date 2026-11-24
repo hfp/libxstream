@@ -35,7 +35,7 @@ static void CAT(FN, _launch)(const int* stack, void* matrix, int stack_size)
   }
 }
 
-static const shim_trans_desc_t CAT(FN, _desc) = { LIBXS_STRINGIFY(FN), SM, SN, BS, WG, INPLACE, CAT(FN, _launch) };
+static const shim_trans_desc_t CAT(FN, _desc) = { LIBXS_STRINGIFY(FN), SM, SN, BS, WG, CAT(FN, _launch) };
 
 #undef SLM_PAD
 #undef T
@@ -44,4 +44,3 @@ static const shim_trans_desc_t CAT(FN, _desc) = { LIBXS_STRINGIFY(FN), SM, SN, B
 #undef SM
 #undef SN
 #undef BS
-#undef INPLACE
