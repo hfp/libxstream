@@ -113,6 +113,15 @@ replace "${CUDADEV}" "if (sm_version >= 89)" \
 replace "${CUDADEV}" "unsigned selected_ptx = max_ptx;" \
   "  unsigned selected_ptx = (80 < max_ptx && 80 >= min_ptx) ? 80 : max_ptx;"
 
+# A freed SVM/USM allocation keeps its shadow's device-address entry until the
+# commands holding the shadow are cleaned up, hence an allocation reusing the
+# range fails ("Overlapping BDA pointer!"). The entry goes at free time, as in
+# PoCL's main (c62a9efdb), which no release has yet.
+for FREE in clSVMFree clMemFreeINTEL; do
+  replace "${SRC}/lib/CL/${FREE}.c" "pocl_raw_ptr_set_remove (context->raw_ptrs, item);" \
+    "  pocl_raw_ptr_set_remove (context->raw_ptrs, item); if (item && item->shadow_cl_mem) pocl_raw_ptr_set_erase_all_by_shadow_mem (context->raw_ptrs, item->shadow_cl_mem);"
+done
+
 # Some distributions ship only the versioned Clang library without its development link.
 LIBDIR=$("${LLVM_CONFIG}" --libdir)
 CLANG_CPP=""
