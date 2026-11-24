@@ -1736,10 +1736,18 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        * is supported - hierarchical CRT, no K-grouping, PB=1 - which the gate
        * above enforces and the kernel restates with #error.
        */
+      /**
+       * WMMA: a wave loads its own fragments, so the bytes read go with the 16x16 tiles a
+       * wave covers. 4x2 against 2x2 on simulated RDNA4 (n=256..1024, int8 GEMM): 0.75x the
+       * bytes and 13-19% fewer instructions for 95 instead of 78 VGPRs; 4x4 (168 VGPRs)
+       * is the promoted pair below. Same result to the last bit.
+       */
       const int crt_rtm = (0 != wgmma)
                             ? 1
-                            : ((0 != crt_hier && 0 != biggrf && 0 == ctx->hier) ? LIBXS_MAX(rtm_crt_base / 2, 1)
-                                                                               : rtm_crt_base);
+                            : ((0 != ctx->amd_wmma && 0 != gpu && 0 == rtm_req)
+                                  ? 4
+                                  : ((0 != crt_hier && 0 != biggrf && 0 == ctx->hier) ? LIBXS_MAX(rtm_crt_base / 2, 1)
+                                                                                     : rtm_crt_base));
       /**
        * MMA gives a sub-tile 16 rows but only 8 columns, so reaching a square
        * register tile needs twice the column tiling. Scheme 1 measured -26% at
@@ -2072,6 +2080,16 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           ctx->crt_rtm_big = big.m;
           ctx->crt_rtn_big = big.n;
         }
+      }
+      /**
+       * WMMA promotes 4x2 to 4x4 (half the bytes of 2x2, MFMA's per wave) once the tile
+       * grid fills the device, by the same rule as PVC's (ozaki_rtile_select): no AMD
+       * timing calibrates it yet, and 4x4 spends 168 VGPRs (RDNA4) to 183 (RDNA3).
+       */
+      else if (0 == rtm_req && 0 == rtn_req && 0 != ctx->amd_wmma && 0 != gpu && 4 == crt_rtm && 2 == crt_rtn
+        && tm >= OZAKI_XMX_M(ctx) * 4 && tn >= OZAKI_XMX_N(ctx) * 4)
+      {
+        ctx->crt_rtn_big = 4;
       }
       if (EXIT_SUCCESS != result) ozaki_release_kernel(&ctx->kern_crt_scale_beta);
     }
