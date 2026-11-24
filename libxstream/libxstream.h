@@ -134,7 +134,7 @@ LIBXSTREAM_API int libxstream_mem_zero(void* dev_mem, size_t offset, size_t nbyt
  */
 #if defined(LIBXSTREAM_SOURCE) && !defined(LIBXSTREAM_SOURCE_H) \
  && !defined(LIBXSTREAM_OPENCL_H) && !defined(LIBXSTREAM_DBCSR_H) && !defined(DBCSR_ACC_H) \
- && !defined(LIBXSTREAM_CP2K_H) && !defined(LIBXSTREAM_BLAS_H)
+ && !defined(LIBXSTREAM_CP2K_H) && !defined(LIBXSTREAM_BLAS_H) && !defined(LIBXSTREAM_SYRK_H)
 # include "libxstream_source.h"
 #endif
 

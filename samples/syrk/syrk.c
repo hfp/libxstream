@@ -7,10 +7,10 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-/* SYRK and SYR2K of LIBXS with the panels on an OpenCL device (syrk_opencl), checked against LIBXS
+/* SYRK and SYR2K of LIBXS with the panels on a device (libxstream_syrk.h), checked against LIBXS
  * on the host, which also gives the reference of the weighted form op(A)*diag(d)*op(A)^T. With MPI
  * (-D__MPI), every rank holds a share of k, and C is block-cyclic on a grid of the ranks. */
-#include "syrk_opencl.h"
+#include <libxstream/libxstream_syrk.h>
 #include <libxs/libxs_timer.h>
 #include <libxstream/libxstream.h>
 #if defined(_OPENMP)
@@ -137,7 +137,7 @@ int main(int argc, char* argv[])
   libxs_syrk_device_t device;
   libxs_pdist_t dist;
   libxs_syrk_t host, plan;
-  syrk_opencl_t* ctx = NULL;
+  libxstream_syrk_t* ctx = NULL;
   double thost = 0, tdev = 0, tres = 0, maxref = 0, maxerr = 0;
 #if defined(__MPI)
   { int provided;
@@ -211,10 +211,10 @@ int main(int argc, char* argv[])
 #endif
     if (0 == libxs_syrk_dispatch(&host, &shape)) result = EXIT_FAILURE;
   }
-  if (EXIT_SUCCESS == result) result = syrk_opencl_create(&ctx);
+  if (EXIT_SUCCESS == result) result = libxstream_syrk_create(&ctx);
   if (EXIT_SUCCESS == result) {
-    syrk_opencl_device(ctx, &device);
-    syrk_opencl_weights(ctx, 0 != weighted ? d : NULL);
+    libxstream_syrk_device(ctx, &device);
+    libxstream_syrk_weights(ctx, 0 != weighted ? d : NULL);
     shape.device = &device;
     if (0 == libxs_syrk_dispatch(&plan, &shape)) result = EXIT_FAILURE;
   }
@@ -246,10 +246,10 @@ int main(int argc, char* argv[])
     const double t0 = syrk_max(syrk_run(&host, alpha, as, 0 != twok ? b : NULL, beta, cref));
     const double t1 = syrk_max(syrk_run(&plan, alpha, a, 0 != twok ? b : NULL, beta, cdev));
     double t2;
-    syrk_opencl_resident(ctx, 1);
+    libxstream_syrk_resident(ctx, 1);
     syrk_run(&plan, alpha, a, 0 != twok ? b : NULL, beta, cdev); /* copies A, then it stays */
     t2 = syrk_max(syrk_run(&plan, alpha, a, 0 != twok ? b : NULL, beta, cdev));
-    syrk_opencl_resident(ctx, 0);
+    libxstream_syrk_resident(ctx, 0);
     if (0 > t0 || 0 > t1 || 0 > t2) result = EXIT_FAILURE;
     if (0 == r || t0 < thost) thost = t0;
     if (0 == r || t1 < tdev) tdev = t1;
@@ -264,8 +264,8 @@ int main(int argc, char* argv[])
       if (1 < nranks) printf(" ranks=%i grid=%ix%i block=%i", nranks, nprow, npcol, SYRK_BLOCK);
       printf("\n  error (relative):  %.2e\n", rel);
       printf("  LIBXS (host):      %.3f ms  %.1f GFLOPS/s\n", 1E3 * thost, 1E-9 * nflops / thost);
-      printf("  LIBXSTREAM (%s): %.3f ms  %.1f GFLOPS/s\n", syrk_opencl_backend(ctx), 1E3 * tdev, 1E-9 * nflops / tdev);
-      printf("  LIBXSTREAM (%s, A on device): %.3f ms  %.1f GFLOPS/s\n", syrk_opencl_backend(ctx), 1E3 * tres,
+      printf("  LIBXSTREAM (%s): %.3f ms  %.1f GFLOPS/s\n", libxstream_syrk_backend(ctx), 1E3 * tdev, 1E-9 * nflops / tdev);
+      printf("  LIBXSTREAM (%s, A on device): %.3f ms  %.1f GFLOPS/s\n", libxstream_syrk_backend(ctx), 1E3 * tres,
         1E-9 * nflops / tres);
     }
     if (!(rel <= tol)) {
@@ -275,7 +275,7 @@ int main(int argc, char* argv[])
   }
   libxs_syrk_release(&plan);
   libxs_syrk_release(&host);
-  syrk_opencl_destroy(ctx);
+  libxstream_syrk_destroy(ctx);
   libxstream_finalize();
   free(a); free(as); free(b); free(d); free(cref); free(cdev); free(ranks);
   if (EXIT_SUCCESS != result) fprintf(stderr, "ERROR: syrk failed (rank %i)\n", rank);

@@ -71,25 +71,14 @@ endif
 IFLAGS += -I$(call quote,$(DEPDIR))
 IFLAGS += -I$(call quote,$(INCDIR))
 
-# kernel source and generated header
-SCRDIR := $(DEPDIR)/scripts
-KRNELS := $(SRCDIR)/kernels/syrk.cl
-GENHDR := $(SRCDIR)/syrk_kernels.h
-GENSCR := $(SCRDIR)/tool_opencl.sh
-GENARG := -p "" -I $(call quote,$(DEPDIR)/libxstream)
-
-ifneq (0,$(SYM))
-  GENARG += -d
-endif
-
 OUTNAME := syrk
 # header-only builds also depend on the sources libxs_source.h and libxstream_source.h include
-HEADERS := $(wildcard $(INCDIR)/*.h) $(GENHDR) \
+HEADERS := $(wildcard $(INCDIR)/*.h) \
            $(wildcard $(DEPDIR)/libxstream/*.h) \
            $(wildcard $(DEPDIR)/libxstream/opencl/*.h) \
            $(wildcard $(LIBXSROOT)/libxs/*.h) \
            $(LIBXS_SRCDEP) $(XSTREAM_SRCDEP)
-CSOURCS := $(SRCDIR)/syrk.c $(SRCDIR)/syrk_opencl.c
+CSOURCS := $(SRCDIR)/syrk.c
 COBJCTS := $(patsubst %,$(BLDDIR)/%,$(notdir $(CSOURCS:.c=-c.o)))
 OBJECTS := $(COBJCTS)
 XFILES := $(OUTDIR)/$(OUTNAME).x
@@ -99,10 +88,6 @@ all: $(XFILES)
 
 .PHONY: compile
 compile: $(OBJECTS)
-
-# generate embedded kernel header from .cl sources
-$(GENHDR): $(KRNELS) $(wildcard $(DEPDIR)/libxstream/opencl/*.h) $(GENSCR) Makefile $(LIBXSROOT)/Makefile.inc
-	$(GENSCR) $(GENARG) $(KRNELS) $@
 
 $(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XLIB) $(LIBXS)
 	$(LD) -o $@ $(OBJECTS) $(XLIB) $(LIBXS) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS) $(LIBS)
@@ -136,7 +121,6 @@ endif
 ifneq (,$(wildcard $(OUTDIR))) # still exists
 	@-rm -f $(XFILES)
 endif
-	@-rm -f $(GENHDR)
 
 .PHONY: deepclean
 deepclean: realclean

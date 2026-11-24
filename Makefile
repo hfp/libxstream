@@ -177,14 +177,14 @@ ifeq (file,$(origin AVX))
 endif
 AVX_STATIC ?= $(AVX)
 
-HEADERS_MAIN := $(ROOTINC)/libxstream_blas.h $(ROOTINC)/libxstream_cp2k.h $(ROOTINC)/libxstream_dbcsr.h $(ROOTINC)/libxstream_macros.h $(ROOTINC)/libxstream_opencl.h $(ROOTINC)/libxstream.h
+HEADERS_MAIN := $(ROOTINC)/libxstream_blas.h $(ROOTINC)/libxstream_cp2k.h $(ROOTINC)/libxstream_dbcsr.h $(ROOTINC)/libxstream_macros.h $(ROOTINC)/libxstream_opencl.h $(ROOTINC)/libxstream_syrk.h $(ROOTINC)/libxstream.h
 LIBXS_SOURCE := $(wildcard $(LIBXSROOT)/libxs/libxs_source.h)
 # without a LIBXS library, the objects embed the sources libxs_source.h includes
 LIBXS_SRCDEP := $(if $(LIBXS)$(LIBXS_PC),,$(if $(LIBXS_SOURCE), \
   $(wildcard $(LIBXSROOT)/src/*.c) $(wildcard $(LIBXSROOT)/src/*.h)))
 HEADERS_SRC := $(wildcard $(ROOTSRC)/*.h)
 HEADERS := $(HEADERS_SRC) $(HEADERS_MAIN)
-SRCFILES := $(patsubst %,$(ROOTSRC)/%,libxstream_blas.c libxstream_cp2k.c libxstream_dbcsr.c libxstream.c libxstream_event.c libxstream_mem.c libxstream_mps.c libxstream_stream.c)
+SRCFILES := $(patsubst %,$(ROOTSRC)/%,libxstream_blas.c libxstream_cp2k.c libxstream_dbcsr.c libxstream.c libxstream_event.c libxstream_mem.c libxstream_mps.c libxstream_stream.c libxstream_syrk.c)
 # OpenCL-MPS server and the ICD given to the OpenCL loader, both beside the shared library
 # in the build tree (installed into PBINDIR and POUTDIR/libxstream, the ICD versioned)
 MPSFILE := $(ROOTSRC)/libxstream_mpsd.c
@@ -267,6 +267,10 @@ winterface: headers sources
 
 .PHONY: config
 config: $(INCDIR)/$(PROJECT)_version.h
+
+# the library's own kernels, embedded: the header is tracked (header-only builds), regenerated if a kernel changes
+$(ROOTSRC)/libxstream_syrk_kernels.h: $(ROOTSRC)/kernels/libxstream_syrk.cl $(wildcard $(ROOTINC)/opencl/*.h) $(ROOTSCR)/tool_opencl.sh
+	$(ROOTSCR)/tool_opencl.sh -b 9 -p "" -I $(ROOTINC) $(ROOTSRC)/kernels/libxstream_syrk.cl $@
 
 .PHONY: cheader
 cheader: $(INCDIR)/$(PROJECT)_source.h $(INCDIR)/$(PROJECT)_version.h

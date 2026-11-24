@@ -7,39 +7,39 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#include "syrk_opencl.h"
-#include <syrk_kernels.h>
+#include <libxstream/libxstream_syrk.h>
 #include <libxstream/libxstream_blas.h>
 #include <libxstream/libxstream_opencl.h>
+#include "libxstream_syrk_kernels.h"
 #include <math.h>
 
-#if !defined(OPENCL_KERNELS_SOURCE_SYRK)
-# error "OpenCL kernel code not found (syrk_kernels.h)!"
+#if !defined(OPENCL_KERNELS_SOURCE_LIBXSTREAM_SYRK)
+# error "OpenCL kernel code not found (libxstream_syrk_kernels.h)!"
 #endif
 /* work-items per dimension of a work-group, elements per work-item and dimension, and depth in k */
-#if !defined(SYRK_OPENCL_BS)
-# define SYRK_OPENCL_BS 16
+#if !defined(LIBXSTREAM_SYRK_BS)
+# define LIBXSTREAM_SYRK_BS 16
 #endif
-#if !defined(SYRK_OPENCL_RB)
-# define SYRK_OPENCL_RB 4
+#if !defined(LIBXSTREAM_SYRK_RB)
+# define LIBXSTREAM_SYRK_RB 4
 #endif
-#if !defined(SYRK_OPENCL_BK)
-# define SYRK_OPENCL_BK 16
+#if !defined(LIBXSTREAM_SYRK_BK)
+# define LIBXSTREAM_SYRK_BK 16
 #endif
 /* panels in flight, as many as LIBXS submits before it waits */
-#define SYRK_OPENCL_NSLOTS 2
+#define LIBXSTREAM_SYRK_NSLOTS 2
 
 
 /* A panel in flight: its result on the device, then in host memory for the merge */
-typedef struct syrk_opencl_slot_t {
+typedef struct libxstream_syrk_slot_t {
   libxs_syrk_panel_t panel;
   void *dev, *host;
   size_t size;
   libxstream_event_t* event;
   int f64, upper, busy;
-} syrk_opencl_slot_t;
+} libxstream_syrk_slot_t;
 
-struct syrk_opencl_t {
+struct libxstream_syrk_t {
   libxstream_stream_t* stream;
   cl_kernel kernel[2]; /* F64 and F32 */
   int built[2];        /* 0: not yet, 1: built, -1: failed (panels are declined) */
@@ -49,22 +49,23 @@ struct syrk_opencl_t {
   const void* weights;
   int keep, valid;
   /**
-   * The device BLAS (libxstream_blas.h) computes SYRK if it serves the device (SYRK_OPENCL_BLAS=0
+   * The device BLAS (libxstream_blas.h) computes SYRK if it serves the device (LIBXSTREAM_SYRK_BLAS=0
    * disables it): with weights, as holds A*diag(sqrt(d)) per update (scaled is zero if a weight is
    * negative), and hs the square roots in host memory until they are copied.
    */
   int blas, scaled;
   void *as, *s, *hs;
   size_t nas, ns, nhs;
-  /* what computed the panels so far: 1 = device BLAS, 2 = kernel, 4 = host (declined) */
+  /* what computed the panels so far: 1 = device BLAS, 2 = kernel, 4 = host (declined), and its label */
   int used;
-  syrk_opencl_slot_t slot[SYRK_OPENCL_NSLOTS];
+  char label[32];
+  libxstream_syrk_slot_t slot[LIBXSTREAM_SYRK_NSLOTS];
 };
 
 
 /* Device memory of at least size bytes, reallocated if smaller. */
-static int syrk_opencl_reserve(void** mem, size_t* capacity, size_t size);
-static int syrk_opencl_reserve(void** mem, size_t* capacity, size_t size)
+static int libxstream_syrk_reserve(void** mem, size_t* capacity, size_t size);
+static int libxstream_syrk_reserve(void** mem, size_t* capacity, size_t size)
 {
   int result = EXIT_SUCCESS;
   if (*capacity < size) {
@@ -79,8 +80,8 @@ static int syrk_opencl_reserve(void** mem, size_t* capacity, size_t size)
 
 
 /* Kernel of the datatype, built at its first use; NULL if the device cannot (e.g., no fp64). */
-static cl_kernel syrk_opencl_kernel(syrk_opencl_t* ctx, int f64);
-static cl_kernel syrk_opencl_kernel(syrk_opencl_t* ctx, int f64)
+static cl_kernel libxstream_syrk_kernel(libxstream_syrk_t* ctx, int f64);
+static cl_kernel libxstream_syrk_kernel(libxstream_syrk_t* ctx, int f64)
 {
   const int which = (0 != f64 ? 0 : 1);
   if (0 == ctx->built[which]) {
@@ -89,9 +90,9 @@ static cl_kernel syrk_opencl_kernel(syrk_opencl_t* ctx, int f64)
     cl_program program = NULL;
     int result = EXIT_FAILURE;
     const int nchars = LIBXS_SNPRINTF(flags, sizeof(flags), "-DT=%s -DBS=%i -DRB=%i -DBK=%i", 0 != f64 ? "double" : "float",
-      SYRK_OPENCL_BS, SYRK_OPENCL_RB, SYRK_OPENCL_BK);
+      LIBXSTREAM_SYRK_BS, LIBXSTREAM_SYRK_RB, LIBXSTREAM_SYRK_BK);
     if (0 < nchars && (int)sizeof(flags) > nchars) {
-      result = libxstream_opencl_program(0 /*source_kind*/, OPENCL_KERNELS_SOURCE_SYRK, "syrk", flags, NULL /*options*/,
+      result = libxstream_opencl_program(0 /*source_kind*/, OPENCL_KERNELS_SOURCE_LIBXSTREAM_SYRK, "syrk", flags, NULL /*options*/,
         NULL /*try*/, NULL /*try_ok*/, exts, 0 != f64 ? 1 : 0, &program);
     }
     if (EXIT_SUCCESS == result) result = libxstream_opencl_kernel_query(program, "syrk_panel", ctx->kernel + which);
@@ -103,8 +104,8 @@ static cl_kernel syrk_opencl_kernel(syrk_opencl_t* ctx, int f64)
 
 
 /* Copies the operands (and weights) of an update to the device, unless they are resident. */
-static int syrk_opencl_upload(syrk_opencl_t* ctx, const libxs_syrk_t* plan, const void* a, const void* b);
-static int syrk_opencl_upload(syrk_opencl_t* ctx, const libxs_syrk_t* plan, const void* a, const void* b)
+static int libxstream_syrk_upload(libxstream_syrk_t* ctx, const libxs_syrk_t* plan, const void* a, const void* b);
+static int libxstream_syrk_upload(libxstream_syrk_t* ctx, const libxs_syrk_t* plan, const void* a, const void* b)
 {
   const size_t es = LIBXS_TYPESIZE(plan->shape.datatype);
   const int notrans = ('N' == plan->shape.trans), twok = (0 != plan->shape.ldb);
@@ -113,10 +114,10 @@ static int syrk_opencl_upload(syrk_opencl_t* ctx, const libxs_syrk_t* plan, cons
   if (0 == ctx->keep || 0 == ctx->valid || ctx->ha != a || ctx->hb != b) {
     const size_t sa = (size_t)plan->shape.lda * ncols * es, sb = (size_t)plan->shape.ldb * ncols * es;
     ctx->valid = 0;
-    result = syrk_opencl_reserve(&ctx->a, &ctx->na, LIBXS_MAX(sa, es));
+    result = libxstream_syrk_reserve(&ctx->a, &ctx->na, LIBXS_MAX(sa, es));
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(a, ctx->a, sa, ctx->stream);
     if (EXIT_SUCCESS == result && 0 != twok) {
-      result = syrk_opencl_reserve(&ctx->b, &ctx->nb, LIBXS_MAX(sb, es));
+      result = libxstream_syrk_reserve(&ctx->b, &ctx->nb, LIBXS_MAX(sb, es));
       if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(b, ctx->b, sb, ctx->stream);
     }
     if (EXIT_SUCCESS == result) {
@@ -127,7 +128,7 @@ static int syrk_opencl_upload(syrk_opencl_t* ctx, const libxs_syrk_t* plan, cons
   }
   if (EXIT_SUCCESS == result && NULL != ctx->weights) {
     const size_t sd = (size_t)plan->shape.k * es;
-    result = syrk_opencl_reserve(&ctx->d, &ctx->nd, LIBXS_MAX(sd, es));
+    result = libxstream_syrk_reserve(&ctx->d, &ctx->nd, LIBXS_MAX(sd, es));
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(ctx->weights, ctx->d, sd, ctx->stream);
     ctx->scaled = 0;
     if (EXIT_SUCCESS == result && 0 != ctx->blas && 0 == twok) { /* A*diag(sqrt(d)) for the device BLAS */
@@ -146,8 +147,8 @@ static int syrk_opencl_upload(syrk_opencl_t* ctx, const libxs_syrk_t* plan, cons
         }
         else positive = 0; /* the own kernel takes any weights */
       }
-      if (NULL != ctx->hs && 0 != positive && EXIT_SUCCESS == syrk_opencl_reserve(&ctx->s, &ctx->ns, LIBXS_MAX(sd, es))
-        && EXIT_SUCCESS == syrk_opencl_reserve(&ctx->as, &ctx->nas, ctx->na)
+      if (NULL != ctx->hs && 0 != positive && EXIT_SUCCESS == libxstream_syrk_reserve(&ctx->s, &ctx->ns, LIBXS_MAX(sd, es))
+        && EXIT_SUCCESS == libxstream_syrk_reserve(&ctx->as, &ctx->nas, ctx->na)
         && EXIT_SUCCESS == libxstream_mem_copy_h2d(ctx->hs, ctx->s, sd, ctx->stream)
         && EXIT_SUCCESS == libxstream_blas_dgmm(ctx->stream, plan->shape.datatype, 0 != notrans ? 'R' : 'L',
           0 != notrans ? plan->shape.n : k, 0 != notrans ? k : plan->shape.n, ctx->a, plan->shape.lda, ctx->s, 1, ctx->as,
@@ -165,8 +166,8 @@ static int syrk_opencl_upload(syrk_opencl_t* ctx, const libxs_syrk_t* plan, cons
  * A panel by the device BLAS into its compact buffer: SYRK of the block on the diagonal, which writes
  * its triangle only, and GEMM of the rows above (upper) or below (lower) it.
  */
-static int syrk_opencl_blas(syrk_opencl_t* ctx, const libxs_syrk_t* plan, const libxs_syrk_panel_t* panel, void* out);
-static int syrk_opencl_blas(syrk_opencl_t* ctx, const libxs_syrk_t* plan, const libxs_syrk_panel_t* panel, void* out)
+static int libxstream_syrk_blas(libxstream_syrk_t* ctx, const libxs_syrk_t* plan, const libxs_syrk_panel_t* panel, void* out);
+static int libxstream_syrk_blas(libxstream_syrk_t* ctx, const libxs_syrk_t* plan, const libxs_syrk_panel_t* panel, void* out)
 {
   const libxs_data_t dt = plan->shape.datatype;
   const size_t es = LIBXS_TYPESIZE(dt);
@@ -188,33 +189,33 @@ static int syrk_opencl_blas(syrk_opencl_t* ctx, const libxs_syrk_t* plan, const 
 
 
 /* Starts a panel: kernel, then the copy of its result to host memory (see libxs_syrk_device_t). */
-static int syrk_opencl_submit(void* vctx, const libxs_syrk_t* plan, const void* a, const void* b,
+static int libxstream_syrk_submit(void* vctx, const libxs_syrk_t* plan, const void* a, const void* b,
   const libxs_syrk_panel_t* panel);
-static int syrk_opencl_submit(void* vctx, const libxs_syrk_t* plan, const void* a, const void* b,
+static int libxstream_syrk_submit(void* vctx, const libxs_syrk_t* plan, const void* a, const void* b,
   const libxs_syrk_panel_t* panel)
 {
-  syrk_opencl_t *const ctx = (syrk_opencl_t*)vctx;
+  libxstream_syrk_t *const ctx = (libxstream_syrk_t*)vctx;
   const int f64 = (LIBXS_DATATYPE_F64 == plan->shape.datatype), twok = (0 != plan->shape.ldb);
   const size_t es = LIBXS_TYPESIZE(plan->shape.datatype), size = (size_t)panel->m * panel->w * es;
   const int blas = (0 != ctx->blas && 0 == twok);
-  const cl_kernel kernel = syrk_opencl_kernel(ctx, f64);
+  const cl_kernel kernel = libxstream_syrk_kernel(ctx, f64);
   int ticket = -1, s = 0;
-  for (; s < SYRK_OPENCL_NSLOTS && 0 != ctx->slot[s].busy; ++s);
-  if ((NULL != kernel || 0 != blas) && SYRK_OPENCL_NSLOTS > s && 0 < size) { /* else the host computes the panel */
-    syrk_opencl_slot_t *const slot = ctx->slot + s;
+  for (; s < LIBXSTREAM_SYRK_NSLOTS && 0 != ctx->slot[s].busy; ++s);
+  if ((NULL != kernel || 0 != blas) && LIBXSTREAM_SYRK_NSLOTS > s && 0 < size) { /* else the host computes the panel */
+    libxstream_syrk_slot_t *const slot = ctx->slot + s;
     const cl_int m = panel->m, w = panel->w, r0 = panel->r0, c0 = panel->c0, k = plan->shape.k;
     const cl_int lda = plan->shape.lda, ldb = (0 != twok ? plan->shape.ldb : plan->shape.lda);
     const cl_int trans = ('N' != plan->shape.trans), ctwok = twok, hasd = (NULL != ctx->weights);
     const cl_int upper = ('U' == plan->shape.uplo);
     const cl_double alpha64 = panel->alpha;
     const cl_float alpha32 = (cl_float)panel->alpha;
-    const size_t bt = (size_t)SYRK_OPENCL_BS * SYRK_OPENCL_RB;
-    const size_t local[2] = {SYRK_OPENCL_BS, SYRK_OPENCL_BS};
+    const size_t bt = (size_t)LIBXSTREAM_SYRK_BS * LIBXSTREAM_SYRK_RB;
+    const size_t local[2] = {LIBXSTREAM_SYRK_BS, LIBXSTREAM_SYRK_BS};
     size_t global[2];
     int result = EXIT_SUCCESS, blas_done = 0;
-    global[0] = LIBXS_UPDIV((size_t)panel->m, bt) * SYRK_OPENCL_BS;
-    global[1] = LIBXS_UPDIV((size_t)panel->w, bt) * SYRK_OPENCL_BS;
-    if (0 == panel->c0) result = syrk_opencl_upload(ctx, plan, a, b); /* the first panel of an update */
+    global[0] = LIBXS_UPDIV((size_t)panel->m, bt) * LIBXSTREAM_SYRK_BS;
+    global[1] = LIBXS_UPDIV((size_t)panel->w, bt) * LIBXSTREAM_SYRK_BS;
+    if (0 == panel->c0) result = libxstream_syrk_upload(ctx, plan, a, b); /* the first panel of an update */
     if (EXIT_SUCCESS == result && slot->size < size) {
       if (NULL != slot->host) result = libxstream_mem_host_deallocate(slot->host, ctx->stream);
       slot->host = NULL;
@@ -227,7 +228,7 @@ static int syrk_opencl_submit(void* vctx, const libxs_syrk_t* plan, const void* 
     }
     if (EXIT_SUCCESS == result && NULL == slot->event) result = libxstream_event_create(&slot->event);
     if (EXIT_SUCCESS == result && 0 != blas && (NULL == ctx->weights || 0 != ctx->scaled)
-      && EXIT_SUCCESS == syrk_opencl_blas(ctx, plan, panel, slot->dev))
+      && EXIT_SUCCESS == libxstream_syrk_blas(ctx, plan, panel, slot->dev))
     {
       blas_done = 1;
     }
@@ -278,13 +279,13 @@ static int syrk_opencl_submit(void* vctx, const libxs_syrk_t* plan, const void* 
 
 
 /* Completes a panel: out := result + beta*out within the triangle (beta=0 does not read out). */
-static int syrk_opencl_wait(void* vctx, int ticket);
-static int syrk_opencl_wait(void* vctx, int ticket)
+static int libxstream_syrk_wait(void* vctx, int ticket);
+static int libxstream_syrk_wait(void* vctx, int ticket)
 {
-  syrk_opencl_t *const ctx = (syrk_opencl_t*)vctx;
+  libxstream_syrk_t *const ctx = (libxstream_syrk_t*)vctx;
   int result = EXIT_FAILURE;
-  if (0 <= ticket && SYRK_OPENCL_NSLOTS > ticket && 0 != ctx->slot[ticket].busy) {
-    syrk_opencl_slot_t *const slot = ctx->slot + ticket;
+  if (0 <= ticket && LIBXSTREAM_SYRK_NSLOTS > ticket && 0 != ctx->slot[ticket].busy) {
+    libxstream_syrk_slot_t *const slot = ctx->slot + ticket;
     const libxs_syrk_panel_t *const panel = &slot->panel;
     result = libxstream_event_sync(slot->event);
     if (EXIT_SUCCESS == result) {
@@ -323,35 +324,33 @@ static int syrk_opencl_wait(void* vctx, int ticket)
 }
 
 
-int syrk_opencl_create(syrk_opencl_t** ctx)
+LIBXSTREAM_API int libxstream_syrk_create(libxstream_syrk_t** ctx)
 {
   int result = EXIT_FAILURE;
   if (NULL != ctx) {
-    syrk_opencl_t *const c = (syrk_opencl_t*)malloc(sizeof(syrk_opencl_t));
+    libxstream_syrk_t *const c = (libxstream_syrk_t*)malloc(sizeof(libxstream_syrk_t));
+    *ctx = NULL; /* also if the context cannot be created */
     if (NULL != c) {
       LIBXS_MEMZERO(c);
       result = libxstream_stream_create(&c->stream, "syrk", LIBXSTREAM_STREAM_DEFAULT);
       if (EXIT_SUCCESS == result) {
-        const char* const env = getenv("SYRK_OPENCL_BLAS");
+        const char* const env = getenv("LIBXSTREAM_SYRK_BLAS");
         c->blas = ((NULL == env || 0 != atoi(env)) && NULL != libxstream_blas_query(c->stream));
       }
-      if (EXIT_SUCCESS != result) {
-        free(c);
-        *ctx = NULL;
-      }
-      else *ctx = c;
+      if (EXIT_SUCCESS == result) *ctx = c;
+      else free(c);
     }
   }
   return result;
 }
 
 
-void syrk_opencl_destroy(syrk_opencl_t* ctx)
+LIBXSTREAM_API void libxstream_syrk_destroy(libxstream_syrk_t* ctx)
 {
   if (NULL != ctx) {
     int s = 0;
     if (NULL != ctx->stream) libxstream_stream_sync(ctx->stream);
-    for (; s < SYRK_OPENCL_NSLOTS; ++s) {
+    for (; s < LIBXSTREAM_SYRK_NSLOTS; ++s) {
       if (NULL != ctx->slot[s].event) libxstream_event_destroy(ctx->slot[s].event);
       if (NULL != ctx->slot[s].dev) libxstream_mem_deallocate(ctx->slot[s].dev);
       if (NULL != ctx->slot[s].host) libxstream_mem_host_deallocate(ctx->slot[s].host, ctx->stream);
@@ -370,31 +369,38 @@ void syrk_opencl_destroy(syrk_opencl_t* ctx)
 }
 
 
-void syrk_opencl_device(syrk_opencl_t* ctx, libxs_syrk_device_t* device)
+LIBXSTREAM_API void libxstream_syrk_device(libxstream_syrk_t* ctx, libxs_syrk_device_t* device)
 {
   if (NULL != device) {
-    device->submit = syrk_opencl_submit;
-    device->wait = syrk_opencl_wait;
+    device->submit = libxstream_syrk_submit;
+    device->wait = libxstream_syrk_wait;
     device->ctx = ctx;
   }
 }
 
 
-const char* syrk_opencl_backend(const syrk_opencl_t* ctx)
+LIBXSTREAM_API const char* libxstream_syrk_backend(libxstream_syrk_t* ctx)
 {
-  static const char* const labels[] = {
-    "none", "oneMKL", "kernel", "oneMKL+kernel", "host", "oneMKL+host", "kernel+host", "oneMKL+kernel+host"};
-  return labels[NULL != ctx ? (7 & ctx->used) : 0];
+  const char* result = "none";
+  if (NULL != ctx && 0 != ctx->used) {
+    const char* const name = libxstream_blas_query(ctx->stream);
+    const int used = ctx->used;
+    LIBXS_SNPRINTF(ctx->label, sizeof(ctx->label), "%s%s%s%s%s", 0 != (1 & used) ? (NULL != name ? name : "BLAS") : "",
+      (1 & used) && (6 & used) ? "+" : "", 0 != (2 & used) ? "kernel" : "", (2 & used) && (4 & used) ? "+" : "",
+      0 != (4 & used) ? "host" : "");
+    result = ctx->label;
+  }
+  return result;
 }
 
 
-void syrk_opencl_weights(syrk_opencl_t* ctx, const void* d)
+LIBXSTREAM_API void libxstream_syrk_weights(libxstream_syrk_t* ctx, const void* d)
 {
   if (NULL != ctx) ctx->weights = d;
 }
 
 
-void syrk_opencl_resident(syrk_opencl_t* ctx, int keep)
+LIBXSTREAM_API void libxstream_syrk_resident(libxstream_syrk_t* ctx, int keep)
 {
   if (NULL != ctx) {
     ctx->keep = keep;

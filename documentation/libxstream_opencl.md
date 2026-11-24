@@ -36,6 +36,7 @@ Environment variables are read when the library initializes, except those concer
 | `LIBXSTREAM_USM` | Unified Shared Memory level: 0 = off, 1 = Intel USM, 2 = OpenCL 2.0 SVM coarse-grain, 3 = OpenCL 2.0 SVM reported caps. Unset means 1 on an Intel discrete GPU, 0 on an Intel integrated GPU (which also transfers synchronously), off on NVIDIA, and 2 otherwise. Intel MPI cannot exchange Intel USM host memory without `I_MPI_OFFLOAD=1`: on a system with Intel GPUs only it is set unless given. If `I_MPI_OFFLOAD=0` is given, unset means 2, while an explicit 1 takes effect as requested (and fails). Where it could not be set, an explicit 1 takes host memory off Intel USM |
 | `LIBXSTREAM_SUBBUFFER` | Sub-buffers for offset kernel-arguments (0 = off, 1 = on); unused where USM is active; default: 0 |
 | `LIBXSTREAM_BLAS` | Plugin of the [device BLAS](#device-blas): 0 disables it, a path selects it; default: `libxstream_mkl.so` beside the library, in the directory it was built into, or on the library path |
+| `LIBXSTREAM_SYRK_BLAS` | 0: the [SYRK device](#syrk-device) takes its own kernel rather than the device BLAS; default: the device BLAS where it serves the device |
 | `LIBXSTREAM_CACHE` | 0: no kernel cache, i.e., the vendor's compiled-kernel cache is off (`CUDA_CACHE_DISABLE=1` and `NEO_CACHE_PERSISTENT=0`, unless set); default: the vendor's cache |
 
 Level 3 is opt-in and never reached by the default; level 1 is the default on an Intel discrete GPU only, and opt-in elsewhere. Level 1 (`cl_intel_unified_shared_memory`) is the only level with asynchronous host-device transfers. Levels below 3 use coarse-grain SVM buffers only, whereas level 3 adopts whatever `CL_DEVICE_SVM_CAPABILITIES` reports (possibly fine-grain system allocations). At verbosity 2+, a warning says when an explicit level 1 cannot load the extensions, since the only symptom is a slower run.
@@ -217,6 +218,23 @@ A `device` row combines every kernel and every transfer, states how many of each
 `libxstream/libxstream_blas.h` enqueues a vendor's BLAS on a stream, in order with the stream's other work: `libxstream_blas_gemm`, `libxstream_blas_syrk`, and `libxstream_blas_dgmm` (C := A\*diag(x) or diag(x)\*A), on device memory in double or single precision. A plugin provides it and is loaded at the first call, hence the library itself links nothing more. Every function returns `EXIT_FAILURE` where no plugin serves the device, and the caller computes otherwise; `libxstream_blas_query` tells beforehand.
 
 * `libxstream_mkl.so`: oneMKL's SYCL interface on Intel devices, built beside the library when CXX, the SYCL runtime, and oneMKL's SYCL library are found (`SYCL=0` drops it). MKL is linked statically unless `BLAS_STATIC=0` (CMake: `LIBXSTREAM_MKL_STATIC`), which keeps a consumer's MKL threading layer apart. It serves an Intel device with the memory of `libxstream_mem_allocate`: Intel USM, buffers by their device address where memory is unified (`LIBXSTREAM_USM=0`, the default on an integrated GPU), or SVM on a CPU only (oneMKL produced wrong results with SVM on an integrated GPU). Once per context, oneMKL's self-test runs per precision (a device without FP64 keeps FP32), and a GEMM on such memory at an offset is checked against the host; `libxstream_blas_query` tells the outcome. On a CPU device, oneMKL runs host tasks, hence calls are synchronous there. SYR2K is declined.
+
+## SYRK Device
+
+`libxstream/libxstream_syrk.h` is a device of [LIBXS' SYRK and SYR2K](https://github.com/hfp/libxs/blob/main/documentation/libxs_syrk.md) (`libxs_syrk_device_t`): the panels of a plan run on the active device, local or distributed, while LIBXS keeps the algorithm (and MPI). The device offers the weighted form C := alpha\*op(A)\*diag(d)\*op(A)^T + beta\*C, and keeps A on the device across calls if asked to.
+
+```C
+libxstream_syrk_t* ctx;
+libxs_syrk_device_t device;
+libxstream_syrk_create(&ctx);        /* on the active device */
+libxstream_syrk_device(ctx, &device);
+shape.device = &device;              /* libxs_syrk_shape_t, also with shape.dist */
+libxs_syrk_dispatch(&plan, &shape);
+libxstream_syrk_weights(ctx, d);     /* optional, per call */
+libxs_syrk(&plan, alpha, a, NULL, beta, c);
+```
+
+Where the [device BLAS](#device-blas) serves the device, a panel is a SYRK of its diagonal block and a GEMM of the rest, with weights applied as A\*diag(sqrt(d)) (`dgmm`). SYR2K, a negative weight, or `LIBXSTREAM_SYRK_BLAS=0` take the own kernel (`src/kernels/libxstream_syrk.cl`), which computes a panel in blocks of 64x64 (16x16 work-items with 4x4 elements each) through local memory; the host merges the panel's triangle into C. A panel the device cannot compute (e.g., no fp64) is declined, and LIBXS computes it on the host. `libxstream_syrk_backend` tells what computed the panels, and the [SYRK sample](samples/libxstream_syrk.md) is its benchmark.
 
 ## OpenCL-MPS
 

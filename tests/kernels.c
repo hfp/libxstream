@@ -274,6 +274,8 @@ static const kernels_file_t kernel_files[] = {
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "wmma", KERNELS_OZAKI1_WMMA, 5, 0, 0 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wmma", KERNELS_OZAKI_WMMA, 5, 0, 0 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wmmasym", KERNELS_OZAKI_WMMA_SYMRES, 5, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/src/kernels/libxstream_syrk.cl", "fp64", "-DT=double", 0, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/src/kernels/libxstream_syrk.cl", "fp32", "-DT=float", 0, 0, 0 },
   { LIBXSTREAM_SRCDIR "/samples/smm/kernels/transpose.cl", "",
     "-DT=float -DSM=32 -DSN=32 -DWG=32 -DCONSTANT=global" /* WG must equal SM */, 0, 0, 0 },
   { LIBXSTREAM_SRCDIR "/samples/smm/kernels/norms.cl", "", "-DWG=64", 0, 0, 0 },

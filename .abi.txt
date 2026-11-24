@@ -107,6 +107,12 @@ libxstream_stream_priority_range
 libxstream_stream_set_profiling
 libxstream_stream_sync
 libxstream_stream_wait_event
+libxstream_syrk_backend
+libxstream_syrk_create
+libxstream_syrk_destroy
+libxstream_syrk_device
+libxstream_syrk_resident
+libxstream_syrk_weights
 offloadDeviceSynchronize
 offloadEnsureMallocHeapSize
 offloadEventCreate
