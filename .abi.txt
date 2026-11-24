@@ -26,7 +26,7 @@ c_dbcsr_acc_stream_sync
 c_dbcsr_acc_stream_wait_event
 libxstream_blas_dgmm
 libxstream_blas_gemm
-libxstream_blas_plugin
+libxstream_blas_gemm_batch
 libxstream_blas_query
 libxstream_blas_syrk
 libxstream_device_count

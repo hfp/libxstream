@@ -14,7 +14,8 @@ LIBS=${HERE}/../lib
 PROJECT=libxstream
 # symbols a library carries without being part of the ABI (a dependency linked in, or names another API prescribes)
 FOREIGN="libxs clGetExtensionFunctionAddress clIcdGetPlatformIDsKHR"
-#EXCLUDE="libxstreamf"
+# a plugin is loaded at runtime (dlopen): its ABI is a versioned table, and it may carry a dependency linked in
+EXCLUDE="libxstream_mkl"
 INCLUDE="*"
 ABINEW=.abi.log
 ABITMP=.abi.tmp
