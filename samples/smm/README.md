@@ -21,7 +21,6 @@ is built).
 | ELEM_TYPE     | `double` | Element precision: `double` or `float`                     |
 | WITH_GPU      | `GPUVER` | Device for tuned parameters (PVC, A100, ...), see below    |
 | SYM           | 0        | Non-zero also keeps comments in the embedded kernel source |
-| SYCL          | 1        | 0: no oneMKL for stacks beyond the kernels (see below)     |
 
 `make test` builds and runs `acc_bench.x` with its defaults.
 
@@ -34,14 +33,11 @@ A CMake project (e.g., DBCSR) builds LIBSMM into its own target with
 `libxstream_add_smm(<target>)` after `find_package(libxstream)`, which also
 generates `smm_kernels.h` into the target's build tree.
 
-Stacks beyond the kernels (`double` with M·N > MAX_KERNEL_DIM²) go to oneMKL
-where MKL is used and oneAPI's SYCL runtime is in reach (`CMPLR_ROOT`, `icx`, or
-next to MKL). The C++ compiler at hand builds `smm_sycl.cpp`, no SYCL compiler is
-needed, and `SYCL=0` (Make) or `LIBXSTREAM_SMM_SYCL=OFF` (CMake) disables it.
-This needs Intel USM device memory (`LIBXSTREAM_USM=1`, the default on an Intel
-discrete GPU, and on an integrated GPU together with `LIBXSTREAM_XHINTS`), and a
-program built by CMake needs oneAPI's libraries on the library path. Otherwise,
-or if oneMKL fails its self-test, such a stack is computed on the host as before.
+Stacks beyond the kernels (M·N > MAX_KERNEL_DIM², `double` or `float`) go to
+the [device BLAS](../../documentation/libxstream_opencl.md#device-blas) where it
+serves the device (oneMKL on an Intel device, loaded at runtime), as batches of
+GEMMs in which no C block repeats. Otherwise, such a stack is computed on the
+host as before.
 
 A Makefile project (e.g., CP2K's DBM miniapp) includes `smm.mk` instead,
 optionally setting `LIBXSTREAM_SMM_GENDIR` (directory of the generated
@@ -67,7 +63,7 @@ The first argument can be a file with one set of parameters per line.
 The batchsize argument accepts K/M/G suffixes for memory-budget mode.
 A negative batchsize, e.g., -30000, draws a random multiple of 100 up to
 its magnitude (also via `BATCHSIZE_SMM`). Any shape is handed to LIBSMM: one
-beyond the kernels runs through oneMKL (see above) or is reported unsuitable.
+beyond the kernels runs through the device BLAS (see above) or is reported unsuitable.
 
 | Argument  | Default         | Description                            |
 |-----------|-----------------|----------------------------------------|

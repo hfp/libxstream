@@ -15,13 +15,6 @@ OMP = 1
 SYM = 0
 OCL = 2
 
-# oneMKL's SYCL interface (see below) calls the *_64 CBLAS names, which MKL's GNU Fortran
-# interface lacks: this is a C program, hence MKL's Intel interface serves it either way
-SYCL ?= 1
-ifneq (0,$(SYCL))
-  override MKL_FCRTL := intel
-endif
-
 # root directory of LIBXS
 LIBXSROOT := $(wildcard $(DEPDIR)/../libxs)
 
@@ -59,26 +52,6 @@ else
     DFLAGS += -D__LIBXSTREAM -DLIBXSTREAM_SOURCE
     XSTREAM_SRCDEP := $(wildcard $(DEPDIR)/src/*.c) $(wildcard $(DEPDIR)/src/*.h)
   endif
-endif
-
-# oneMKL's SYCL interface takes stacks too large for the SMM kernels, compiled by the C++
-# compiler at hand (no SYCL compiler): on where MKL is used and the SYCL runtime is in reach
-# (CMPLR_ROOT, icx, or next to MKLROOT), SYCL=0 disables it. Libraries are linked by path,
-# since oneAPI's lib directory also holds an OpenCL loader that must not be picked up.
-ifneq (0,$(SYCL))
-ifneq (0,$(MKL))
-  SYCLROOT ?= $(firstword $(foreach DIR,$(CMPLR_ROOT) $(ICXROOT) $(MKLROOT)/../../compiler/latest, \
-    $(if $(wildcard $(DIR)/include/sycl/sycl.hpp),$(if $(wildcard $(DIR)/lib/libsycl.$(DLIBEXT)),$(call qapath,$(DIR))))))
-  SYCL_MKLLIB := $(firstword $(wildcard $(MKLROOT)/lib/$(MKL_ARCH)/libmkl_sycl_blas.$(DLIBEXT) \
-    $(MKLROOT)/lib/libmkl_sycl_blas.$(DLIBEXT)))
-  ifneq (,$(and $(SYCLROOT),$(SYCL_MKLLIB),$(call which,$(CXX))))
-    DFLAGS += -DOPENCL_LIBSMM_SYCL
-    CXXSOURCS := $(SRCDIR)/smm_sycl.cpp
-    # RPATH rather than RUNPATH: the SYCL runtime loads its backend by name
-    SYCL_LIBS := $(SYCL_MKLLIB) $(SYCLROOT)/lib/libsycl.$(DLIBEXT) -Wl,--disable-new-dtags \
-      -Wl,-rpath,$(call qapath,$(dir $(SYCL_MKLLIB))) -Wl,-rpath,$(SYCLROOT)/lib
-  endif
-endif
 endif
 
 # include directories
@@ -121,8 +94,7 @@ HEADERS := $(wildcard $(INCDIR)/*.h) $(GENHDR) \
            $(LIBXS_SRCDEP) $(XSTREAM_SRCDEP)
 CSOURCS := $(SRCDIR)/acc_bench.c $(SRCDIR)/smm_acc.c $(SRCDIR)/smm_trans.c $(SRCDIR)/smm_params.c $(SRCDIR)/smm_kernel.c
 COBJCTS := $(patsubst %,$(BLDDIR)/%,$(notdir $(CSOURCS:.c=-c.o)))
-XOBJCTS := $(patsubst %,$(BLDDIR)/%,$(notdir $(CXXSOURCS:.cpp=-cpp.o)))
-OBJECTS := $(COBJCTS) $(XOBJCTS)
+OBJECTS := $(COBJCTS)
 XFILES := $(OUTDIR)/$(OUTNAME).x
 
 .PHONY: all
@@ -136,7 +108,7 @@ $(GENHDR): $(KRNELS) $(PARAMS_PREDICT) $(PARAMS_BIN) $(GENSCR) Makefile $(LIBXSR
 	$(GENSCR) $(GENARG) $(KRNELS) $(PARAMS_PREDICT) $@
 
 $(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XLIB) $(LIBXS)
-	$(LD) -o $@ $(OBJECTS) $(SYCL_LIBS) $(XLIB) $(LIBXS) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS) $(LIBS)
+	$(LD) -o $@ $(OBJECTS) $(XLIB) $(LIBXS) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS) $(LIBS)
 
 .PHONY: match
 match: $(OUTDIR)/acc_match.x
@@ -146,10 +118,6 @@ $(OUTDIR)/acc_match.x: $(OUTDIR)/.make $(BLDDIR)/acc_match-c.o $(XLIB) $(LIBXS)
 
 $(BLDDIR)/%-c.o: $(SRCDIR)/%.c .state $(BLDDIR)/.make $(HEADERS) Makefile $(LIBXSROOT)/Makefile.inc
 	$(CC) $(DFLAGS) $(IFLAGS) $(CFLAGS) $(CTARGET) -c $< -o $@
-
-# the SYCL headers as system headers: warnings stay with this file, its own CL headers with it too
-$(BLDDIR)/%-cpp.o: $(SRCDIR)/%.cpp .state $(BLDDIR)/.make $(SRCDIR)/smm_sycl.h Makefile $(LIBXSROOT)/Makefile.inc
-	$(CXX) $(DFLAGS) -isystem $(call quote,$(SYCLROOT)/include) $(CXXFLAGS) $(CTARGET) -std=c++17 -c $< -o $@
 
 .PHONY: test
 test: $(XFILES)

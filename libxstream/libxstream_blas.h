@@ -36,6 +36,15 @@ LIBXSTREAM_API int libxstream_blas_gemm(libxstream_stream_t* stream, libxs_data_
   int m, int n, int k, double alpha, const void* a, int lda, const void* b, int ldb, double beta, void* c, int ldc);
 
 /**
+ * A batch of size GEMMs as above, with A, B, and C given by host arrays of device pointers (copied
+ * before the call returns). The entries may run concurrently, hence no two of one call may update
+ * the same C (successive calls are ordered by the stream).
+ */
+LIBXSTREAM_API int libxstream_blas_gemm_batch(libxstream_stream_t* stream, libxs_data_t datatype, char transa,
+  char transb, int m, int n, int k, double alpha, const void* const* a, int lda, const void* const* b, int ldb,
+  double beta, void* const* c, int ldc, int size);
+
+/**
  * Triangle uplo ('U' or 'L') of C := alpha*op(A)*op(A)^T + beta*C (b is NULL), with trans 'N' (A is
  * n x k) or 'T' (A is k x n). A plugin may decline SYR2K (b is not NULL) by returning EXIT_FAILURE.
  */

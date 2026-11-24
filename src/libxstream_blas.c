@@ -124,11 +124,14 @@ static int libxstream_blas_check(const libxstream_blas_plugin_t* plugin)
     void* const host = (0 != f64 ? (void*)hd : (void*)hf);
     result = libxstream_mem_copy_h2d(host, dev, es * size, stream);
     if (EXIT_SUCCESS == result) {
-      char* const a = dev + es * offset;
-      if (0 == plugin->gemm(libxstream_opencl_config.device.context, stream->queue, f64, 'N', 'N', m, n, k, 2.0, a, m,
-        a + es * m * k, k, 1.0, a + es * (m * k + k * n), m))
+      char* const pa = dev + es * offset;
+      const void* const a = pa;
+      const void* const b = pa + es * m * k;
+      void* const c = pa + es * (m * k + k * n);
+      if (0 == plugin->gemm_batch(libxstream_opencl_config.device.context, stream->queue, f64, 'N', 'N', m, n, k, 2.0, &a,
+        m, &b, k, 1.0, &c, m, 1))
       {
-        result = libxstream_mem_copy_d2h(a + es * (m * k + k * n), 0 != f64 ? (void*)cd : (void*)cf, es * m * n, stream);
+        result = libxstream_mem_copy_d2h(c, 0 != f64 ? (void*)cd : (void*)cf, es * m * n, stream);
         if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
         for (i = 0; i < m * n && EXIT_SUCCESS == result; ++i) {
           if ((0 != f64 ? cd[i] : (double)cf[i]) != ref[i]) result = EXIT_FAILURE;
@@ -198,12 +201,20 @@ LIBXSTREAM_API const char* libxstream_blas_query(libxstream_stream_t* stream)
 LIBXSTREAM_API int libxstream_blas_gemm(libxstream_stream_t* stream, libxs_data_t datatype, char transa, char transb,
   int m, int n, int k, double alpha, const void* a, int lda, const void* b, int ldb, double beta, void* c, int ldc)
 {
+  return libxstream_blas_gemm_batch(stream, datatype, transa, transb, m, n, k, alpha, &a, lda, &b, ldb, beta, &c, ldc, 1);
+}
+
+
+LIBXSTREAM_API int libxstream_blas_gemm_batch(libxstream_stream_t* stream, libxs_data_t datatype, char transa,
+  char transb, int m, int n, int k, double alpha, const void* const* a, int lda, const void* const* b, int ldb,
+  double beta, void* const* c, int ldc, int size)
+{
   const libxstream_blas_plugin_t* const plugin = libxstream_blas_find(stream);
   const int f64 = libxstream_blas_f64(datatype);
   int result = EXIT_FAILURE;
-  if (NULL != plugin && NULL != plugin->gemm && 0 <= f64
-    && 0 == plugin->gemm(libxstream_opencl_config.device.context, stream->queue, f64, transa, transb, m, n, k, alpha, a,
-      lda, b, ldb, beta, c, ldc))
+  if (NULL != plugin && NULL != plugin->gemm_batch && 0 <= f64 && 0 <= size
+    && (0 == size || 0 == plugin->gemm_batch(libxstream_opencl_config.device.context, stream->queue, f64, transa, transb,
+      m, n, k, alpha, a, lda, b, ldb, beta, c, ldc, size)))
   {
     result = EXIT_SUCCESS;
   }

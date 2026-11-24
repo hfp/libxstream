@@ -11,7 +11,7 @@
 #define LIBXSTREAM_BLAS_PLUGIN_H
 
 /* version of the table: a plugin refuses any other */
-#define LIBXSTREAM_BLAS_PLUGIN_VERSION 3
+#define LIBXSTREAM_BLAS_PLUGIN_VERSION 4
 /* the one function a plugin exports */
 #define LIBXSTREAM_BLAS_PLUGIN_ENTRY "libxstream_blas_plugin"
 
@@ -38,8 +38,9 @@ typedef struct libxstream_blas_plugin_t {
    * e.g., after a self-test; enqueues nothing. Called before any other function of a context.
    */
   int (*probe)(void* context, void* queue, int kind);
-  int (*gemm)(void* context, void* queue, int f64, char transa, char transb, int m, int n, int k, double alpha,
-    const void* a, int lda, const void* b, int ldb, double beta, void* c, int ldc);
+  /** A batch of size entries (host arrays of pointers, copied before it returns), which may run concurrently. */
+  int (*gemm_batch)(void* context, void* queue, int f64, char transa, char transb, int m, int n, int k, double alpha,
+    const void* const* a, int lda, const void* const* b, int ldb, double beta, void* const* c, int ldc, int size);
   int (*syrk)(void* context, void* queue, int f64, char uplo, char trans, int n, int k, double alpha, const void* a,
     int lda, const void* b, int ldb, double beta, void* c, int ldc);
   int (*dgmm)(void* context, void* queue, int f64, char side, int m, int n, const void* a, int lda, const void* x,

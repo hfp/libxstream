@@ -13,9 +13,6 @@
 #include "acc_bench.h"
 #include <libxs/libxs_predict.h>
 #include <libxs/libxs_str.h>
-#if defined(OPENCL_LIBSMM_SYCL)
-#  include "smm_sycl.h"
-#endif
 #if defined(_OPENMP)
 #  include <omp.h>
 #endif
@@ -489,9 +486,6 @@ int libsmm_acc_finalize(void) {
   if (0 == opencl_libsmm_initialized) {
     size_t cursor = 0, key_size = 0;
     const void* regentry = libxs_registry_begin_length(opencl_libsmm_registry, NULL /*key*/, &key_size, &cursor);
-#if defined(OPENCL_LIBSMM_SYCL)
-    opencl_libsmm_sycl_finalize();
-#endif
     for (; NULL != regentry;
          regentry = libxs_registry_next_length(opencl_libsmm_registry, NULL /*key*/, &key_size, &cursor))
     {

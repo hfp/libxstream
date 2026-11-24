@@ -14,9 +14,7 @@
 #include <libxs/libxs_predict.h>
 #include <libxs/libxs_timer.h>
 #include <libxs/libxs_hash.h>
-#if defined(OPENCL_LIBSMM_SYCL)
-#  include "smm_sycl.h"
-#endif
+#include <libxstream/libxstream_blas.h>
 
 #if !defined(OPENCL_KERNELS_SOURCE_MULTIPLY)
 #  error "OpenCL SMM-kernel code not found!"
@@ -56,6 +54,11 @@
 extern "C" {
 #endif
 
+/* An entry of a stack by its C block (key) or its wave, and its position in the stack (index). */
+typedef struct opencl_libsmm_blas_entry_t {
+  int key, index;
+} opencl_libsmm_blas_entry_t;
+
 #if defined(OPENCL_KERNELS_PREDICT_MODELS)
 extern libxs_predict_t* opencl_libsmm_predict_model;
 extern double opencl_libsmm_predict_conf;
@@ -63,6 +66,81 @@ extern double opencl_libsmm_predict_conf;
 extern unsigned int opencl_libsmm_devuid;
 
 opencl_libsmm_acc_dbm_launch_fn_t opencl_libsmm_acc_dbm_launch_fn;
+
+
+/* Orders entries by key, then by position in the stack. */
+static int opencl_libsmm_blas_cmp(const void* /*a*/, const void* /*b*/);
+static int opencl_libsmm_blas_cmp(const void* a, const void* b) {
+  const opencl_libsmm_blas_entry_t *const x = (const opencl_libsmm_blas_entry_t*)a, *const y = (const opencl_libsmm_blas_entry_t*)b;
+  return (x->key < y->key ? -1 : (x->key > y->key ? 1 : (x->index < y->index ? -1 : (x->index > y->index ? 1 : 0))));
+}
+
+
+/* Whether libsmm_acc_transpose transposes B blocks of the datatype (k x n up to max_kernel_dim^2). */
+static int opencl_libsmm_blas_transposed(libsmm_acc_data_t /*datatype*/, int /*kn*/, int /*max_kernel_dim*/);
+static int opencl_libsmm_blas_transposed(libsmm_acc_data_t datatype, int kn, int max_kernel_dim) {
+  const int typed = (
+#if defined(OPENCL_LIBSMM_F64)
+    dbcsr_type_real_8 == datatype ||
+#endif
+#if defined(OPENCL_LIBSMM_F32)
+    dbcsr_type_real_4 == datatype ||
+#endif
+    0 /*sentinel*/);
+  return (0 != typed && 1 != kn && kn <= max_kernel_dim * max_kernel_dim);
+}
+
+
+/**
+ * A homogeneous stack (one-based element offsets per entry, DBCSR's format) by the device BLAS:
+ * C += A * op(B), with B transposed if libsmm_acc_transpose left it so. The j-th entry on a C block
+ * goes into wave j, hence no batch updates a block twice, and the stream orders the waves. A batch
+ * declined (e.g., the precision) is declined at the first wave, before C was touched.
+ */
+static int opencl_libsmm_blas_process(libxstream_stream_t* /*stream*/, libsmm_acc_data_t /*datatype*/,
+  const int* /*stack*/, int /*stack_size*/, int /*m*/, int /*n*/, int /*k*/, int /*transb*/, const void* /*a*/,
+  const void* /*b*/, void* /*c*/);
+static int opencl_libsmm_blas_process(libxstream_stream_t* stream, libsmm_acc_data_t datatype, const int* stack,
+  int stack_size, int m, int n, int k, int transb, const void* a, const void* b, void* c)
+{
+  const libxs_data_t type = (dbcsr_type_real_8 == datatype ? LIBXS_DATATYPE_F64 : LIBXS_DATATYPE_F32);
+  const size_t es = (size_t)OPENCL_LIBSMM_TYPESIZE(datatype), size = (size_t)stack_size;
+  opencl_libsmm_blas_entry_t* const entry = (opencl_libsmm_blas_entry_t*)libxs_malloc(NULL, sizeof(*entry) * size, 0);
+  const void** const pab = (const void**)libxs_malloc(NULL, sizeof(void*) * 2 * size, 0);
+  void** const pc = (void**)libxs_malloc(NULL, sizeof(void*) * size, 0);
+  int result = ((NULL != entry && NULL != pab && NULL != pc) ? EXIT_SUCCESS : EXIT_FAILURE), i, j;
+  if (EXIT_SUCCESS == result) {
+    int prev = 0, wave = 0;
+    for (i = 0; i < stack_size; ++i) {
+      entry[i].key = stack[3 * i + 2];
+      entry[i].index = i;
+    }
+    qsort(entry, size, sizeof(*entry), opencl_libsmm_blas_cmp); /* by C block */
+    for (i = 0; i < stack_size; ++i) { /* the key becomes the wave: occurrence of the C block */
+      const int block = entry[i].key;
+      wave = ((0 < i && block == prev) ? (wave + 1) : 0);
+      entry[i].key = wave;
+      prev = block;
+    }
+    qsort(entry, size, sizeof(*entry), opencl_libsmm_blas_cmp); /* by wave */
+    for (i = 0; i < stack_size; ++i) {
+      const int x = 3 * entry[i].index;
+      pab[i] = (const char*)a + es * (size_t)(stack[x] - 1);
+      pab[stack_size + i] = (const char*)b + es * (size_t)(stack[x + 1] - 1);
+      pc[i] = (char*)c + es * (size_t)(stack[x + 2] - 1);
+    }
+    for (i = 0; i < stack_size && EXIT_SUCCESS == result; i = j) {
+      j = i + 1;
+      while (j < stack_size && entry[j].key == entry[i].key) ++j;
+      result = libxstream_blas_gemm_batch(stream, type, 'N', 0 != transb ? 'T' : 'N', m, n, k, 1.0, pab + i, m,
+        pab + stack_size + i, 0 != transb ? n : k, 1.0, pc + i, m, j - i);
+    }
+  }
+  libxs_free(entry);
+  libxs_free(pab);
+  libxs_free(pc);
+  return result;
+}
 
 #if defined(OPENCL_LIBSMM_PFORMAT) && (0 < OPENCL_LIBSMM_PFORMAT)
 void opencl_libsmm_acc_set_dbm_launch_fn(opencl_libsmm_acc_dbm_launch_fn_t launch_fn) {
@@ -571,22 +649,17 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
   }
   else if (0 < stack_size) { /* inhomogeneous, large kernel, or unsupported datatype */
     result = -1; /* negative: DBCSR falls back to the host */
-#if defined(OPENCL_LIBSMM_SYCL)
-    /* oneMKL takes what DBCSR's format says and what Intel USM lets it address */
-    if (dbcsr_type_real_8 == datatype && 0 != def_mnk && 0 == param_format && NULL != host_param_stack &&
-        NULL != libxstream_opencl_config.device.clDeviceMemAllocINTEL)
+    /* the device BLAS (libxstream_blas.h) takes a homogeneous stack of DBCSR's format */
+    if ((dbcsr_type_real_8 == datatype || dbcsr_type_real_4 == datatype) && 0 != def_mnk && 0 == param_format &&
+        NULL != host_param_stack && NULL != libxstream_blas_query((libxstream_stream_t*)stream))
     {
-      /* B is in the layout libsmm_acc_transpose left it, which transposes k x n up to max_kernel_dim^2 */
-#  if defined(OPENCL_LIBSMM_F64)
-      const int kn = k_max * n_max, transb = (1 != kn && kn <= max_kernel_dim * max_kernel_dim);
-#  else
-      const int transb = 0;
-#  endif
-      result = opencl_libsmm_sycl_dgemm(libxstream_opencl_config.device.context, ((libxstream_stream_t*)stream)->queue,
-        host_param_stack, stack_size, m_max, n_max, k_max, transb, (const double*)dev_a_data, (const double*)dev_b_data,
-        (double*)dev_c_data);
+      const int transb = opencl_libsmm_blas_transposed(datatype, k_max * n_max, max_kernel_dim);
+      if (EXIT_SUCCESS == opencl_libsmm_blas_process((libxstream_stream_t*)stream, datatype, host_param_stack, stack_size,
+        m_max, n_max, k_max, transb, dev_a_data, dev_b_data, dev_c_data))
+      {
+        result = EXIT_SUCCESS;
+      }
     }
-#endif
   }
   return result;
 }
