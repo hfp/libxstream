@@ -7,15 +7,18 @@
 # SPDX-License-Identifier: BSD-3-Clause                                       #
 ###############################################################################
 # Runs the Ozaki sample (fp64) on every GPU in GPUS, which are simulated NVIDIA
-# GPUs (VGPU_GPU, see "vgpu list-gpus", with ":sm_NNN" for an architecture
+# or AMD GPUs (VGPU_GPU, see "vgpu list-gpus", with ":sm_NNN" for an architecture
 # other than the profile's, e.g., one LLVM knows) or "local" for whatever device
 # is present, through every kernel level the GPU has: on NVIDIA LIBXSTREAM_NV
 # (1 generic, 2 dp4a and m8n8k16, 3 m16n8k32, 4 m16n8k32 on Hopper and later)
 # with warp-group MMA where it is taken (on a simulated GPU of sm_90) and the
 # fifth generation's MMA (tcgen05 on a simulated GPU from sm_100 to before
 # sm_120: bf16 on each, int8 where kind::i8 exists), on Intel
-# LIBXSTREAM_INTEL (0 generic, 1 Intel GPU, 2 DPAS), elsewhere the one generic
-# level. A local device's vendor and top level are what the sample selects, and
+# LIBXSTREAM_INTEL (0 generic, 1 Intel GPU, 2 DPAS), on AMD LIBXSTREAM_AMD (1
+# generic, 2 MFMA 32x32x16 on gfx942, 3 MFMA 32x32x32 on gfx950, 4 WMMA on
+# RDNA3, 5 WMMA on RDNA4: the levels the profile's gfx target has, not a range)
+# with the level the sample's probe chooses and unsigned residues (generic
+# kernels under MFMA), elsewhere the one generic level. A local device's vendor and top level are what the sample selects, and
 # a local NVIDIA device of compute capability 10.x or 11.x (nvidia-smi) takes the
 # fifth generation as well (opt-in, OZAKI_TCGEN05=1: spliced in-process). Both
 # schemes, with the carriers of Scheme 2 (int8, int8 with symmetric residues,
@@ -85,7 +88,7 @@ cases() {
   local TAG=${VAR#LIBXSTREAM_}
   TAG=${TAG,,}
   for N in ${SIZES}; do
-    for LEVEL in $(seq "$2" "$((4 < TOP ? 4 : TOP))"); do
+    for LEVEL in ${LEVELS:-$(seq "$2" "$((4 < TOP ? 4 : TOP))")}; do
       local SEL="${VAR}=${LEVEL}"
       if [ -z "${VAR}" ]; then SEL=""; TAG="generic"; LEVEL=""; fi
       if [ "LIBXSTREAM_NV" = "${VAR}" ] && [ 4 = "${LEVEL}" ]; then SEL="${SEL} OZAKI_WGMMA=0"; fi
@@ -94,6 +97,11 @@ cases() {
       echo "oz2sym_${TAG}${LEVEL}_n${N}_double|OZAKI=2 OZAKI_SYMRES=1 ${SEL}|${N}"
       if [ -z "${VAR}" ]; then break; fi
     done
+    # without a level the sample test-compiles the builtins; unsigned residues leave MFMA, not WMMA
+    if [ "LIBXSTREAM_AMD" = "${VAR}" ]; then
+      echo "oz2_amdprobe_n${N}_double|OZAKI=2|${N}"
+      if [ 2 -le "${TOP}" ]; then echo "oz2u8_amd${TOP}_n${N}_double|OZAKI=2 OZAKI_SYMRES=0 ${VAR}=${TOP}|${N}"; fi
+    fi
     if [ -n "${WG}" ]; then
       echo "oz2int8_wgmma_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_WGMMA=${WG}|${N}"
       echo "oz2sym_wgmma_n${N}_double|OZAKI=2 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_WGMMA=${WG}|${N}"
@@ -146,6 +154,17 @@ cases() {
   done
 }
 
+# amd_levels <top>: the AMD levels a device of that top level has (MFMA and WMMA are not one range)
+amd_levels() {
+  case "$1" in
+    2) echo "1 2" ;;
+    3) echo "1 2 3" ;;
+    4) echo "1 4" ;;
+    5) echo "1 5" ;;
+    *) echo "1" ;;
+  esac
+}
+
 # value <name> <environment>: the value a NAME=VALUE pair in the environment gives
 value() {
   sed -n "s/.*\<$1=\([^ ]*\).*/\1/p" <<< "$2"
@@ -161,6 +180,7 @@ llvm_min() {
 
 for SPEC in ${GPUS}; do
   GPU=${SPEC%%:*}
+  LEVELS=
   TARGET=${GPU//\//_}
   if [ "local" = "${GPU}" ]; then
     # the device's vendor and top level, as the sample configures itself by default
@@ -169,6 +189,9 @@ for SPEC in ${GPUS}; do
     WG="" TC="" TCI=0
     if [ -n "$(value intel "${CONFIG}")" ]; then
       VAR=LIBXSTREAM_INTEL FIRST=0 TOP=$(value intel "${CONFIG}")
+    elif [ -n "$(value amd "${CONFIG}")" ]; then
+      VAR=LIBXSTREAM_AMD FIRST=1 TOP=$(value amd "${CONFIG}")
+      LEVELS=$(amd_levels "${TOP}")
     elif [ -n "$(value nv "${CONFIG}")" ]; then
       VAR=LIBXSTREAM_NV FIRST=1 TOP=$(value nv "${CONFIG}")
       if [ 1 = "$(value wgmma "${CONFIG}")" ]; then WG=1; fi
@@ -181,6 +204,22 @@ for SPEC in ${GPUS}; do
     else
       VAR="" FIRST=1 TOP=1
     fi
+  elif [[ "${GPU}" == amd/* ]]; then
+    GFX=$(vgpu info --gpu "${GPU}" | sed -n 's/.*gfx target:[[:space:]]*\(gfx[0-9a-f]*\).*/\1/p')
+    if [ -z "${GFX}" ]; then
+      echo "| ${GPU} | | | FAIL: not a simulated AMD GPU |" >> "${RESULTS}"
+      STATUS=1
+      continue
+    fi
+    export VGPU_GPU=${GPU}
+    VAR=LIBXSTREAM_AMD FIRST=1 TOP=1 WG="" TC="" TCI=0
+    case "${GFX}" in
+      gfx942) TOP=2 ;;
+      gfx950) TOP=3 ;;
+      gfx11[0-9][0-9]) TOP=4 ;;
+      gfx120[0-9]) TOP=5 ;;
+    esac
+    LEVELS=$(amd_levels "${TOP}")
   else
     SM=$(vgpu info --gpu "${GPU}" | sed -n 's/.*compute capability:[[:space:]]*\([0-9]*\)\.\([0-9]*\).*/sm_\1\2/p')
     if [ "${GPU}" != "${SPEC}" ] && [ -n "${SM}" ]; then SM=${SPEC#*:}; fi
@@ -265,16 +304,33 @@ for SPEC in ${GPUS}; do
       if [[ "${NAME}" == *_probe_* ]]; then LEVEL=${PROBED}; fi
       # the level every kernel was built for (-DNV, -DINTEL)
       BUILT=$(grep "^INFO OZAKI: -D" "${LOG}" 2> /dev/null | grep -o -- "-D${VAR#LIBXSTREAM_}=[0-9]*" | sort -u | paste -sd' ' -)
+      EXPECT="-D${VAR#LIBXSTREAM_}=${LEVEL}"
+      if [ "LIBXSTREAM_AMD" = "${VAR}" ]; then
+        # the level the probe chose, and the form it implies for int8: MFMA signed only (none: generic kernels)
+        if [[ "${NAME}" == *_amdprobe_* ]]; then
+          LEVEL=$(sed -n 's/^INFO OZAKI: AMD matrix cores - level \([0-9]\)$/\1/p' "${LOG}" 2> /dev/null | head -n1)
+        fi
+        BUILT=$(grep "^INFO OZAKI: -D" "${LOG}" 2> /dev/null | grep -oE -- "-DAMD_(MFMA|WMMA)=[0-9]*" | sort -u | paste -sd' ' -)
+        EXPECT=""
+        if [ -z "$(value OZAKI_BF16 "${SETENV}")" ]; then
+          case "${LEVEL:-1}" in
+            2 | 3) if [ "0" != "$(value OZAKI_SYMRES "${SETENV}")" ]; then EXPECT="-DAMD_MFMA=$((LEVEL - 1))"; fi ;;
+            4 | 5) EXPECT="-DAMD_WMMA=$((LEVEL - 3))" ;;
+          esac
+        fi
+      fi
       KEY=$(value OZAKI "${SETENV}")_${N}
       if [ "0" != "${CODE}" ]; then
         RESULT="FAIL: exit status ${CODE:-unknown}"
       elif grep -q "ERROR" "${LOG}"; then
         RESULT="FAIL: $(grep -m1 "ERROR" "${LOG}")"
+      elif [[ "${NAME}" == *_amdprobe_* ]] && [ "${TOP}" != "${LEVEL}" ]; then
+        RESULT="FAIL: the probe chose level ${LEVEL:-none}, the profile has ${TOP}"
       elif [[ "${NAME}" == *_probe_* ]] && [ -z "${PROBED}" ]; then
         RESULT="FAIL: the carrier probe did not decide"
       elif [ 6 = "${LEVEL}" ] && [ -z "$(value OZAKI_BF16 "${SETENV}")" ] && [ 1 != "$(value bf16 "${CONFIG}")" ]; then
         RESULT="FAIL: level 6 does not carry bf16 (${CONFIG#INFO OZAKI: })"
-      elif [ -n "${VAR}" ] && [ "-D${VAR#LIBXSTREAM_}=${LEVEL}" != "${BUILT}" ]; then
+      elif [ -n "${VAR}" ] && [ "${EXPECT}" != "${BUILT}" ]; then
         RESULT="FAIL: not built for level ${LEVEL} (${BUILT:-no build line})"
       elif [ "${WGMMA:-0}" != "$(value wgmma "${CONFIG}" | grep . || echo 0)" ]; then
         RESULT="FAIL: warp-group MMA is not ${WGMMA:-0} (${CONFIG#INFO OZAKI: })"

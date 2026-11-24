@@ -2087,7 +2087,7 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
           /* what an AMD device's compiler accepts is test-compiled (libxstream_opencl_atomics_probe), not told by its name */
           if (EXIT_SUCCESS == libxstream_opencl_device_vendor(active_id, "amd", 0 /*use_platform_name*/) ||
               EXIT_SUCCESS == libxstream_opencl_device_vendor(active_id, "amd", 1 /*use_platform_name*/))
-          { /* amd: 1=generic, 2=CDNA3 matrix cores (MFMA 32x32x16 int8), 3=CDNA4 (32x32x32): by LIBXSTREAM_AMD or a caller's probe */
+          { /* amd: 1=generic, 2/3=CDNA3/4 (MFMA int8), 4/5=RDNA3/4 (WMMA int8): by LIBXSTREAM_AMD or a caller's probe */
             const char* const env_amd = getenv("LIBXSTREAM_AMD");
             devinfo->amd = (NULL != env_amd) ? atoi(env_amd) : 1;
           }

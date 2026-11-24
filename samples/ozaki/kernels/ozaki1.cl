@@ -99,7 +99,7 @@
 
 #if defined(INTEL) && (2 <= INTEL) && (RTM >= 2) && (RTN >= 2)
 # define OZAKI_USE_OCL_KLOOP
-#elif defined(NV_MMA) && (NV_MMA)
+#elif defined(OZAKI_FRAGACC)
 # define OZAKI_USE_OCL_KLOOP
 #endif
 
@@ -312,9 +312,9 @@
     } \
   } while (0)
 
-#if defined(NV_MMA) && (NV_MMA)
+#if defined(OZAKI_FRAGACC)
 /**
- * MMA scale+flush: accumulator is int4[RTM*RTN], one fragment per sub-tile.
+ * MMA scale+flush: accumulator is OZAKI_ACC_T[RTM*RTN], one fragment per sub-tile.
  * The (row, col) each fragment element lands on comes from OZAKI_FRAG_ROW /
  * OZAKI_FRAG_COL in ozaki_common.cl - the same mapping Scheme 2 stores
  * through, so the layout is stated in exactly one place.
@@ -409,7 +409,7 @@
       } \
     } \
   } while (0)
-#endif /* NV_MMA */
+#endif /* OZAKI_FRAGACC */
 
 
 /**
@@ -648,7 +648,7 @@ kernel void gemm_fused(
     }
   }
 
-#if !defined(OZAKI_USE_OCL_KLOOP) && !(defined(NV_MMA) && (NV_MMA))
+#if !defined(OZAKI_USE_OCL_KLOOP) && !defined(OZAKI_FRAGACC)
   /* Register-resident C accumulators: c_fp[rm*RTN*XMX_M + rn*XMX_M + m] */
   real_t c_fp[RTM * RTN * XMX_M];
   {
@@ -734,7 +734,7 @@ kernel void gemm_fused(
         CONSTANT const char* bs_sb = bs + (long)sb * b_stride;
 
         /* (sa, sb) K-loop - unrolled by KU */
-#if defined(NV_MMA) && (NV_MMA)
+#if defined(OZAKI_FRAGACC)
         {
           OZAKI_ACC_T c_acc[RTM * RTN];
           {
@@ -869,7 +869,7 @@ kernel void gemm_fused(
     }
 #endif /* OZAKI_SLICE_BLOCKED */
 
-#if !defined(OZAKI_USE_OCL_KLOOP) && !(defined(NV_MMA) && (NV_MMA))
+#if !defined(OZAKI_USE_OCL_KLOOP) && !defined(OZAKI_FRAGACC)
   /* Final write: register C -> global C */
   {
     int rm, rn;

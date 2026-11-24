@@ -374,6 +374,45 @@ int ozaki_carrier_probe(double* ratio)
 
 
 /**
+ * Built, not run: a target's name tells a matrix instruction no better than it told the
+ * FP atomics (gfx >= 90 matched RDNA, which lacks them). A rejected builtin is detection,
+ * not a failure - but it has to be rejected by the front end: LLVM (22 included) accepts
+ * some builtins for targets that lack the instruction, and the backend then aborts the
+ * process (Cannot select), since the runtime compiles in-process. Hence the order, each
+ * form tried only where every earlier one was rejected cleanly: 32x32x16 MFMA passes the
+ * front end on gfx90a (guarded by the fp8 MFMA, which is gated right), RDNA4's WMMA on
+ * gfx1250, and RDNA3's on both of them. gfx1250 stops the probe: no path takes it yet.
+ */
+int ozaki_amd_probe(void)
+{
+  static const char source[] =
+    "typedef int v8i __attribute__((ext_vector_type(8)));\n"
+    "kernel void ozaki_amd_probe(global R* restrict d, global const T* restrict a, global float4* restrict f)\n{\n"
+    "  d[0] = MM(a[0], a[1], d[0]);\n"
+    "#if defined(GUARD)\n  f[0] = GUARD(as_long(a[0]), as_long(a[1]), f[0], 0, 0, 0);\n#endif\n}\n";
+  static const struct { const char* params; int level; } forms[] = {
+    { "-DR=int16 -DT=int4 -DMM(A,B,C)=__builtin_amdgcn_mfma_i32_32x32x32_i8(A,B,C,0,0,0)", 3 },
+    { "-DR=int16 -DT=long -DMM(A,B,C)=__builtin_amdgcn_mfma_i32_32x32x16_i8(A,B,C,0,0,0)"
+      " -DGUARD=__builtin_amdgcn_mfma_f32_16x16x32_fp8_fp8", 2 },
+    { "-DR=v8i -DT=v8i -DMM(A,B,C)=__builtin_amdgcn_wmma_i32_16x16x64_iu8(false,A,false,B,C,false,false)", 1 },
+    { "-DR=v8i -DT=int2 -DMM(A,B,C)=__builtin_amdgcn_wmma_i32_16x16x16_iu8_w32_gfx12(false,A,false,B,C,false)", 5 },
+    { "-DR=v8i -DT=int4 -DMM(A,B,C)=__builtin_amdgcn_wmma_i32_16x16x16_iu8_w32(false,A,false,B,C,false)", 4 }
+  };
+  int level = 0, i;
+  for (i = 0; i < (int)(sizeof(forms) / sizeof(*forms)) && 0 == level; ++i) {
+    cl_program program = NULL;
+    if (EXIT_SUCCESS == libxstream_opencl_program(0 /*source*/, source, "oz2_amd_probe", forms[i].params, "" /*build_options*/,
+                          NULL /*try_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &program))
+    {
+      level = forms[i].level;
+    }
+    if (NULL != program) clReleaseProgram(program);
+  }
+  return (0 != level ? level : 1);
+}
+
+
+/**
  * Staging depth (KU) of the warp-group specialization for one tile, with the
  * deferred wait and the stage count that go with it. Per specialization rather
  * than per context because depth costs shared memory, which decides whether a

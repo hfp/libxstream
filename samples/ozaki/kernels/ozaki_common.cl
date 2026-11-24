@@ -256,11 +256,21 @@
  * Intel DPAS (PVC XMX):  8 rows x 16 cols, K=32  (SG=16)
  * NVIDIA dp4a:           8 rows x 16 cols, K=32  (SG=16)
  * NVIDIA MMA m16n8k32:  16 rows x  8 cols, K=32  (SG=32)
+ * AMD MFMA 32x32:       32 rows x 32 cols, K=32  (SG=64)
+ * AMD WMMA 16x16:       16 rows x 16 cols, K=32  (SG=32)
  * Scalar fallback:       8 rows x 16 cols, K=32  (SG=16)
  */
 #if defined(NV_MMA) && (NV_MMA)
 # define XMX_M 16
 # define XMX_N 8
+# define XMX_K 32
+#elif defined(AMD_MFMA) && (AMD_MFMA)
+# define XMX_M 32
+# define XMX_N 32
+# define XMX_K 32
+#elif defined(AMD_WMMA) && (AMD_WMMA)
+# define XMX_M 16
+# define XMX_N 16
 # define XMX_K 32
 #else
 # define XMX_M 8
@@ -275,7 +285,11 @@
  * equals XMX_M, element f is row f, and the column is the lane itself. MMA
  * splits the tile differently - a lane holds 2 rows x 2 cols at (lane/4,
  * (lane%4)*2), the second row +8 and the second column +1 - so element f is
- * row (f/2)*8 and column (f%2), both offset by the lane.
+ * row (f/2)*8 and column (f%2), both offset by the lane. MFMA 32x32 gives a lane
+ * one column again (lane%32), but 16 of its 32 rows: four runs of four, 8 apart,
+ * the lane's half (lane/32) selecting the second four of every eight. WMMA 16x16
+ * gives a lane one column (lane%16) and 8 rows: the lane half's eight on RDNA4,
+ * every other row (from lane/16) on RDNA3.
  *
  * Everything after the K-loop (mod-reduce, residue strides, exponent caching,
  * C store) is expressed in XMX_FRAG and this mapping, so one body serves both
@@ -289,6 +303,26 @@
 # define OZAKI_FRAG_NCOL 2
 # define OZAKI_FRAG_COLIDX(F) ((F) & 1)
 # define OZAKI_FRAG_COL(CI, LANE) (((int)(LANE) % 4) * 2 + (CI))
+#elif defined(AMD_MFMA) && (AMD_MFMA)
+# define XMX_FRAG 16
+# define OZAKI_ACC_T int16
+# define OZAKI_ACC_ZERO VEC_ZERO(int16)
+# define OZAKI_FRAG_ROW(F, LANE) (((F) / 4) * 8 + ((int)(LANE) / 32) * 4 + (F) % 4)
+# define OZAKI_FRAG_NCOL 1
+# define OZAKI_FRAG_COLIDX(F) 0
+# define OZAKI_FRAG_COL(CI, LANE) ((int)(LANE) % 32)
+#elif defined(AMD_WMMA) && (AMD_WMMA)
+# define XMX_FRAG 8
+# define OZAKI_ACC_T int8
+# define OZAKI_ACC_ZERO VEC_ZERO(int8)
+# if (1 == AMD_WMMA)
+#   define OZAKI_FRAG_ROW(F, LANE) (2 * (F) + (int)(LANE) / 16)
+# else
+#   define OZAKI_FRAG_ROW(F, LANE) (((int)(LANE) / 16) * 8 + (F))
+# endif
+# define OZAKI_FRAG_NCOL 1
+# define OZAKI_FRAG_COLIDX(F) 0
+# define OZAKI_FRAG_COL(CI, LANE) ((int)(LANE) % 16)
 #else
 # define XMX_FRAG 8
 # define OZAKI_ACC_T int8
@@ -297,6 +331,11 @@
 # define OZAKI_FRAG_NCOL 1
 # define OZAKI_FRAG_COLIDX(F) 0
 # define OZAKI_FRAG_COL(CI, LANE) ((int)(LANE))
+#endif
+
+/* Accumulators as fragments placed by OZAKI_FRAG_ROW/OZAKI_FRAG_COL (warp-level matrix instructions). */
+#if (defined(NV_MMA) && (NV_MMA)) || (defined(AMD_MFMA) && (AMD_MFMA)) || (defined(AMD_WMMA) && (AMD_WMMA))
+# define OZAKI_FRAGACC
 #endif
 
 /* Reinterpret an accumulator fragment as XMX_FRAG scalars. */
@@ -750,6 +789,119 @@
       NV_MMA_STEP(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, lane_, \
         (ACC).s0, (ACC).s1, (ACC).s2, (ACC).s3); \
     } while (0)
+
+/**
+ * AMD matrix cores, int8, one sub-group per wave (probed on simulated CDNA and RDNA
+ * GPUs, where pairing A and B otherwise is wrong). Lane l holds row (A) or column (B)
+ * l%XMX_M and a run of K that A and B share, which is all the instructions require.
+ * AMD_MFMA (CDNA, SG=64, 32x32): signed only - MFMA has no unsigned int8 - hence
+ * symmetric residues; lane half l/32 holds the second run, 8 bytes (1: 32x32x16, CDNA3)
+ * or 16 (2: 32x32x32, CDNA4). AMD_WMMA (RDNA, SG=32, 16x16x16): signedness per operand;
+ * 2 (RDNA4) is like MFMA with 8 bytes per lane half, 1 (RDNA3) gives every lane the
+ * whole K of its row, both halves alike, as the ISA asks (the simulator reads only the
+ * lower half). A is row-major, which makes a run one load; B by columns (OZAKI_BKMAJOR)
+ * does the same, any other layout gathers. The builtins are values, not asm, so
+ * unrolling cannot read a stale accumulator.
+ */
+#elif (defined(AMD_MFMA) && (AMD_MFMA)) || (defined(AMD_WMMA) && (AMD_WMMA))
+
+# if defined(OZAKI_BF16) && (OZAKI_BF16)
+#   error AMD matrix cores carry int8 only.
+# endif
+# if defined(OZAKI_ABLOCK) && (OZAKI_ABLOCK)
+#   error AMD matrix cores read A row-major.
+# endif
+# define OZAKI_PREFETCH_A(AS, K_PAD, M_HT, KOFF, MI)
+# define OZAKI_PREFETCH_B(BS, N_PAD, K_PAD, KOFF, NJ)
+# define OZAKI_PREFETCH_TILED(AS, BS, K_PAD, N_PAD, M_HT, KOFF, MI, NJ)
+# if defined(AMD_MFMA) && (AMD_MFMA)
+#   if defined(OZAKI_U8) && (OZAKI_U8)
+#     error AMD_MFMA needs signed residues (OZAKI_SYMRES=1).
+#   endif
+#   define OZAKI_BYTE_T signed char
+#   if (1 == AMD_MFMA)
+#     define AMD_MM_FRAG_T long
+#     define AMD_MM_KRUN 8
+#     define AMD_MM_ONE(A, B, ACC) (ACC) = __builtin_amdgcn_mfma_i32_32x32x16_i8((A), (B), (ACC), 0, 0, 0)
+#   else
+#     define AMD_MM_FRAG_T int4
+#     define AMD_MM_KRUN 16
+#     define AMD_MM_ONE(A, B, ACC) (ACC) = __builtin_amdgcn_mfma_i32_32x32x32_i8((A), (B), (ACC), 0, 0, 0)
+#   endif
+/* K per instruction, and where a lane's run starts in it */
+#   define AMD_MM_KSTEP (2 * AMD_MM_KRUN)
+#   define AMD_MM_KLANE(LANE) (((LANE) / 32) * AMD_MM_KRUN)
+# else
+#   if defined(OZAKI_U8) && (OZAKI_U8)
+#     define OZAKI_BYTE_T uchar
+#     define AMD_MM_SIGNED false
+#   else
+#     define OZAKI_BYTE_T signed char
+#     define AMD_MM_SIGNED true
+#   endif
+#   if (1 == AMD_WMMA)
+#     define AMD_MM_FRAG_T int4
+#     define AMD_MM_KRUN 16
+#     define AMD_MM_KLANE(LANE) 0
+#     define AMD_MM_ONE(A, B, ACC) \
+        (ACC) = __builtin_amdgcn_wmma_i32_16x16x16_iu8_w32(AMD_MM_SIGNED, (A), AMD_MM_SIGNED, (B), (ACC), false)
+#   else
+#     define AMD_MM_FRAG_T int2
+#     define AMD_MM_KRUN 8
+#     define AMD_MM_KLANE(LANE) (((LANE) / 16) * AMD_MM_KRUN)
+#     define AMD_MM_ONE(A, B, ACC) \
+        (ACC) = __builtin_amdgcn_wmma_i32_16x16x16_iu8_w32_gfx12(AMD_MM_SIGNED, (A), AMD_MM_SIGNED, (B), (ACC), false)
+#   endif
+#   define AMD_MM_KSTEP 16
+# endif
+# define AMD_MM_NSTEP (BK / AMD_MM_KSTEP)
+
+# if defined(OZAKI_BKMAJOR) && (OZAKI_BKMAJOR)
+#   define AMD_MM_LOAD_B(BS, N_PAD, K_PAD, K, COL, BF) \
+      (BF) = *(CONSTANT const AMD_MM_FRAG_T*)((CONSTANT const OZAKI_BYTE_T*)(BS) \
+        + OZAKI_IDX_BS((K), (COL), (N_PAD), (K_PAD)))
+# else
+#   define AMD_MM_LOAD_B(BS, N_PAD, K_PAD, K, COL, BF) \
+      do { \
+        union { \
+          AMD_MM_FRAG_T v_; \
+          OZAKI_BYTE_T b_[AMD_MM_KRUN]; \
+        } bg_; \
+        int jg_; \
+        UNROLL_FORCE(AMD_MM_KRUN) for (jg_ = 0; jg_ < AMD_MM_KRUN; ++jg_) { \
+          bg_.b_[jg_] = ((CONSTANT const OZAKI_BYTE_T*)(BS))[OZAKI_IDX_BS((K) + jg_, (COL), (N_PAD), (K_PAD))]; \
+        } \
+        (BF) = bg_.v_; \
+      } while (0)
+# endif
+
+/* NM x NN tiles (ACC indexed [rm * NN + rn]): A and B fragments loaded once per step. */
+# define AMD_MM_TILES(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, NM, NN, ACC) \
+    do { \
+      const int lane_m_ = (int)SGLID(); \
+      const int r_m_ = lane_m_ % XMX_M, kq_m_ = AMD_MM_KLANE(lane_m_); \
+      int s_m_, rm_m_, rn_m_; \
+      UNROLL_FORCE(AMD_MM_NSTEP) for (s_m_ = 0; s_m_ < AMD_MM_NSTEP; ++s_m_) { \
+        const int k_m_ = (KOFF) + s_m_ * AMD_MM_KSTEP + kq_m_; \
+        AMD_MM_FRAG_T a_m_[NM], b_m_[NN]; \
+        UNROLL_FORCE(NM) for (rm_m_ = 0; rm_m_ < (NM); ++rm_m_) { \
+          a_m_[rm_m_] = *(CONSTANT const AMD_MM_FRAG_T*)((CONSTANT const OZAKI_BYTE_T*)(AS) \
+            + OZAKI_IDX_AS((MI) + rm_m_ * XMX_M + r_m_, k_m_, (K_PAD))); \
+        } \
+        UNROLL_FORCE(NN) for (rn_m_ = 0; rn_m_ < (NN); ++rn_m_) { \
+          AMD_MM_LOAD_B(BS, N_PAD, K_PAD, k_m_, (NJ) + rn_m_ * XMX_N + r_m_, b_m_[rn_m_]); \
+        } \
+        UNROLL_FORCE(NM) for (rm_m_ = 0; rm_m_ < (NM); ++rm_m_) { \
+          UNROLL_FORCE(NN) for (rn_m_ = 0; rn_m_ < (NN); ++rn_m_) { \
+            AMD_MM_ONE(a_m_[rm_m_], b_m_[rn_m_], (ACC)[rm_m_ * (NN) + rn_m_]); \
+          } \
+        } \
+      } \
+    } while (0)
+# define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
+    AMD_MM_TILES(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, RTM, RTN, ACC)
+# define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
+    AMD_MM_TILES(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, 1, 1, &(ACC))
 
 /* NVIDIA PTX dp4a path (NV>=2, SG=16, no tensor cores) */
 #elif defined(NV) && (2 <= NV)

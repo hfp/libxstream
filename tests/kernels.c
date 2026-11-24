@@ -149,6 +149,25 @@
   KERNELS_OZAKI_WG_COMMON KERNELS_OZAKI_WGMMA_D4 " -DOZAKI_TCGEN05=1 -DOZAKI_ABLOCK=2 -DOZAKI_U8=1 -DOZAKI_BF16=1"
 #define KERNELS_OZAKI_TCGEN05_BF16_SYMRES \
   KERNELS_OZAKI_WG_COMMON KERNELS_OZAKI_WGMMA_D4 " -DOZAKI_TCGEN05=1 -DOZAKI_ABLOCK=2 -DOZAKI_SYMRES=1 -DOZAKI_BF16=1"
+/* AMD matrix cores as the host emits them: one wave per sub-group, the 32x32 tile, signed residues, B by columns. */
+#define KERNELS_OZAKI_MFMA_BASE \
+  "-DBK=32 -DKU=2 -DRC=8 -DSG=64 -DINTEL=0 -DNV=0 -DBM_PRE=16 -DBN_PRE=16" \
+  " -DBK_PRE=32 -DOZAKI_SB=1 -DCONSTANT=global -DBM=128 -DBN=128 -DRTM=2 -DRTN=2" \
+  " -DOZAKI_CUTOFF=14 -DLU=0 -DKGROUPS=0 -DPB=1 -DNSLICES=8 -DUSE_DOUBLE=1 -DMANT_BITS=53" \
+  " -DBIAS_PLUS_MANT=1075 -DOZAKI_HIER=1 -DOZAKI_TRI=0 -DOZAKI_SYM=0"
+#define KERNELS_OZAKI1_MFMA KERNELS_OZAKI_MFMA_BASE " -DAMD_MFMA=1"
+#define KERNELS_OZAKI_MFMA KERNELS_OZAKI_MFMA_BASE " -DAMD_MFMA=1 -DOZAKI_SYMRES=1 -DOZAKI_BKMAJOR=1"
+#define KERNELS_OZAKI_MFMA4 KERNELS_OZAKI_MFMA_BASE " -DAMD_MFMA=2 -DOZAKI_SYMRES=1 -DOZAKI_BKMAJOR=1"
+/* WMMA: one wave32 per sub-group, 16x16 tiles, either residue representation. */
+#define KERNELS_OZAKI_WMMA_BASE \
+  "-DBK=32 -DKU=2 -DRC=8 -DSG=32 -DINTEL=0 -DNV=0 -DBM_PRE=16 -DBN_PRE=16" \
+  " -DBK_PRE=32 -DOZAKI_SB=1 -DCONSTANT=global -DBM=64 -DBN=64 -DRTM=2 -DRTN=2" \
+  " -DOZAKI_CUTOFF=14 -DLU=0 -DKGROUPS=0 -DPB=1 -DNSLICES=8 -DUSE_DOUBLE=1 -DMANT_BITS=53" \
+  " -DBIAS_PLUS_MANT=1075 -DOZAKI_HIER=1 -DOZAKI_TRI=0 -DOZAKI_SYM=0"
+#define KERNELS_OZAKI1_WMMA KERNELS_OZAKI_WMMA_BASE " -DAMD_WMMA=2"
+#define KERNELS_OZAKI_WMMA3 KERNELS_OZAKI_WMMA_BASE " -DAMD_WMMA=1 -DOZAKI_BKMAJOR=1"
+#define KERNELS_OZAKI_WMMA KERNELS_OZAKI_WMMA_BASE " -DAMD_WMMA=2 -DOZAKI_BKMAJOR=1"
+#define KERNELS_OZAKI_WMMA_SYMRES KERNELS_OZAKI_WMMA_BASE " -DAMD_WMMA=2 -DOZAKI_SYMRES=1 -DOZAKI_BKMAJOR=1"
 /**
  * DBM as dbm_opencl.c composes it, atomics included: the prototype form the host
  * emits for an Intel device below OpenCL 2.0, and the inline-PTX add it emits for
@@ -201,18 +220,21 @@
  * A flavor is a variant of one kernel's parameters, not of the level: the level
  * says what the language provides, the flavor what the host asked to emit.
  *
- * nv states the vendor a flavor is emitted for, which decides two things at once:
- * the dialect it is instantiated in (__NV_CL_C_VERSION, which turns on the unroll
- * hints below OpenCL C 2.0, so without it the lint checks a text no driver
- * receives), and the target it is checked against. Inline PTX is validated by
- * the target clang compiles for, and the host is the wrong one: an asm operand
- * constraint that PTX defines and the host target does not fails on that host
- * and passes on another, so the verdict would depend on where the test ran.
+ * vendor states what a flavor is emitted for (0 any, 1 NVIDIA, AMD 2 gfx942, 3
+ * gfx950, 4 gfx1100, 5 gfx1201), which decides two things at once: the dialect it
+ * is instantiated in (NVIDIA's __NV_CL_C_VERSION, which turns on the unroll hints
+ * below OpenCL C 2.0, so without it the lint checks a text no driver receives),
+ * and the target it is checked against. Inline PTX is validated by the target
+ * clang compiles for, and the host is the wrong one: an asm operand constraint
+ * that PTX defines and the host target does not fails on that host and passes on
+ * another, so the verdict would depend on where the test ran. AMD's matrix
+ * builtins exist only for the targets that have the instructions, hence a gfx
+ * target rather than amdgcn alone.
  *
  * sg marks a flavor the host emits only for a device with sub-groups, which is
  * then compiled at the levels that provide them (kernels_level_t.sg).
  */
-typedef struct { const char* path; const char* flavor; const char* params; int nv; int sg; int cp2k; } kernels_file_t;
+typedef struct { const char* path; const char* flavor; const char* params; int vendor; int sg; int cp2k; } kernels_file_t;
 
 /**
  * A level names what it selects, and states the language its artifact is in and
@@ -245,6 +267,13 @@ static const kernels_file_t kernel_files[] = {
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "tcgen05sym", KERNELS_OZAKI_TCGEN05_SYMRES, 1, 0, 0 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "tcgen05bf16", KERNELS_OZAKI_TCGEN05_BF16, 1, 0, 0 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "tcgen05bf16sym", KERNELS_OZAKI_TCGEN05_BF16_SYMRES, 1, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "mfma", KERNELS_OZAKI1_MFMA, 2, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "mfma", KERNELS_OZAKI_MFMA, 2, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "mfma4", KERNELS_OZAKI_MFMA4, 3, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wmma3", KERNELS_OZAKI_WMMA3, 4, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "wmma", KERNELS_OZAKI1_WMMA, 5, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wmma", KERNELS_OZAKI_WMMA, 5, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wmmasym", KERNELS_OZAKI_WMMA_SYMRES, 5, 0, 0 },
   { LIBXSTREAM_SRCDIR "/samples/smm/kernels/transpose.cl", "",
     "-DT=float -DSM=32 -DSN=32 -DWG=32 -DCONSTANT=global" /* WG must equal SM */, 0, 0, 0 },
   { LIBXSTREAM_SRCDIR "/samples/smm/kernels/norms.cl", "", "-DWG=64", 0, 0, 0 },
@@ -300,7 +329,8 @@ static const char* kernels_ptxas(void);
 static const char* kernels_cp2k(void);
 static char* loads(const char path[]);
 static void dirname_of(const char path[], char buffer[], size_t size);
-static int compiles(const char artifact[], const kernels_level_t* level, int nv, const char flags[]);
+static const char* kernels_target(int vendor);
+static int compiles(const char artifact[], const kernels_level_t* level, int vendor, const char flags[]);
 static int one(const kernels_file_t* file, const kernels_level_t* level);
 
 
@@ -308,7 +338,8 @@ int main(void)
 {
   const int nfiles = (int)(sizeof(kernel_files) / sizeof(*kernel_files));
   const int nlevels = (int)(sizeof(kernel_levels) / sizeof(*kernel_levels));
-  int result = EXIT_SUCCESS, skip = 0, ncp2k = 0, i, j, n = 0;
+  int result = EXIT_SUCCESS, skip = 0, ncp2k = 0, namd = 0, i, j, n = 0;
+  int known[6] = {1, 1, 1, 1, 1, 1};
 #if defined(__APPLE__)
   /**
    * Apple's clang does not support the OpenCL C extensions these kernels need,
@@ -342,12 +373,20 @@ int main(void)
         result = EXIT_FAILURE;
       }
     }
+    for (i = 2; i < 6 && EXIT_SUCCESS == result; ++i) { /* an AMD target the compiler does not know (gfx950 before LLVM 20) */
+      known[i] = (0 < LIBXS_SNPRINTF(probe, sizeof(probe), "%s -x cl -fsyntax-only%s /dev/null >/dev/null 2>&1",
+                        kernels_cc(), kernels_target(i)) && EXIT_SUCCESS == system(probe));
+    }
   }
   for (i = 0; i < nlevels && 0 == skip && EXIT_SUCCESS == result; ++i) {
     for (j = 0; j < nfiles && EXIT_SUCCESS == result; ++j) {
       if (0 != kernel_files[j].sg && 0 == kernel_levels[i].sg) continue;
       if (0 != kernel_files[j].cp2k && NULL == kernels_cp2k()) {
         ++ncp2k;
+        continue;
+      }
+      if (0 == known[kernel_files[j].vendor]) {
+        ++namd;
         continue;
       }
       result = one(kernel_files + j, kernel_levels + i);
@@ -358,6 +397,9 @@ int main(void)
     printf("kernels: %d compiled at -Wall -Wextra -pedantic -Wshadow -Werror\n", n);
     if (0 != ncp2k) { /* stated rather than skipped */
       printf("kernels: %d NOT ATTEMPTED (they include CP2K's src/grid: set KERNELS_CP2K to CP2K's root)\n", ncp2k);
+    }
+    if (0 != namd) {
+      printf("kernels: %d NOT ATTEMPTED (an AMD target %s does not know)\n", namd, kernels_cc());
     }
     if (NULL != kernels_ptxas()) {
       printf("kernels: %d assembled by ptxas -arch=%s\n", kernels_nassembled, KERNELS_PTXARCH);
@@ -428,7 +470,19 @@ static void dirname_of(const char path[], char buffer[], size_t size)
 }
 
 
-static int compiles(const char artifact[], const kernels_level_t* level, int nv, const char flags[])
+/* The target a vendor's flavors are checked against, empty for the host's. */
+static const char* kernels_target(int vendor)
+{
+  static const char* const targets[] = {
+    "", " --target=nvptx64-nvidia-cuda",
+    " --target=amdgcn-amd-amdhsa -mcpu=gfx942 -nogpulib", " --target=amdgcn-amd-amdhsa -mcpu=gfx950 -nogpulib",
+    " --target=amdgcn-amd-amdhsa -mcpu=gfx1100 -nogpulib", " --target=amdgcn-amd-amdhsa -mcpu=gfx1201 -nogpulib"
+  };
+  return (0 <= vendor && (int)(sizeof(targets) / sizeof(*targets)) > vendor) ? targets[vendor] : "";
+}
+
+
+static int compiles(const char artifact[], const kernels_level_t* level, int vendor, const char flags[])
 {
   char command[1024], ptx[512];
   const char* const ptxas = kernels_ptxas();
@@ -444,7 +498,7 @@ static int compiles(const char artifact[], const kernels_level_t* level, int nv,
          * that name, which compiles clean and computes something else. */
         " -Wall -Wextra -pedantic -Wshadow -Wno-unused-parameter -Werror"
         " -Xclang -cl-ext=%s -Xclang -finclude-default-header%s %s",
-        kernels_cc(), level->std, 0 != nv ? " --target=nvptx64-nvidia-cuda" : "", level->ext, flags, artifact))
+        kernels_cc(), level->std, kernels_target(vendor), level->ext, flags, artifact))
   {
     result = (EXIT_SUCCESS == system(command) ? EXIT_SUCCESS : EXIT_FAILURE);
   }
@@ -453,7 +507,7 @@ static int compiles(const char artifact[], const kernels_level_t* level, int nv,
    * external calls, which a complete program would have to resolve. Warnings are
    * not repeated, the first pass already held the same text to -Werror.
    */
-  if (EXIT_SUCCESS == result && 0 != nv && NULL != ptxas) {
+  if (EXIT_SUCCESS == result && 1 == vendor && NULL != ptxas) {
     result = EXIT_FAILURE;
     if (0 < LIBXS_SNPRINTF(ptx, sizeof(ptx), "%.*s.ptx", nstem, artifact)
       && 0 < LIBXS_SNPRINTF(command, sizeof(command),
@@ -504,14 +558,14 @@ static int one(const kernels_file_t* file, const kernels_level_t* level)
       result = EXIT_FAILURE;
     }
     if (EXIT_SUCCESS == result) {
-      result = libxstream_opencl_dump(source, 0 /*strlen*/, name, defines, file->nv, "", NULL);
+      result = libxstream_opencl_dump(source, 0 /*strlen*/, name, defines, 1 == file->vendor, "", NULL);
       if (EXIT_SUCCESS != result) {
         fprintf(stderr, "kernels: %s did not instantiate [%s %s]\n", path, level->name, file->flavor);
       }
     }
     if (EXIT_SUCCESS == result) {
       /* CP2K's shared headers define the helpers of host and device code alike, which no one kernel all uses */
-      result = compiles(artifact, level, file->nv, 0 != file->cp2k ? " -Wno-unused-function" : "");
+      result = compiles(artifact, level, file->vendor, 0 != file->cp2k ? " -Wno-unused-function" : "");
       if (EXIT_SUCCESS != result) {
         fprintf(stderr, "kernels: %s failed to compile [%s %s]\n", path, level->name, file->flavor);
       }

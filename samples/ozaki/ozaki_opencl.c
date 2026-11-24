@@ -826,7 +826,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
   const int gpu = (CL_DEVICE_TYPE_GPU == devinfo->type ? 1 : 0);
   int result = EXIT_SUCCESS;
-  int nv, has_fp64, crt;
+  int nv, amd, has_fp64, crt;
   int wg, sg, use_sym, use_bf16;
   int nslices, nmoduli, oztrim_crt;
   const char* env;
@@ -922,6 +922,19 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       }
     }
   }
+  /**
+   * AMD matrix cores: MFMA at level 2 (CDNA3) or 3 (CDNA4), WMMA at 4 (RDNA3) or 5
+   * (RDNA4), by LIBXSTREAM_AMD, else by what the device compiler accepts
+   * (ozaki_amd_probe); LIBXSTREAM_AMD=1 keeps the generic kernels. int8 MFMA is signed
+   * only, hence MFMA implies symmetric residues below; WMMA takes either.
+   */
+  amd = (int)devinfo->amd;
+  if (1 == amd && 0 != gpu && NULL == getenv("LIBXSTREAM_AMD")) {
+    amd = ozaki_amd_probe();
+    if (0 > verbosity || 2 < verbosity) {
+      fprintf(stderr, "INFO OZAKI: AMD matrix cores - level %i\n", amd);
+    }
+  }
 
   /**
    * Symmetric residues (|r| <= m/2) rather than unsigned ones. Both fold the one moduli
@@ -942,7 +955,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     const char *const env_sym = getenv("OZAKI_SYMRES");
     use_bf16 = (NULL != env_bf16) ? (0 != atoi(env_bf16)) : (6 <= nv && 0 != gpu);
     use_sym = (NULL != env_sym) ? (0 != atoi(env_sym))
-      : (use_bf16 || maxk > ozaki_crt_window(use_bf16, 0 /*unsigned*/));
+      : (use_bf16 || (2 <= amd && 3 >= amd && 0 != gpu) || maxk > ozaki_crt_window(use_bf16, 0 /*unsigned*/));
   }
   /**
    * Compute nslices (Scheme 1) and nmoduli (Scheme 2) independently.
@@ -1022,10 +1035,25 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   if (0 >= sg) sg = 16; /* last resort */
   { /* NV MMA: enabled when NV>=3 (SM>=80 Ampere+, set via LIBXSTREAM_NV). */
     const int nv_mma = (3 <= nv && 0 != gpu) ? 1 : 0;
+    /* AMD matrix cores carry signed int8 only: the bf16 carrier and unsigned residues stay generic. */
+    const int amd_mfma = (0 == nv_mma && 2 <= amd && 3 >= amd && 0 != gpu && 0 == use_bf16 && 0 != use_sym) ? (amd - 1) : 0;
+    const int amd_wmma = (0 == nv_mma && 4 <= amd && 5 >= amd && 0 != gpu && 0 == use_bf16) ? (amd - 3) : 0;
     if (0 != nv_mma) {
       sg = 32;
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: NV_MMA enabled (SG=32, m16n8k32)\n");
+      }
+    }
+    else if (0 != amd_mfma) {
+      sg = 64;
+      if (0 > verbosity || 2 < verbosity) {
+        fprintf(stderr, "INFO OZAKI: AMD_MFMA enabled (SG=64, 32x32x%i)\n", 1 == amd_mfma ? 16 : 32);
+      }
+    }
+    else if (0 != amd_wmma) {
+      sg = 32;
+      if (0 > verbosity || 2 < verbosity) {
+        fprintf(stderr, "INFO OZAKI: AMD_WMMA enabled (SG=32, 16x16x16, RDNA%i)\n", 2 + amd_wmma);
       }
     }
     else if (16 != sg) {
@@ -1034,7 +1062,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       }
       sg = 16;
     }
+    if (2 <= amd && 0 != gpu && 0 == amd_mfma && 0 == amd_wmma && 0 != verbosity) {
+      fprintf(stderr, "INFO OZAKI: AMD matrix cores need int8%s - generic kernels\n", 3 >= amd ? " with OZAKI_SYMRES=1" : "");
+    }
     ctx->nv_mma = nv_mma;
+    ctx->amd_mfma = amd_mfma;
+    ctx->amd_wmma = amd_wmma;
     ctx->nv = (0 != gpu) ? nv : 0;
   }
   ctx->sg = sg;
@@ -1247,7 +1280,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
          */
         rtm = (0 != biggrf && 1 == ctx->sb && 0 == (ozflags & OZAKI_SYMMETRIZE)) ? 4 : 2;
       }
-      else if (0 != ctx->nv_mma && 0 != gpu) {
+      else if ((0 != ctx->nv_mma || 0 != ctx->amd_mfma || 0 != ctx->amd_wmma) && 0 != gpu) {
         rtm = 2;
       }
       else rtm = 1; /* NV dp4a: RTM>1 replicates the A-load 16x, measured 4x slower */
@@ -1256,7 +1289,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       if (0 != devinfo->intel && 0 != gpu) {
         rtn = 2;
       }
-      else if (0 != ctx->nv_mma && 0 != gpu) {
+      else if ((0 != ctx->nv_mma || 0 != ctx->amd_mfma || 0 != ctx->amd_wmma) && 0 != gpu) {
         rtn = 2;
       }
       else if (2 <= nv && 0 != gpu && 0 != crt) {
@@ -1625,6 +1658,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       if (0 != ctx->nv_mma) {
         goff = ozaki_append(goff, sizeof(build_params), LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DNV_MMA=1"));
       }
+      else if (0 != ctx->amd_mfma) {
+        goff = ozaki_append(goff, sizeof(build_params), LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DAMD_MFMA=%d", ctx->amd_mfma));
+      }
+      else if (0 != ctx->amd_wmma) {
+        goff = ozaki_append(goff, sizeof(build_params), LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DAMD_WMMA=%d", ctx->amd_wmma));
+      }
       env = getenv("OZAKI_PREFETCH");
       if (NULL != env && '1' == *env) {
         goff = ozaki_append(goff, sizeof(build_params), LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DOZAKI_PREFETCH=1"));
@@ -1750,6 +1789,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         (1 < ozgroups) ? ozgroups : 0, ctx->pb));
       if (0 != ctx->nv_mma) {
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DNV_MMA=1"));
+      }
+      else if (0 != ctx->amd_mfma) {
+        coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DAMD_MFMA=%d", ctx->amd_mfma));
+      }
+      else if (0 != ctx->amd_wmma) {
+        coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DAMD_WMMA=%d", ctx->amd_wmma));
       }
       if (0 != wgmma) {
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_WGMMA=1"));
@@ -1896,9 +1941,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        */
       bblock = (0 != wgmma);
       env = getenv("OZAKI_BKMAJOR");
-      /* bf16 off the warp-group path needs it, so the request can come from there too. */
-      bkmajor = (0 == bblock && 0 == devinfo->intel && 2 <= nv && 0 != gpu
-        && ((NULL != env && 0 != atoi(env)) || (0 != ctx->use_bf16 && 0 == wgmma)));
+      /* bf16 off the warp-group path needs it, so the request can come from there too; AMD matrix cores by default. */
+      bkmajor = (0 == bblock && 0 == devinfo->intel && 0 != gpu
+        && (((0 != ctx->amd_mfma || 0 != ctx->amd_wmma) && (NULL == env || 0 != atoi(env)))
+          || (2 <= nv && ((NULL != env && 0 != atoi(env)) || (0 != ctx->use_bf16 && 0 == wgmma)))));
       if (0 != bblock) {
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BBLOCK=1"));
       }
@@ -2181,6 +2227,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     ozaki_print_opt(stderr, "fp", use_double ? 64 : 32);
     ozaki_print_opt(stderr, "intel", (int)devinfo->intel);
     ozaki_print_opt(stderr, "nv", nv);
+    ozaki_print_opt(stderr, "amd", amd);
+    ozaki_print_opt(stderr, "mfma", ctx->amd_mfma);
+    ozaki_print_opt(stderr, "wmma", ctx->amd_wmma);
     ozaki_print_opt(stderr, "wg", wg);
     ozaki_print_opt(stderr, "sg", sg);
     ozaki_print_opt(stderr, "tm", ctx->tm);

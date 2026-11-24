@@ -71,8 +71,8 @@
  * the kernel's reqd_work_group_size is SG x (NTM*NTN), and a mismatch means
  * sub-groups that never launch, i.e. silently unwritten parts of C.
  */
-#define OZAKI_XMX_M(CTX) ((0 != (CTX)->nv_mma) ? 16 : 8)
-#define OZAKI_XMX_N(CTX) ((0 != (CTX)->nv_mma) ? 8 : 16)
+#define OZAKI_XMX_M(CTX) ((0 != (CTX)->nv_mma || 0 != (CTX)->amd_wmma) ? 16 : ((0 != (CTX)->amd_mfma) ? 32 : 8))
+#define OZAKI_XMX_N(CTX) ((0 != (CTX)->nv_mma) ? 8 : ((0 != (CTX)->amd_mfma) ? 32 : 16))
 
 
 /* Ozaki flags */
@@ -285,6 +285,8 @@ typedef struct ozaki_context_t {
   int sb; /* Scheme-1 slice-block width for the pair loop (1 = unblocked) */
   int rc; /* DPAS repeat count: 8 (default) or 4 (split) */
   int nv_mma; /* NV MMA path enabled (m16n8k32, SG=32) */
+  int amd_mfma; /* AMD matrix cores (32x32 tiles, SG=64): 1=32x32x16 (CDNA3), 2=32x32x32 (CDNA4) int8 */
+  int amd_wmma; /* AMD WMMA (16x16x16 tiles, SG=32): 1=RDNA3, 2=RDNA4 int8 */
   /**
    * NVIDIA GPU (devinfo->nv level, 0 = not NVIDIA). Kept because scheme selection
    * needs it: every Scheme-2 improvement of this port is NVIDIA-side, so the
@@ -587,6 +589,13 @@ int ozaki_mulhi_probe(int* emulate);
  * on the device with mma.sync. EXIT_SUCCESS means the probe ran and ratio is set.
  */
 int ozaki_carrier_probe(double* ratio);
+
+/**
+ * AMD matrix-core level the device compiler accepts (the LIBXSTREAM_AMD levels),
+ * test-compiled rather than told by the target's name: 3 CDNA4's 32x32x32 int8 MFMA,
+ * 2 CDNA3's 32x32x16, 5 RDNA4's 16x16x16 int8 WMMA, 4 RDNA3's, 1 none of them.
+ */
+int ozaki_amd_probe(void);
 
 /**
  * N-panel width for the pipelined path, or N itself when panelling does not

@@ -10,9 +10,9 @@ permissions:
 # runtime, so every kernel is built for the card's real target and executed
 # without a GPU. Correctness only: the simulator has no timing. Weekly, since
 # neither the simulator nor ROCm moves with this repository. Every AMD profile
-# runs by default, all treated alike: what a device can do is what it reports
-# and what its compiler accepts. What the simulator cannot show is listed in
-# the run's summary.
+# runs by default (the Ozaki sample on one per matrix-core generation), all
+# treated alike: what a device can do is what it reports and what its compiler
+# accepts. What the simulator cannot show is listed in the run's summary.
 on:
   schedule:
     - cron: "0 5 * * 1"
@@ -189,6 +189,30 @@ jobs:
       with:
         name: atomics-logs
         path: ${{ runner.temp }}/atomics
+        if-no-files-found: ignore
+
+    # The Ozaki sample through each AMD level, asserting the path that ran (tests/ozaki.sh says
+    # how): MFMA on CDNA3 and CDNA4, WMMA on RDNA3 and RDNA4, the generic kernels on CDNA2, each
+    # as the probe has to choose.
+    - name: Ozaki
+      if: ${{ !cancelled() }}
+      shell: bash
+      env:
+        OZAKI_GPUS: amd/mi250x amd/mi300x amd/mi350x amd/rx7900xtx amd/rx9070xt
+        LOGS: ${{ runner.temp }}/ozaki
+        META: "ROCm 7.2.4, PantheonSim 0.2.1"
+      run: |
+        STATUS=0
+        GPUS=${OZAKI_GPUS} tests/ozaki.sh || STATUS=$?
+        if [ -s "${LOGS}/summary.md" ]; then cat "${LOGS}/summary.md" >> "${GITHUB_STEP_SUMMARY}"; fi
+        exit ${STATUS}
+
+    - name: Upload Ozaki logs
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: ozaki-logs
+        path: ${{ runner.temp }}/ozaki
         if-no-files-found: ignore
 
     - name: Setup DBCSR
