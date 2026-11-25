@@ -33,12 +33,12 @@
 #if !defined(LIBXSTREAM_SYRK_BK)
 # define LIBXSTREAM_SYRK_BK 16
 #endif
-/* single precision: elements per work-item, and depth in k (twice the elements per register) */
+/* single precision: elements per work-item (4x4 kept 128 GRF and matched 8x8 at 160), and depth in k */
 #if !defined(LIBXSTREAM_SYRK_RX32)
-# define LIBXSTREAM_SYRK_RX32 8
+# define LIBXSTREAM_SYRK_RX32 4
 #endif
 #if !defined(LIBXSTREAM_SYRK_RY32)
-# define LIBXSTREAM_SYRK_RY32 8
+# define LIBXSTREAM_SYRK_RY32 4
 #endif
 #if !defined(LIBXSTREAM_SYRK_BK32)
 # define LIBXSTREAM_SYRK_BK32 32
@@ -86,9 +86,9 @@
 #if !defined(LIBXSTREAM_SYRK_SV)
 # define LIBXSTREAM_SYRK_SV 0
 #endif
-/* SIMD width of the code version 0 (Intel), 0: the compiler decides */
+/* SIMD width of the code version 0 (Intel), 0: the compiler decides (it took SIMD32 with 256 GRF in double precision) */
 #if !defined(LIBXSTREAM_SYRK_SIMD)
-# define LIBXSTREAM_SYRK_SIMD 0
+# define LIBXSTREAM_SYRK_SIMD 16
 #endif
 /* steps of k per 2D block read of the code version 2 (1 to 32) */
 #if !defined(LIBXSTREAM_SYRK_B2DK)
