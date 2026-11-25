@@ -16,12 +16,18 @@
 #if !defined(OPENCL_KERNELS_SOURCE_LIBXSTREAM_SYRK)
 # error "OpenCL kernel code not found (libxstream_syrk_kernels.h)!"
 #endif
-/* work-items per dimension of a work-group, elements per work-item and dimension, and depth in k */
-#if !defined(LIBXSTREAM_SYRK_BS)
-# define LIBXSTREAM_SYRK_BS 16
+/* work-items of a work-group along the rows and columns, elements per work-item, and depth in k */
+#if !defined(LIBXSTREAM_SYRK_BSX)
+# define LIBXSTREAM_SYRK_BSX 16
 #endif
-#if !defined(LIBXSTREAM_SYRK_RB)
-# define LIBXSTREAM_SYRK_RB 4
+#if !defined(LIBXSTREAM_SYRK_BSY)
+# define LIBXSTREAM_SYRK_BSY 16
+#endif
+#if !defined(LIBXSTREAM_SYRK_RX)
+# define LIBXSTREAM_SYRK_RX 4
+#endif
+#if !defined(LIBXSTREAM_SYRK_RY)
+# define LIBXSTREAM_SYRK_RY 4
 #endif
 #if !defined(LIBXSTREAM_SYRK_BK)
 # define LIBXSTREAM_SYRK_BK 16
@@ -89,8 +95,9 @@ static cl_kernel libxstream_syrk_kernel(libxstream_syrk_t* ctx, int f64)
     char flags[LIBXSTREAM_BUFFERSIZE];
     cl_program program = NULL;
     int result = EXIT_FAILURE;
-    const int nchars = LIBXS_SNPRINTF(flags, sizeof(flags), "-DT=%s -DBS=%i -DRB=%i -DBK=%i", 0 != f64 ? "double" : "float",
-      LIBXSTREAM_SYRK_BS, LIBXSTREAM_SYRK_RB, LIBXSTREAM_SYRK_BK);
+    const int nchars = LIBXS_SNPRINTF(flags, sizeof(flags), "-DT=%s -DBSX=%i -DBSY=%i -DRX=%i -DRY=%i -DBK=%i",
+      0 != f64 ? "double" : "float", LIBXSTREAM_SYRK_BSX, LIBXSTREAM_SYRK_BSY, LIBXSTREAM_SYRK_RX, LIBXSTREAM_SYRK_RY,
+      LIBXSTREAM_SYRK_BK);
     if (0 < nchars && (int)sizeof(flags) > nchars) {
       result = libxstream_opencl_program(0 /*source_kind*/, OPENCL_KERNELS_SOURCE_LIBXSTREAM_SYRK, "syrk", flags, NULL /*options*/,
         NULL /*try*/, NULL /*try_ok*/, exts, 0 != f64 ? 1 : 0, &program);
@@ -209,12 +216,12 @@ static int libxstream_syrk_submit(void* vctx, const libxs_syrk_t* plan, const vo
     const cl_int upper = ('U' == plan->shape.uplo);
     const cl_double alpha64 = panel->alpha;
     const cl_float alpha32 = (cl_float)panel->alpha;
-    const size_t bt = (size_t)LIBXSTREAM_SYRK_BS * LIBXSTREAM_SYRK_RB;
-    const size_t local[2] = {LIBXSTREAM_SYRK_BS, LIBXSTREAM_SYRK_BS};
+    const size_t bm = (size_t)LIBXSTREAM_SYRK_BSX * LIBXSTREAM_SYRK_RX, bn = (size_t)LIBXSTREAM_SYRK_BSY * LIBXSTREAM_SYRK_RY;
+    const size_t local[2] = {LIBXSTREAM_SYRK_BSX, LIBXSTREAM_SYRK_BSY};
     size_t global[2];
     int result = EXIT_SUCCESS, blas_done = 0;
-    global[0] = LIBXS_UPDIV((size_t)panel->m, bt) * LIBXSTREAM_SYRK_BS;
-    global[1] = LIBXS_UPDIV((size_t)panel->w, bt) * LIBXSTREAM_SYRK_BS;
+    global[0] = LIBXS_UPDIV((size_t)panel->m, bm) * LIBXSTREAM_SYRK_BSX;
+    global[1] = LIBXS_UPDIV((size_t)panel->w, bn) * LIBXSTREAM_SYRK_BSY;
     if (0 == panel->c0) result = libxstream_syrk_upload(ctx, plan, a, b); /* the first panel of an update */
     if (EXIT_SUCCESS == result && slot->size < size) {
       if (NULL != slot->host) result = libxstream_mem_host_deallocate(slot->host, ctx->stream);

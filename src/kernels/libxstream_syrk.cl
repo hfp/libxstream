@@ -11,18 +11,26 @@
 #if !defined(T)
 # define T double
 #endif
-/* work-items per dimension of a work-group, and elements per work-item and dimension */
-#if !defined(BS)
-# define BS 16
+/* work-items of a work-group along the rows (i) and columns (j), and elements per work-item */
+#if !defined(BSX)
+# define BSX 16
 #endif
-#if !defined(RB)
-# define RB 4
+#if !defined(BSY)
+# define BSY 16
+#endif
+#if !defined(RX)
+# define RX 4
+#endif
+#if !defined(RY)
+# define RY 4
 #endif
 /* depth of a step through k */
 #if !defined(BK)
 # define BK 16
 #endif
-#define BT (BS * RB)
+/* block of a work-group: BM rows and BN columns */
+#define BM (BSX * RX)
+#define BN (BSY * RY)
 
 
 /* Element (i, p) of op(X): X is n x k, or k x n if transposed. */
@@ -34,19 +42,19 @@
  * SYR2K (b != a). D is diag(d) if hasd is non-zero. The host keeps the triangle (upper or lower) of
  * the result, hence a block of work-groups wholly outside of it is skipped.
  */
-__attribute__((reqd_work_group_size(BS, BS, 1))) kernel void syrk_panel(global T* restrict out,
+__attribute__((reqd_work_group_size(BSX, BSY, 1))) kernel void syrk_panel(global T* restrict out,
   global const T* restrict a, global const T* restrict b, global const T* restrict d, int m, int w, int r0, int c0,
   int k, int lda, int ldb, int trans, int twok, int hasd, T alpha, int upper)
 {
-  local T lx[BK][BT + 1], ly[BK][BT + 1];
+  local T lx[BK][BM + 1], ly[BK][BN + 1];
   const int tx = (int)get_local_id(0), ty = (int)get_local_id(1);
-  const int i0 = (int)get_group_id(0) * BT, j0 = (int)get_group_id(1) * BT;
-  const int tid = ty * BS + tx;
-  T acc[RB][RB];
+  const int i0 = (int)get_group_id(0) * BM, j0 = (int)get_group_id(1) * BN;
+  const int tid = ty * BSX + tx;
+  T acc[RX][RY];
   int term = 0, u, v;
-  if (0 != upper ? (r0 + i0 > c0 + j0 + BT - 1) : (r0 + i0 + BT - 1 < c0 + j0)) return; /* the whole work-group */
-  for (u = 0; u < RB; ++u) {
-    for (v = 0; v < RB; ++v) acc[u][v] = 0;
+  if (0 != upper ? (r0 + i0 > c0 + j0 + BN - 1) : (r0 + i0 + BM - 1 < c0 + j0)) return; /* the whole work-group */
+  for (u = 0; u < RX; ++u) {
+    for (v = 0; v < RY; ++v) acc[u][v] = 0;
   }
   for (; term <= twok; ++term) {
     global const T* const x = (0 == term ? a : b);
@@ -55,39 +63,38 @@ __attribute__((reqd_work_group_size(BS, BS, 1))) kernel void syrk_panel(global T
     int p0 = 0;
     for (; p0 < k; p0 += BK) {
       int e = tid;
-      for (; e < BK * BT; e += BS * BS) { /* stage both operands, the weights on one side */
-        const int pp = e / BT, q = e % BT, p = p0 + pp;
-        const int gi = i0 + q, gj = j0 + q;
-        T xv = 0, yv = 0;
-        if (p < k) {
-          if (gi < m) {
-            xv = SYRK_OP(x, ldx, trans, r0 + gi, p);
-            if (0 != hasd) xv *= d[p];
-          }
-          if (gj < w) yv = SYRK_OP(y, ldy, trans, c0 + gj, p);
+      for (; e < BK * BM; e += BSX * BSY) { /* stage both operands, the weights on one side */
+        const int pp = e / BM, q = e % BM, p = p0 + pp, gi = i0 + q;
+        T xv = 0;
+        if (p < k && gi < m) {
+          xv = SYRK_OP(x, ldx, trans, r0 + gi, p);
+          if (0 != hasd) xv *= d[p];
         }
         lx[pp][q] = xv;
-        ly[pp][q] = yv;
+      }
+      for (e = tid; e < BK * BN; e += BSX * BSY) {
+        const int pp = e / BN, q = e % BN, p = p0 + pp, gj = j0 + q;
+        ly[pp][q] = ((p < k && gj < w) ? SYRK_OP(y, ldy, trans, c0 + gj, p) : 0);
       }
       barrier(CLK_LOCAL_MEM_FENCE);
       { int pp = 0;
         for (; pp < BK; ++pp) {
-          T xr[RB], yr[RB];
-          for (u = 0; u < RB; ++u) xr[u] = lx[pp][tx + u * BS];
-          for (v = 0; v < RB; ++v) yr[v] = ly[pp][ty + v * BS];
-          for (u = 0; u < RB; ++u) {
-            for (v = 0; v < RB; ++v) acc[u][v] = fma(xr[u], yr[v], acc[u][v]);
+          T xr[RX], yr[RY];
+          for (u = 0; u < RX; ++u) xr[u] = lx[pp][tx + u * BSX];
+          for (v = 0; v < RY; ++v) yr[v] = ly[pp][ty + v * BSY];
+          for (u = 0; u < RX; ++u) {
+            for (v = 0; v < RY; ++v) acc[u][v] = fma(xr[u], yr[v], acc[u][v]);
           }
         }
       }
       barrier(CLK_LOCAL_MEM_FENCE);
     }
   }
-  for (v = 0; v < RB; ++v) {
-    const int j = j0 + ty + v * BS;
+  for (v = 0; v < RY; ++v) {
+    const int j = j0 + ty + v * BSY;
     if (j < w) {
-      for (u = 0; u < RB; ++u) {
-        const int i = i0 + tx + u * BS;
+      for (u = 0; u < RX; ++u) {
+        const int i = i0 + tx + u * BSX;
         if (i < m) out[i + (size_t)j * m] = alpha * acc[u][v];
       }
     }
