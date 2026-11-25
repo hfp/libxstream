@@ -68,6 +68,20 @@
 #if !defined(LIBXSTREAM_SYRK_SG)
 # define LIBXSTREAM_SYRK_SG 16
 #endif
+/**
+ * Code version 0: register tile of a work-item, 1 = contiguous (vector reads of local memory), 0 = strided.
+ * Single precision gained a fifth to a half (n=1088 k=54272), double precision lost a few percent.
+ */
+#if !defined(LIBXSTREAM_SYRK_VT)
+# define LIBXSTREAM_SYRK_VT 0
+#endif
+#if !defined(LIBXSTREAM_SYRK_VT32)
+# define LIBXSTREAM_SYRK_VT32 1
+#endif
+/* code version 0: elements per lane of a staging load, 0 = 16 bytes, 1 = scalar */
+#if !defined(LIBXSTREAM_SYRK_SV)
+# define LIBXSTREAM_SYRK_SV 0
+#endif
 /* SIMD width of the code version 0 (Intel), 0: the compiler decides */
 #if !defined(LIBXSTREAM_SYRK_SIMD)
 # define LIBXSTREAM_SYRK_SIMD 0
@@ -91,7 +105,7 @@
 typedef struct libxstream_syrk_key_t {
   int lda, ldb;
   short sg, nsg, simd, bsx, bsy, rx, ry, bk;
-  signed char f64, kv, lu, trans, twok, hasd, upper;
+  signed char f64, kv, vt, sv, lu, trans, twok, hasd, upper;
 } libxstream_syrk_key_t;
 
 /* A panel in flight: its result on the device, then in host memory for the merge */
@@ -168,6 +182,8 @@ static cl_kernel libxstream_syrk_kernel(libxstream_syrk_t* ctx, const libxs_syrk
                          && 0 < key.sg); /* else local memory */
   key.nsg = (short)(0 != key.kv ? LIBXSTREAM_SYRK_NSG : 0);
   key.simd = (short)(0 == key.kv ? LIBXSTREAM_SYRK_SIMD : 0);
+  key.vt = (signed char)(0 == key.kv ? (0 != f64 ? LIBXSTREAM_SYRK_VT : LIBXSTREAM_SYRK_VT32) : 0);
+  key.sv = (signed char)(0 == key.kv ? (0 < LIBXSTREAM_SYRK_SV ? LIBXSTREAM_SYRK_SV : (0 != f64 ? 2 : 4)) : 1);
   key.bsx = (short)(0 != key.kv ? key.sg : LIBXSTREAM_SYRK_BSX);
   key.bsy = (short)(0 != key.kv ? LIBXS_MAX(key.nsg, 1) : LIBXSTREAM_SYRK_BSY);
   key.rx = (short)(0 != key.kv ? (0 != f64 ? LIBXSTREAM_SYRK_SGRX : LIBXSTREAM_SYRK_SGRX32)
@@ -200,9 +216,9 @@ static cl_kernel libxstream_syrk_kernel(libxstream_syrk_t* ctx, const libxs_syrk
       cl_program built = NULL;
       int status = EXIT_FAILURE;
       const int nchars = LIBXS_SNPRINTF(flags, sizeof(flags),
-        "-DT=%s -DSYRK_SG=%i -DSYRK_SIMD=%i -DBSX=%i -DBSY=%i -DRX=%i -DRY=%i -DBK=%i -DLU=%i -DSG=%i -DINTEL=%i%s"
+        "-DT=%s -DSYRK_SG=%i -DSYRK_SIMD=%i -DVT=%i -DSV=%i -DBSX=%i -DBSY=%i -DRX=%i -DRY=%i -DBK=%i -DLU=%i -DSG=%i -DINTEL=%i%s"
         " -DSYRK_TRANS=%i -DSYRK_TWOK=%i -DSYRK_HASD=%i -DSYRK_UPPER=%i -DSYRK_LDA=%i -DSYRK_LDB=%i",
-        0 != f64 ? "double" : "float", (int)key.kv, (int)key.simd, (int)key.bsx, (int)key.bsy, (int)key.rx, (int)key.ry, (int)key.bk,
+        0 != f64 ? "double" : "float", (int)key.kv, (int)key.simd, (int)key.vt, (int)key.sv, (int)key.bsx, (int)key.bsy, (int)key.rx, (int)key.ry, (int)key.bk,
         (int)key.lu, (int)key.sg, (int)(0 != devinfo->intel), CL_DEVICE_TYPE_GPU == devinfo->type ? " -DGPU" : "",
         (int)key.trans, (int)key.twok, (int)key.hasd, (int)key.upper, key.lda, key.ldb);
       if (0 < nchars && (int)sizeof(flags) > nchars) {

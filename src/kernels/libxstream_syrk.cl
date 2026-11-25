@@ -34,6 +34,31 @@
 #define BM (BSX * RX)
 #define BN (BSY * RY)
 #define NT (BSX * BSY)
+/**
+ * Local memory: VT=0 has the strided register tile of a work-item (rows tx + u*BSX, a read per element),
+ * VT=1 the contiguous one (rows tx*RX + u, a vector read per step). Staging loads SV elements per lane.
+ */
+#if !defined(VT)
+# define VT 0
+#endif
+#if !defined(SV)
+# define SV 1
+#endif
+#if (0 != VT)
+# define PAD 0
+# define XROW(TX, U) ((TX) * RX + (U))
+# define YCOL(TY, V) ((TY) * RY + (V))
+#else
+# define PAD 1 /* rows of the strided tile apart by one bank */
+# define XROW(TX, U) ((TX) + (U) * BSX)
+# define YCOL(TY, V) ((TY) + (V) * BSY)
+#endif
+#if (0 != (BM % SV)) || (0 != (BN % SV))
+# error "SV must divide the block of a work-group"
+#endif
+/* N contiguous elements at P into the private array A, as one vector access where N is a vector width */
+#define SYRK_VCOPY(N, P, A) CAT(vstore, N)(CAT(vload, N)(0, P), 0, A)
+#define SYRK_VWIDTH(N) (2 == (N) || 4 == (N) || 8 == (N) || 16 == (N))
 
 /* hard-coded by the host per plan (SYRK_*), else the kernel's arguments */
 #if defined(SYRK_TRANS)
@@ -128,48 +153,81 @@ REQD_SG kernel void syrk_panel(global T* restrict out, global const T* restrict 
 }
 #else
 /**
+ * Stages SV rows of op(x), from row on and nvalid of them valid, at step p (zero if p is not before ke)
+ * into local memory at dst, scaled by the weight d[p] if hasd is non-zero.
+ */
+inline void syrk_stage_run(local T* restrict dst, global const T* restrict x, global const T* restrict d, int ldx, int trans,
+  int hasd, int row, int nvalid, int p, int ke)
+{
+  T v[SV];
+  int s;
+  if (p < ke) {
+#if (1 < SV) && SYRK_VWIDTH(SV)
+    if (0 == trans && SV == nvalid) SYRK_VCOPY(SV, x + row + (size_t)p * ldx, v); /* contiguous rows */
+    else
+#endif
+    {
+      for (s = 0; s < SV; ++s) v[s] = (s < nvalid ? SYRK_OP(x, ldx, trans, row + s, p) : 0);
+    }
+    if (0 != hasd) {
+      const T dp = d[p];
+      for (s = 0; s < SV; ++s) v[s] *= dp;
+    }
+  }
+  else {
+    for (s = 0; s < SV; ++s) v[s] = 0;
+  }
+  for (s = 0; s < SV; ++s) dst[s] = v[s];
+}
+
+
+/**
  * Stages BK steps of k from p0 (but not beyond ke) into local memory: BM rows of op(x) from r0+i0,
  * scaled by the weights d if hasd is non-zero, and BN rows of op(y) from c0+j0.
  */
-inline void syrk_stage(local T (*restrict lx)[BM + 1], local T (*restrict ly)[BN + 1], global const T* restrict x,
+inline void syrk_stage(local T (*restrict lx)[BM + PAD], local T (*restrict ly)[BN + PAD], global const T* restrict x,
   global const T* restrict y, global const T* restrict d, int ldx, int ldy, int trans, int hasd, int r0, int c0, int i0,
   int j0, int m, int w, int p0, int ke, int tid)
 {
   int e = tid;
-  UNROLL(BK * BM / NT)
-  for (; e < BK * BM; e += NT) {
-    const int pp = e / BM, q = e % BM, p = p0 + pp, gi = i0 + q;
-    T xv = 0;
-    if (p < ke && gi < m) {
-      xv = SYRK_OP(x, ldx, trans, r0 + gi, p);
-      if (0 != hasd) xv *= d[p];
-    }
-    lx[pp][q] = xv;
+  UNROLL(BK * BM / (NT * SV))
+  for (; e < BK * BM / SV; e += NT) {
+    const int pp = e / (BM / SV), q = (e % (BM / SV)) * SV, gi = i0 + q;
+    syrk_stage_run(&lx[pp][q], x, d, ldx, trans, hasd, r0 + gi, gi < m ? min(SV, m - gi) : 0, p0 + pp, ke);
   }
-  UNROLL(BK * BN / NT)
-  for (e = tid; e < BK * BN; e += NT) {
-    const int pp = e / BN, q = e % BN, p = p0 + pp, gj = j0 + q;
-    ly[pp][q] = ((p < ke && gj < w) ? SYRK_OP(y, ldy, trans, c0 + gj, p) : 0);
+  UNROLL(BK * BN / (NT * SV))
+  for (e = tid; e < BK * BN / SV; e += NT) {
+    const int pp = e / (BN / SV), q = (e % (BN / SV)) * SV, gj = j0 + q;
+    syrk_stage_run(&ly[pp][q], y, d, ldy, trans, 0, c0 + gj, gj < w ? min(SV, w - gj) : 0, p0 + pp, ke);
   }
 }
 
 
-/* Accumulates BK staged steps into acc: the rows tx + u*BSX and the columns ty + v*BSY of the block. */
-inline void syrk_accumulate(private T (*restrict acc)[RY], local T (*restrict lx)[BM + 1], local T (*restrict ly)[BN + 1],
+/* Accumulates BK staged steps into acc: the rows XROW(tx, u) and the columns YCOL(ty, v) of the block. */
+inline void syrk_accumulate(private T (*restrict acc)[RY], local T (*restrict lx)[BM + PAD], local T (*restrict ly)[BN + PAD],
   int tx, int ty)
 {
   int pp = 0;
   UNROLL(BK)
   for (; pp < BK; ++pp) {
-    T yr[RY];
+    T xr[RX], yr[RY];
     int u, v;
+#if (0 != VT) && SYRK_VWIDTH(RY)
+    SYRK_VCOPY(RY, &ly[pp][YCOL(ty, 0)], yr); /* uniform within a sub-group along tx */
+#else
     UNROLL(RY)
-    for (v = 0; v < RY; ++v) yr[v] = ly[pp][ty + v * BSY];
+    for (v = 0; v < RY; ++v) yr[v] = ly[pp][YCOL(ty, v)];
+#endif
+#if (0 != VT) && SYRK_VWIDTH(RX)
+    SYRK_VCOPY(RX, &lx[pp][XROW(tx, 0)], xr);
+#else
     UNROLL(RX)
-    for (u = 0; u < RX; ++u) { /* a row at a time, fused with its products */
-      const T xu = lx[pp][tx + u * BSX];
+    for (u = 0; u < RX; ++u) xr[u] = lx[pp][XROW(tx, u)];
+#endif
+    UNROLL(RX)
+    for (u = 0; u < RX; ++u) {
       UNROLL(RY)
-      for (v = 0; v < RY; ++v) acc[u][v] = fma(xu, yr[v], acc[u][v]);
+      for (v = 0; v < RY; ++v) acc[u][v] = fma(xr[u], yr[v], acc[u][v]);
     }
   }
 }
@@ -182,7 +240,7 @@ __attribute__((reqd_work_group_size(BSX, BSY, 1))) kernel void syrk_panel(global
   global const T* restrict a, global const T* restrict b, global const T* restrict d, int m, int w, int r0, int c0,
   int k, int lda, int ldb, int trans, int twok, int hasd, T alpha, int upper, global T* restrict part, int kslice)
 {
-  local T lx[BK][BM + 1], ly[BK][BN + 1];
+  local T lx[BK][BM + PAD], ly[BK][BN + PAD];
   const int tx = (int)get_local_id(0), ty = (int)get_local_id(1);
   const int i0 = (int)get_group_id(0) * BM, j0 = (int)get_group_id(1) * BN;
   const int tid = ty * BSX + tx, slice = (int)get_group_id(2);
@@ -210,11 +268,11 @@ __attribute__((reqd_work_group_size(BSX, BSY, 1))) kernel void syrk_panel(global
   }
   UNROLL(RX)
   for (u = 0; u < RX; ++u) {
-    const int i = i0 + tx + u * BSX;
+    const int i = i0 + XROW(tx, u);
     if (i < m) {
       UNROLL(RY)
       for (v = 0; v < RY; ++v) {
-        const int j = j0 + ty + v * BSY;
+        const int j = j0 + YCOL(ty, v);
         if (j < w) dst[i + (size_t)j * m] = alpha * acc[u][v];
       }
     }
