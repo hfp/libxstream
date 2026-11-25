@@ -51,9 +51,9 @@
 #if !defined(LIBXSTREAM_SYRK_KV)
 # define LIBXSTREAM_SYRK_KV 0
 #endif
-/* code version in single precision: the sub-groups led by a quarter (kernel time, n=1088 k=54272) */
+/* code version in single precision: the sub-groups did not lead (same-session runs, n=1088 k=54272) */
 #if !defined(LIBXSTREAM_SYRK_KV32)
-# define LIBXSTREAM_SYRK_KV32 1
+# define LIBXSTREAM_SYRK_KV32 0
 #endif
 #if !defined(LIBXSTREAM_SYRK_SGRX)
 # define LIBXSTREAM_SYRK_SGRX 2
