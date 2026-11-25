@@ -234,7 +234,7 @@ libxstream_syrk_weights(ctx, d);     /* optional, per call */
 libxs_syrk(&plan, alpha, a, NULL, beta, c);
 ```
 
-Where the [device BLAS](#device-blas) serves the device, a panel is a SYRK of its diagonal block and a GEMM of the rest, with weights applied as A\*diag(sqrt(d)) (`dgmm`). SYR2K, a negative weight, or `LIBXSTREAM_SYRK_BLAS=0` take the own kernel (`src/kernels/libxstream_syrk.cl`), which computes a panel in blocks of 64x64 (16x16 work-items with 4x4 elements each) through local memory; the host merges the panel's triangle into C. A panel the device cannot compute (e.g., no fp64) is declined, and LIBXS computes it on the host. `libxstream_syrk_backend` tells what computed the panels, and the [SYRK sample](samples/libxstream_syrk.md) is its benchmark.
+Where the [device BLAS](#device-blas) serves the device, a panel is a SYRK of its diagonal block and a GEMM of the rest, with weights applied as A\*diag(sqrt(d)) (`dgmm`). SYR2K, a negative weight, or `LIBXSTREAM_SYRK_BLAS=0` take the own kernel (`src/kernels/libxstream_syrk.cl`), which computes a panel in blocks of 64x64 (16x16 work-items with 4x4 elements each, and 128x128 with 8x8 in single precision) through local memory, and splits k into slices for about four work-groups per compute unit (summed in a fixed order, at least 1024 deep); the host merges the panel's triangle into C. A panel the device cannot compute (e.g., no fp64) is declined, and LIBXS computes it on the host. `libxstream_syrk_backend` tells what computed the panels, and the [SYRK sample](samples/libxstream_syrk.md) is its benchmark.
 
 ## OpenCL-MPS
 
