@@ -1,6 +1,6 @@
 # SYRK — OpenCL
 
-Symmetric rank-k and rank-2k updates of [LIBXS](https://github.com/hfp/libxs/blob/main/documentation/libxs_syrk.md) with the panels on an OpenCL device. LIBXS keeps the algorithm, local or distributed over MPI, and calls this sample's device (`libxs_syrk_device_t`) for every panel of a plan. The device also offers the weighted form C := alpha\*op(A)\*diag(d)\*op(A)^T + beta\*C, and keeps A on the device across calls if asked to (`syrk_opencl_resident`).
+Symmetric rank-k and rank-2k updates of [LIBXS](https://github.com/hfp/libxs/blob/main/documentation/libxs_syrk.md) with the panels on an OpenCL device: a benchmark and test of LIBXSTREAM's [SYRK device](../../documentation/libxstream_opencl.md#syrk-device) (`libxstream_syrk.h`). LIBXS keeps the algorithm, local or distributed over MPI, and calls the device (`libxs_syrk_device_t`) for every panel of a plan.
 
 ## Build
 
@@ -29,19 +29,4 @@ Defaults: n=1000, k=n, 3 timed repetitions, then the lower triangle of SYRK in d
 ./syrk.x 1088 54272 2 0 0 0 1 # weighted, as with the frequencies of RPA
 ```
 
-## Use
-
-```C
-syrk_opencl_t* ctx;
-libxs_syrk_device_t device;
-syrk_opencl_create(&ctx);            /* on the active device */
-syrk_opencl_device(ctx, &device);
-shape.device = &device;              /* libxs_syrk_shape_t, also with shape.dist */
-libxs_syrk_dispatch(&plan, &shape);
-syrk_opencl_weights(ctx, d);         /* optional, per call */
-libxs_syrk(&plan, alpha, a, NULL, beta, c);
-```
-
-Where the [device BLAS](../../documentation/libxstream_opencl.md#device-blas) serves the device (oneMKL on an Intel device, an integrated GPU included), a panel is a SYRK of its diagonal block and a GEMM of the rest, with weights applied as A\*diag(sqrt(d)) (`dgmm`). SYR2K, a negative weight, or `SYRK_OPENCL_BLAS=0` take the kernel instead, and the sample prints what computed the panels ("host" for panels the device declined).
-
-The kernel (`kernels/syrk.cl`) computes a panel in blocks of 64x64 (16x16 work-items with 4x4 elements each) through local memory, and the host merges the panel's triangle into C. A panel the device cannot compute (e.g., no fp64) is declined, and LIBXS computes it on the host.
+The sample prints what computed the panels: the device BLAS by its plugin's name (e.g., `mkl`), `kernel`, or `host` for panels the device declined (`LIBXSTREAM_SYRK_BLAS=0` takes the kernel).
