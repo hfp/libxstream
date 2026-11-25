@@ -12,6 +12,7 @@
 #include <libxstream/libxstream_opencl.h>
 #include "libxstream_syrk_kernels.h"
 #include <libxs/libxs_reg.h>
+#include <limits.h>
 #include <math.h>
 
 #if !defined(OPENCL_KERNELS_SOURCE_LIBXSTREAM_SYRK)
@@ -350,12 +351,13 @@ static int libxstream_syrk_submit(void* vctx, const libxs_syrk_t* plan, const vo
 {
   libxstream_syrk_t *const ctx = (libxstream_syrk_t*)vctx;
   const int f64 = (LIBXS_DATATYPE_F64 == plan->shape.datatype), twok = (0 != plan->shape.ldb);
-  const size_t es = LIBXS_TYPESIZE(plan->shape.datatype), size = (size_t)panel->m * panel->w * es;
+  const size_t es = LIBXS_TYPESIZE(plan->shape.datatype), nelems = (size_t)panel->m * panel->w, size = nelems * es;
   const int blas = (0 != ctx->blas && 0 == twok);
   const cl_kernel kernel = libxstream_syrk_kernel(ctx, plan);
   int ticket = -1, s = 0;
   for (; s < LIBXSTREAM_SYRK_NSLOTS && 0 != ctx->slot[s].busy; ++s);
-  if ((NULL != kernel || 0 != blas) && LIBXSTREAM_SYRK_NSLOTS > s && 0 < size) { /* else the host computes the panel */
+  /* else the host computes the panel, e.g., beyond what the kernels count (int) */
+  if ((NULL != kernel || 0 != blas) && LIBXSTREAM_SYRK_NSLOTS > s && 0 < size && (size_t)INT_MAX >= nelems) {
     libxstream_syrk_slot_t *const slot = ctx->slot + s;
     const cl_int m = panel->m, w = panel->w, r0 = panel->r0, c0 = panel->c0, k = plan->shape.k;
     const cl_int lda = plan->shape.lda, ldb = (0 != twok ? plan->shape.ldb : plan->shape.lda);
@@ -368,19 +370,19 @@ static int libxstream_syrk_submit(void* vctx, const libxs_syrk_t* plan, const vo
     const size_t bn = (size_t)ctx->key.bsy * ctx->key.ry;
     const cl_int bk = (1 != ctx->key.kv ? ctx->key.bk : 1); /* slices of whole steps (2D block reads too) */
     size_t global[3], local[3];
-    const size_t ngroups = LIBXS_UPDIV((size_t)panel->m, bm) * LIBXS_UPDIV((size_t)panel->w, bn);
+    const size_t gm = LIBXS_UPDIV((size_t)panel->m, bm), gn = LIBXS_UPDIV((size_t)panel->w, bn), ngroups = gm * gn;
     const size_t ntarget = (size_t)LIBXSTREAM_SYRK_WAVES * LIBXS_MAX(ctx->ncu, 1);
     /* slices of k for enough work-groups, each at least LIBXSTREAM_SYRK_KMIN deep */
     const cl_int nmost = LIBXS_MAX(k / LIBXSTREAM_SYRK_KMIN, 1);
     const cl_int nwant = (cl_int)LIBXS_MIN(LIBXS_UPDIV(ntarget, ngroups), (size_t)nmost);
     const cl_int kslice = (1 < nwant ? (cl_int)LIBXS_UP(LIBXS_UPDIV(k, nwant), bk) : LIBXS_MAX(k, 1));
-    const cl_int nslices = LIBXS_MAX((cl_int)LIBXS_UPDIV(k, kslice), 1), nelems = m * w, nparts = nslices - 1;
+    const cl_int nslices = LIBXS_MAX((cl_int)LIBXS_UPDIV(k, kslice), 1), nparts = nslices - 1, nsumarg = (cl_int)nelems;
     int result = EXIT_SUCCESS, blas_done = 0;
     local[0] = (size_t)ctx->key.bsx;
     local[1] = (size_t)ctx->key.bsy;
     local[2] = 1;
-    global[0] = LIBXS_UPDIV((size_t)panel->m, bm) * local[0];
-    global[1] = LIBXS_UPDIV((size_t)panel->w, bn) * local[1]; /* kv: a column block per sub-group */
+    global[0] = gm * local[0];
+    global[1] = gn * local[1]; /* kv: a column block per sub-group */
     global[2] = (size_t)nslices;
     if (0 == panel->c0) result = libxstream_syrk_upload(ctx, plan, a, b); /* the first panel of an update */
     if (EXIT_SUCCESS == result && slot->size < size) {
@@ -438,16 +440,16 @@ static int libxstream_syrk_submit(void* vctx, const libxs_syrk_t* plan, const vo
     }
     if (EXIT_SUCCESS == result && 0 == blas_done && 0 < nparts) { /* the slices of k into the result */
       const cl_kernel sum = ctx->sum;
-      const size_t nsum = LIBXS_UP((size_t)nelems, 64);
+      const size_t nsum = LIBXS_UP(nelems, 64);
       cl_int status;
       result = libxstream_opencl_set_kernel_ptr(sum, 0, slot->dev);
       if (EXIT_SUCCESS == result) result = libxstream_opencl_set_kernel_ptr(sum, 1, ctx->part);
-      status = clSetKernelArg(sum, 2, sizeof(cl_int), &nelems);
+      status = clSetKernelArg(sum, 2, sizeof(cl_int), &nsumarg);
       status |= clSetKernelArg(sum, 3, sizeof(cl_int), &nparts);
       if (EXIT_SUCCESS == result && CL_SUCCESS != status) result = EXIT_FAILURE;
       if (EXIT_SUCCESS == result) {
         result = libxstream_opencl_launch_work(ctx->stream, sum, 1, NULL, &nsum, NULL, 0, NULL, NULL,
-          (size_t)nelems * nparts, size * nslices);
+          nelems * nparts, size * nslices);
       }
     }
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(slot->dev, slot->host, size, ctx->stream);
