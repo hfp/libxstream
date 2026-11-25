@@ -538,9 +538,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
               kernel_registry, &key, sizeof(key), libxs_registry_lock(kernel_registry));
             if (NULL == kptr || NULL == *kptr) {
               char flags[LIBXSTREAM_BUFFERSIZE];
-              const cl_device_id device_id = config->devices[config->device_id];
               cl_kernel kernel_new = NULL;
-              size_t wgs[3];
               if (0 != key.m) { /* homogeneous: add shape defines */
                 const int use_wg = (0 != use_blkrd || 0 != rowlane_homogeneous || 0 != sgbcst);
                 const char* const kind_bcst = (0 != sgbcst ? " -DSGBCST" : "");
@@ -568,17 +566,10 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
                 LIBXS_ASSERT(0 < n && (size_t)n < sizeof(flags));
                 LIBXS_UNUSED(n);
               }
+              /* wgsize stays the configured size: each launch takes its kernel's own (see below) */
               result |= libxstream_opencl_kernel(base_source_kind, base_source, "dbm_multiply",
                 flags, base_options, NULL /*try*/, NULL /*try_ok*/, base_exts, base_nexts,
                 &kernel_new);
-              if (EXIT_SUCCESS == result &&
-                  EXIT_SUCCESS == clGetKernelWorkGroupInfo(kernel_new, device_id,
-                                    CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(wgs), wgs, NULL) &&
-                  0 != wgs[0] && 0 != wgs[1])
-              {
-                wgsize[0] = wgs[0];
-                wgsize[1] = wgs[1];
-              }
               kptr = (cl_kernel*)libxs_registry_set(kernel_registry, &key, sizeof(key),
                 &kernel_new, sizeof(kernel_new), libxs_registry_lock(kernel_registry));
               if (2 <= verbosity || 0 > verbosity || EXIT_SUCCESS != result) {
@@ -637,7 +628,16 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
         const int per_task = (0 == use_blkrd && (0 != sgbcst || 0 != rowlane));
         const int use_wg = (0 != task.mnk_changes || 0 != use_blkrd || 0 != rowlane ||
                             0 != sgbcst);
-        size_t nflops = 0, nbytes = 0;
+        size_t nflops = 0, nbytes = 0, wg[3];
+        /* the work-group of this specialization: one compiled at another time may differ */
+        if (CL_SUCCESS != clGetKernelWorkGroupInfo(kernel, config->devices[config->device_id],
+                            CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(wg), wg, NULL) ||
+            0 == wg[0])
+        {
+          wg[0] = wgsize[0];
+          wg[1] = wgsize[1];
+          wg[2] = wgsize[2];
+        }
         size = (cl_int)(work_tasks * (0 == clinear ? task.max_m : task.max_n));
         if (0 != config->profile) { /* the profile reports rates only if it knows the work */
           int i;
@@ -650,10 +650,10 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
           }
         }
         if (per_task) {
-          work_size[0] = LIBXS_UPDIV(work_tasks, (size_t)fuse) * wgsize[0];
+          work_size[0] = LIBXS_UPDIV(work_tasks, (size_t)fuse) * wg[0];
         }
         else if (use_wg) {
-          work_size[0] = LIBXS_UP((size_t)size, wgsize[0]);
+          work_size[0] = LIBXS_UP((size_t)size, wg[0]);
         }
         else {
           work_size[0] = (size_t)size;
@@ -669,7 +669,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
         result |= libxstream_opencl_set_kernel_ptr(kernel, 8, cdata.memory);
         /* without WG, size is not rounded up (not every device takes a non-uniform WG) */
         result |= libxstream_opencl_launch_work((libxstream_stream_t*)stream, kernel, 1, NULL,
-          work_size, (0 != use_wg && 0 < wgsize[0]) ? wgsize : NULL, 0 /*num_wait*/,
+          work_size, (0 != use_wg && 0 < wg[0]) ? wg : NULL, 0 /*num_wait*/,
           NULL /*wait_list*/, NULL /*event*/, nflops, nbytes);
       }
     }
