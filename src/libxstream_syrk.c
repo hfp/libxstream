@@ -51,9 +51,13 @@
 #if !defined(LIBXSTREAM_SYRK_KV)
 # define LIBXSTREAM_SYRK_KV 0
 #endif
-/* code version in single precision: the sub-groups did not lead (same-session runs, n=1088 k=54272) */
+/**
+ * Code version in single precision: 2 = sub-groups with 2D block reads (Intel's cl_intel_subgroup_2d_block_io,
+ * trans='N', pitch a multiple of 16 bytes), else local memory. The kernel took 1.6-1.9x less time than
+ * local memory and A resident led MKL (n=1088 k=54272); sub-groups without them (1) did not lead.
+ */
 #if !defined(LIBXSTREAM_SYRK_KV32)
-# define LIBXSTREAM_SYRK_KV32 0
+# define LIBXSTREAM_SYRK_KV32 2
 #endif
 #if !defined(LIBXSTREAM_SYRK_SGRX)
 # define LIBXSTREAM_SYRK_SGRX 2
@@ -85,6 +89,10 @@
 /* SIMD width of the code version 0 (Intel), 0: the compiler decides */
 #if !defined(LIBXSTREAM_SYRK_SIMD)
 # define LIBXSTREAM_SYRK_SIMD 0
+#endif
+/* steps of k per 2D block read of the code version 2 (1 to 32) */
+#if !defined(LIBXSTREAM_SYRK_B2DK)
+# define LIBXSTREAM_SYRK_B2DK 8
 #endif
 /* sub-groups per work-group of the code version 1 (along the columns), 0: the runtime decides */
 #if !defined(LIBXSTREAM_SYRK_NSG)
@@ -125,6 +133,7 @@ struct libxstream_syrk_t {
   void* part; /* the slices of k beyond the first */
   size_t npart;
   int ncu; /* compute units of the device */
+  int blk2d; /* 2D block reads (cl_intel_subgroup_2d_block_io) */
   void *a, *b, *d;     /* device copies of the operands and weights */
   size_t na, nb, nd;
   const void *ha, *hb; /* what the copies hold */
@@ -177,9 +186,21 @@ static cl_kernel libxstream_syrk_kernel(libxstream_syrk_t* ctx, const libxs_syrk
   LIBXS_STATIC_ASSERT(sizeof(libxstream_syrk_key_t) <= LIBXS_REGKEY_MAXSIZE);
   LIBXS_MEMZERO(&key); /* padding is part of the key */
   key.f64 = (signed char)f64;
-  key.sg = (short)(0 < LIBXSTREAM_SYRK_SG ? LIBXSTREAM_SYRK_SG : libxstream_opencl_config.device.wgsize[2]);
-  key.kv = (signed char)(0 != (0 != f64 ? LIBXSTREAM_SYRK_KV : LIBXSTREAM_SYRK_KV32) && 0 != libxstream_opencl_config.device.intel
-                         && 0 < key.sg); /* else local memory */
+  key.lu = (signed char)LIBXSTREAM_SYRK_LU;
+  key.trans = (signed char)('N' != plan->shape.trans);
+  key.twok = (signed char)twok;
+  key.hasd = (signed char)(NULL != ctx->weights);
+  key.upper = (signed char)('U' == plan->shape.uplo);
+  key.lda = plan->shape.lda;
+  key.ldb = (0 != twok ? plan->shape.ldb : plan->shape.lda);
+  { /* code version: 2 only if the 2D block reads take the surfaces (pitch of 16 bytes, width of 64), else local memory */
+    const int want = (0 != f64 ? LIBXSTREAM_SYRK_KV : LIBXSTREAM_SYRK_KV32);
+    const int intel = (0 != libxstream_opencl_config.device.intel);
+    const int pitched = (0 == ((key.lda * 4) % 16) && 64 <= key.lda * 4 && 0 == ((key.ldb * 4) % 16) && 64 <= key.ldb * 4);
+    key.sg = (short)(2 == want ? 16 : (0 < LIBXSTREAM_SYRK_SG ? LIBXSTREAM_SYRK_SG : libxstream_opencl_config.device.wgsize[2]));
+    key.kv = (signed char)(2 == want ? (0 == f64 && 0 != ctx->blk2d && 0 == key.trans && 0 != pitched ? 2 : 0)
+                                     : (0 != want && 0 != intel && 0 < key.sg ? 1 : 0));
+  }
   key.nsg = (short)(0 != key.kv ? LIBXSTREAM_SYRK_NSG : 0);
   key.simd = (short)(0 == key.kv ? LIBXSTREAM_SYRK_SIMD : 0);
   key.vt = (signed char)(0 == key.kv ? (0 != f64 ? LIBXSTREAM_SYRK_VT : LIBXSTREAM_SYRK_VT32) : 0);
@@ -190,14 +211,7 @@ static cl_kernel libxstream_syrk_kernel(libxstream_syrk_t* ctx, const libxs_syrk
                                : (0 != f64 ? LIBXSTREAM_SYRK_RX : LIBXSTREAM_SYRK_RX32));
   key.ry = (short)(0 != key.kv ? LIBXS_MIN(LIBXSTREAM_SYRK_SGRY, key.sg)
                                : (0 != f64 ? LIBXSTREAM_SYRK_RY : LIBXSTREAM_SYRK_RY32));
-  key.bk = (short)(0 != f64 ? LIBXSTREAM_SYRK_BK : LIBXSTREAM_SYRK_BK32);
-  key.lu = (signed char)LIBXSTREAM_SYRK_LU;
-  key.trans = (signed char)('N' != plan->shape.trans);
-  key.twok = (signed char)twok;
-  key.hasd = (signed char)(NULL != ctx->weights);
-  key.upper = (signed char)('U' == plan->shape.uplo);
-  key.lda = plan->shape.lda;
-  key.ldb = (0 != twok ? plan->shape.ldb : plan->shape.lda);
+  key.bk = (short)(2 == key.kv ? LIBXSTREAM_SYRK_B2DK : (0 != f64 ? LIBXSTREAM_SYRK_BK : LIBXSTREAM_SYRK_BK32));
   if (0 == ctx->built || 0 != memcmp(&key, &ctx->key, sizeof(key))) {
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
     cl_program* program;
@@ -352,7 +366,7 @@ static int libxstream_syrk_submit(void* vctx, const libxs_syrk_t* plan, const vo
     /* a work-group: bsx x bsy work-items of rx x ry elements, or (kv) bsy sub-groups of sg lanes along the columns */
     const size_t bm = (size_t)ctx->key.bsx * ctx->key.rx;
     const size_t bn = (size_t)ctx->key.bsy * ctx->key.ry;
-    const cl_int bk = (0 == ctx->key.kv ? ctx->key.bk : 1);
+    const cl_int bk = (1 != ctx->key.kv ? ctx->key.bk : 1); /* slices of whole steps (2D block reads too) */
     size_t global[3], local[3];
     const size_t ngroups = LIBXS_UPDIV((size_t)panel->m, bm) * LIBXS_UPDIV((size_t)panel->w, bn);
     const size_t ntarget = (size_t)LIBXSTREAM_SYRK_WAVES * LIBXS_MAX(ctx->ncu, 1);
@@ -511,7 +525,10 @@ LIBXSTREAM_API int libxstream_syrk_create(libxstream_syrk_t** ctx)
       if (EXIT_SUCCESS == result) {
         const char* const env = getenv("LIBXSTREAM_SYRK_BLAS");
         cl_uint ncu = 0;
+        const char* const blk2d[] = {"cl_intel_subgroup_2d_block_io"};
         c->blas = ((NULL == env || 0 != atoi(env)) && NULL != libxstream_blas_query(c->stream));
+        c->blk2d = (EXIT_SUCCESS == libxstream_opencl_device_ext(
+                                      libxstream_opencl_config.devices[libxstream_opencl_config.device_id], blk2d, 1));
         if (CL_SUCCESS == clGetDeviceInfo(libxstream_opencl_config.devices[libxstream_opencl_config.device_id],
               CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &ncu, NULL))
         {

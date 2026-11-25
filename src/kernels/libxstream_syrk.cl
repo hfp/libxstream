@@ -103,11 +103,25 @@
  * k into slices of kslice: slice 0 writes out, slice s > 0 writes part[s-1] (m x w), and syrk_sum
  * adds the parts. Code versions: through local memory in blocks of BM x BN per work-group, or
  * SYRK_SG (sub-groups of SG lanes): a lane holds RX rows, and a column's value is broadcast from the
- * lane that loaded it (RY <= SG columns), i.e., neither local memory nor a barrier.
+ * lane that loaded it (RY <= SG columns), i.e., neither local memory nor a barrier. SYRK_SG=2 reads
+ * BK steps of 16 rows (or columns) at once (Intel's 2D block reads, single precision, trans='N').
  */
 #if defined(SYRK_SG) && (0 != SYRK_SG)
 # if !defined(BCST_SG)
 #   error "SYRK_SG requires sub-groups of exactly SG lanes (SG_EXACT)"
+# endif
+# if (2 == SYRK_SG)
+#   if !defined(cl_intel_subgroup_2d_block_io) || (16 != SG) || (16 != RY)
+#     error "SYRK_SG=2 requires cl_intel_subgroup_2d_block_io, SG=16, and RY=16"
+#   endif
+/**
+ * Rows y to y+BK-1 (steps of k) and columns x to x+15 (rows of op(X)) of the surface X (columns of
+ * LD elements apart, height rows): lane l receives column x+l of every row, i.e., one row of op(X)
+ * for BK steps. Rows and columns beyond the panel only feed elements that are never stored.
+ */
+#   define SYRK_READ2D(X, LD, HEIGHT, XC, YR, DST) \
+      CAT(CAT(intel_sub_group_2d_block_read_32b_, BK), r16x1c)( \
+        (global void*)(X), (LD) * 4, HEIGHT, (LD) * 4, (int2)(XC, YR), DST)
 # endif
 REQD_SG kernel void syrk_panel(global T* restrict out, global const T* restrict a, global const T* restrict b,
   global const T* restrict d, int m, int w, int r0, int c0, int k, int lda, int ldb, int trans, int twok, int hasd, T alpha,
@@ -120,30 +134,57 @@ REQD_SG kernel void syrk_panel(global T* restrict out, global const T* restrict 
   T acc[RX][RY];
   int term = 0, u, v;
   if (0 != UPPER_ ? (r0 + i0 > c0 + j0 + RY - 1) : (r0 + i0 + SG * RX - 1 < c0 + j0)) return; /* the whole sub-group */
+  UNROLL_FORCE(RX)
   for (u = 0; u < RX; ++u) {
+    UNROLL_FORCE(RY)
     for (v = 0; v < RY; ++v) acc[u][v] = 0;
   }
+  UNROLL_OUTER(2)
   for (; term <= TWOK_; ++term) {
     global const T* const x = (0 == term ? a : b);
     global const T* const y = (0 == term ? b : a);
     const int ldx = (0 == term ? LDA_ : LDB_), ldy = (0 == term ? LDB_ : LDA_);
     const int gj = j0 + lane;
     int p = kb;
-    UNROLL(4)
+# if (2 == SYRK_SG)
+    UNROLL_OUTER(1)
+    for (; p + BK <= ke; p += BK) { /* whole steps of BK by block reads, the rest below */
+      uint yb[BK];
+      int r;
+      SYRK_READ2D(y, ldy, k, c0 + j0, p, yb);
+      /* unrolled whatever LU says (fixed bounds): the reads take their destination by address */
+      UNROLL_FORCE(RX)
+      for (u = 0; u < RX; ++u) {
+        uint xb[BK];
+        SYRK_READ2D(x, ldx, k, r0 + i0 + u * SG, p, xb);
+        UNROLL_FORCE(BK)
+        for (r = 0; r < BK; ++r) {
+          const T xu = (0 != HASD_ ? (as_float(xb[r]) * d[p + r]) : as_float(xb[r]));
+          UNROLL_FORCE(RY)
+          for (v = 0; v < RY; ++v) acc[u][v] = fma(xu, BCST_SG(as_float(yb[r]), v), acc[u][v]);
+        }
+      }
+    }
+# endif
+    UNROLL_AUTO
     for (; p < ke; ++p) {
       const T yl = ((lane < RY && gj < w) ? SYRK_OP(y, ldy, TRANS_, c0 + gj, p) : 0);
       const T dp = (0 != HASD_ ? d[p] : 1);
+      UNROLL_FORCE(RX)
       for (u = 0; u < RX; ++u) { /* a row at a time: no array of rows, and the broadcast is an operand */
         const int gi = i0 + lane + u * SG;
         T xu = (gi < m ? SYRK_OP(x, ldx, TRANS_, r0 + gi, p) : 0);
         if (0 != HASD_) xu *= dp;
+        UNROLL_FORCE(RY)
         for (v = 0; v < RY; ++v) acc[u][v] = fma(xu, BCST_SG(yl, v), acc[u][v]);
       }
     }
   }
+  UNROLL_FORCE(RX)
   for (u = 0; u < RX; ++u) {
     const int i = i0 + lane + u * SG;
     if (i < m) {
+      UNROLL_FORCE(RY)
       for (v = 0; v < RY; ++v) {
         const int j = j0 + v;
         if (j < w) dst[i + (size_t)j * m] = alpha * acc[u][v];
@@ -167,16 +208,20 @@ inline void syrk_stage_run(local T* restrict dst, global const T* restrict x, gl
     else
 #endif
     {
+      UNROLL_FORCE(SV)
       for (s = 0; s < SV; ++s) v[s] = (s < nvalid ? SYRK_OP(x, ldx, trans, row + s, p) : 0);
     }
     if (0 != hasd) {
       const T dp = d[p];
+      UNROLL_FORCE(SV)
       for (s = 0; s < SV; ++s) v[s] *= dp;
     }
   }
   else {
+    UNROLL_FORCE(SV)
     for (s = 0; s < SV; ++s) v[s] = 0;
   }
+  UNROLL_FORCE(SV)
   for (s = 0; s < SV; ++s) dst[s] = v[s];
 }
 
@@ -215,18 +260,18 @@ inline void syrk_accumulate(private T (*restrict acc)[RY], local T (*restrict lx
 #if (0 != VT) && SYRK_VWIDTH(RY)
     SYRK_VCOPY(RY, &ly[pp][YCOL(ty, 0)], yr); /* uniform within a sub-group along tx */
 #else
-    UNROLL(RY)
+    UNROLL_FORCE(RY)
     for (v = 0; v < RY; ++v) yr[v] = ly[pp][YCOL(ty, v)];
 #endif
 #if (0 != VT) && SYRK_VWIDTH(RX)
     SYRK_VCOPY(RX, &lx[pp][XROW(tx, 0)], xr);
 #else
-    UNROLL(RX)
+    UNROLL_FORCE(RX)
     for (u = 0; u < RX; ++u) xr[u] = lx[pp][XROW(tx, u)];
 #endif
-    UNROLL(RX)
+    UNROLL_FORCE(RX)
     for (u = 0; u < RX; ++u) {
-      UNROLL(RY)
+      UNROLL_FORCE(RY)
       for (v = 0; v < RY; ++v) acc[u][v] = fma(xr[u], yr[v], acc[u][v]);
     }
   }
@@ -249,16 +294,18 @@ __attribute__((reqd_work_group_size(BSX, BSY, 1))) kernel void syrk_panel(global
   T acc[RX][RY];
   int term = 0, u, v;
   if (0 != UPPER_ ? (r0 + i0 > c0 + j0 + BN - 1) : (r0 + i0 + BM - 1 < c0 + j0)) return; /* the whole work-group */
-  UNROLL(RX)
+  UNROLL_FORCE(RX)
   for (u = 0; u < RX; ++u) {
-    UNROLL(RY)
+    UNROLL_FORCE(RY)
     for (v = 0; v < RY; ++v) acc[u][v] = 0;
   }
+  UNROLL_OUTER(2)
   for (; term <= TWOK_; ++term) {
     global const T* const x = (0 == term ? a : b);
     global const T* const y = (0 == term ? b : a);
     const int ldx = (0 == term ? LDA_ : LDB_), ldy = (0 == term ? LDB_ : LDA_);
     int p0 = kb;
+    UNROLL_OUTER(1)
     for (; p0 < ke; p0 += BK) {
       syrk_stage(lx, ly, x, y, d, ldx, ldy, TRANS_, HASD_, r0, c0, i0, j0, m, w, p0, ke, tid);
       barrier(CLK_LOCAL_MEM_FENCE);
@@ -266,11 +313,11 @@ __attribute__((reqd_work_group_size(BSX, BSY, 1))) kernel void syrk_panel(global
       barrier(CLK_LOCAL_MEM_FENCE);
     }
   }
-  UNROLL(RX)
+  UNROLL_FORCE(RX)
   for (u = 0; u < RX; ++u) {
     const int i = i0 + XROW(tx, u);
     if (i < m) {
-      UNROLL(RY)
+      UNROLL_FORCE(RY)
       for (v = 0; v < RY; ++v) {
         const int j = j0 + YCOL(ty, v);
         if (j < w) dst[i + (size_t)j * m] = alpha * acc[u][v];
@@ -288,6 +335,7 @@ kernel void syrk_sum(global T* restrict out, global const T* restrict part, int 
   if (e < (size_t)n) {
     T sum = out[e];
     int s = 0;
+    UNROLL_AUTO
     for (; s < nparts; ++s) sum += part[e + (size_t)s * n];
     out[e] = sum;
   }
