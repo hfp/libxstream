@@ -44,13 +44,13 @@ ifneq (,$(LIBXS))
   DFLAGS += -D__LIBXSTREAM
 else
   DFLAGS += -D__LIBXSTREAM -DLIBXSTREAM_SOURCE
-  XSTREAM_SRCDEP := $(wildcard $(DEPDIR)/src/*.c) $(wildcard $(DEPDIR)/src/*.h)
+  XSTREAM_SRCDEP := $(wildcard $(DEPDIR)/src/*.c) $(sort $(wildcard $(DEPDIR)/src/*.h) $(DEPDIR)/src/libxstream_syrk_kernels.h)
 endif
 else
   XSTREAM_SOURCE := $(wildcard $(DEPDIR)/libxstream/libxstream_source.h)
   ifneq (,$(XSTREAM_SOURCE))
     DFLAGS += -D__LIBXSTREAM -DLIBXSTREAM_SOURCE
-    XSTREAM_SRCDEP := $(wildcard $(DEPDIR)/src/*.c) $(wildcard $(DEPDIR)/src/*.h)
+    XSTREAM_SRCDEP := $(wildcard $(DEPDIR)/src/*.c) $(sort $(wildcard $(DEPDIR)/src/*.h) $(DEPDIR)/src/libxstream_syrk_kernels.h)
   endif
 endif
 
@@ -158,3 +158,7 @@ deepclean: realclean
 # that a link-only change no longer recompiles every object, which leaves the link
 # as the one step that still has to see them.
 $(XFILES): $(LNKSTATE)
+
+# header-only: the library's embedded kernels are generated (not tracked)
+$(DEPDIR)/src/libxstream_syrk_kernels.h: $(DEPDIR)/src/kernels/libxstream_syrk.cl
+	@$(MAKE) --no-print-directory -C $(DEPDIR) kernels

@@ -182,7 +182,7 @@ LIBXS_SOURCE := $(wildcard $(LIBXSROOT)/libxs/libxs_source.h)
 # without a LIBXS library, the objects embed the sources libxs_source.h includes
 LIBXS_SRCDEP := $(if $(LIBXS)$(LIBXS_PC),,$(if $(LIBXS_SOURCE), \
   $(wildcard $(LIBXSROOT)/src/*.c) $(wildcard $(LIBXSROOT)/src/*.h)))
-HEADERS_SRC := $(wildcard $(ROOTSRC)/*.h)
+HEADERS_SRC := $(sort $(wildcard $(ROOTSRC)/*.h) $(ROOTSRC)/libxstream_syrk_kernels.h)
 HEADERS := $(HEADERS_SRC) $(HEADERS_MAIN)
 SRCFILES := $(patsubst %,$(ROOTSRC)/%,libxstream_blas.c libxstream_cp2k.c libxstream_dbcsr.c libxstream.c libxstream_event.c libxstream_mem.c libxstream_mps.c libxstream_stream.c libxstream_syrk.c)
 # OpenCL-MPS server and the ICD given to the OpenCL loader, both beside the shared library
@@ -268,7 +268,9 @@ winterface: headers sources
 .PHONY: config
 config: $(INCDIR)/$(PROJECT)_version.h
 
-# the library's own kernels, embedded: the header is tracked (header-only builds), regenerated if a kernel changes
+# the library's own kernels, embedded: the header is generated (not tracked), also for header-only builds
+.PHONY: kernels
+kernels: $(ROOTSRC)/libxstream_syrk_kernels.h
 $(ROOTSRC)/libxstream_syrk_kernels.h: $(ROOTSRC)/kernels/libxstream_syrk.cl $(wildcard $(ROOTINC)/opencl/*.h) $(ROOTSCR)/tool_opencl.sh
 	$(ROOTSCR)/tool_opencl.sh -b 9 -p "" -I $(ROOTINC) $(ROOTSRC)/kernels/libxstream_syrk.cl $@
 
@@ -492,6 +494,7 @@ endif
 
 .PHONY: realclean
 realclean: clean
+	@-rm -f $(ROOTSRC)/libxstream_syrk_kernels.h
 ifneq ($(call qapath,$(BLDTOP)),$(ROOTDIR))
 ifneq ($(call qapath,$(BLDTOP)),$(HEREDIR))
 	@-rm -rf $(BLDTOP)

@@ -11,6 +11,7 @@
 #include <libxstream/libxstream_blas.h>
 #include <libxstream/libxstream_opencl.h>
 #include "libxstream_syrk_kernels.h"
+#include <libxs/libxs_reg.h>
 #include <math.h>
 
 #if !defined(OPENCL_KERNELS_SOURCE_LIBXSTREAM_SYRK)
@@ -42,6 +43,39 @@
 #if !defined(LIBXSTREAM_SYRK_BK32)
 # define LIBXSTREAM_SYRK_BK32 32
 #endif
+/* unrolling of the kernel (LU, see libxstream_common.h): -1 = no hints (they slowed F32 down) */
+#if !defined(LIBXSTREAM_SYRK_LU)
+# define LIBXSTREAM_SYRK_LU -1
+#endif
+/* code version: 0 = local memory, 1 = sub-groups (Intel: SG lanes, RX rows per lane, RY <= SG columns) */
+#if !defined(LIBXSTREAM_SYRK_KV)
+# define LIBXSTREAM_SYRK_KV 0
+#endif
+/* code version in single precision: the sub-groups led by a quarter (kernel time, n=1088 k=54272) */
+#if !defined(LIBXSTREAM_SYRK_KV32)
+# define LIBXSTREAM_SYRK_KV32 1
+#endif
+#if !defined(LIBXSTREAM_SYRK_SGRX)
+# define LIBXSTREAM_SYRK_SGRX 2
+#endif
+#if !defined(LIBXSTREAM_SYRK_SGRX32)
+# define LIBXSTREAM_SYRK_SGRX32 4
+#endif
+#if !defined(LIBXSTREAM_SYRK_SGRY)
+# define LIBXSTREAM_SYRK_SGRY 16
+#endif
+/* lanes of a sub-group of the code version 1, 0: as the device prefers */
+#if !defined(LIBXSTREAM_SYRK_SG)
+# define LIBXSTREAM_SYRK_SG 16
+#endif
+/* SIMD width of the code version 0 (Intel), 0: the compiler decides */
+#if !defined(LIBXSTREAM_SYRK_SIMD)
+# define LIBXSTREAM_SYRK_SIMD 0
+#endif
+/* sub-groups per work-group of the code version 1 (along the columns), 0: the runtime decides */
+#if !defined(LIBXSTREAM_SYRK_NSG)
+# define LIBXSTREAM_SYRK_NSG 4
+#endif
 /* split of k: work-groups per compute unit to aim for, and the least depth of a slice */
 #if !defined(LIBXSTREAM_SYRK_WAVES)
 # define LIBXSTREAM_SYRK_WAVES 4
@@ -52,6 +86,13 @@
 /* panels in flight, as many as LIBXS submits before it waits */
 #define LIBXSTREAM_SYRK_NSLOTS 2
 
+
+/* What a kernel hard-codes (code version): a program per key is built once per process (LIBXS_REGKEY_MAXSIZE) */
+typedef struct libxstream_syrk_key_t {
+  int lda, ldb;
+  short sg, nsg, simd, bsx, bsy, rx, ry, bk;
+  signed char f64, kv, lu, trans, twok, hasd, upper;
+} libxstream_syrk_key_t;
 
 /* A panel in flight: its result on the device, then in host memory for the merge */
 typedef struct libxstream_syrk_slot_t {
@@ -64,11 +105,12 @@ typedef struct libxstream_syrk_slot_t {
 
 struct libxstream_syrk_t {
   libxstream_stream_t* stream;
-  cl_kernel kernel[2], sum[2]; /* F64 and F32: the panel, and the sum of the slices of k */
+  libxstream_syrk_key_t key; /* of the kernels: the panel, and the sum of the slices of k */
+  cl_kernel kernel, sum;
+  int built; /* 0: not yet, 1: built, -1: failed (panels are declined) */
   void* part; /* the slices of k beyond the first */
   size_t npart;
   int ncu; /* compute units of the device */
-  int built[2];        /* 0: not yet, 1: built, -1: failed (panels are declined) */
   void *a, *b, *d;     /* device copies of the operands and weights */
   size_t na, nb, nd;
   const void *ha, *hb; /* what the copies hold */
@@ -88,6 +130,10 @@ struct libxstream_syrk_t {
   libxstream_syrk_slot_t slot[LIBXSTREAM_SYRK_NSLOTS];
 };
 
+/* programs of the code versions (libxstream_syrk_key_t), shared by all contexts; NULL if one failed */
+static libxs_registry_t* libxstream_syrk_registry /*= NULL*/;
+static libxs_lock_t libxstream_syrk_lock /*= LIBXS_LOCK_INITIALIZER*/;
+
 
 /* Device memory of at least size bytes, reallocated if smaller. */
 static int libxstream_syrk_reserve(void** mem, size_t* capacity, size_t size);
@@ -105,30 +151,79 @@ static int libxstream_syrk_reserve(void** mem, size_t* capacity, size_t size)
 }
 
 
-/* Kernel of the datatype, built at its first use; NULL if the device cannot (e.g., no fp64). */
-static cl_kernel libxstream_syrk_kernel(libxstream_syrk_t* ctx, int f64);
-static cl_kernel libxstream_syrk_kernel(libxstream_syrk_t* ctx, int f64)
+/**
+ * Kernel of a plan's code version (libxstream_syrk_key_t): its program is built once per process and
+ * the context creates its kernels from it. NULL if the device cannot (e.g., no fp64).
+ */
+static cl_kernel libxstream_syrk_kernel(libxstream_syrk_t* ctx, const libxs_syrk_t* plan);
+static cl_kernel libxstream_syrk_kernel(libxstream_syrk_t* ctx, const libxs_syrk_t* plan)
 {
-  const int which = (0 != f64 ? 0 : 1);
-  if (0 == ctx->built[which]) {
-    const char* exts[] = {"cl_khr_fp64"};
-    char flags[LIBXSTREAM_BUFFERSIZE];
-    cl_program program = NULL;
+  const int f64 = (LIBXS_DATATYPE_F64 == plan->shape.datatype), twok = (0 != plan->shape.ldb);
+  libxstream_syrk_key_t key;
+  LIBXS_STATIC_ASSERT(sizeof(libxstream_syrk_key_t) <= LIBXS_REGKEY_MAXSIZE);
+  LIBXS_MEMZERO(&key); /* padding is part of the key */
+  key.f64 = (signed char)f64;
+  key.sg = (short)(0 < LIBXSTREAM_SYRK_SG ? LIBXSTREAM_SYRK_SG : libxstream_opencl_config.device.wgsize[2]);
+  key.kv = (signed char)(0 != (0 != f64 ? LIBXSTREAM_SYRK_KV : LIBXSTREAM_SYRK_KV32) && 0 != libxstream_opencl_config.device.intel
+                         && 0 < key.sg); /* else local memory */
+  key.nsg = (short)(0 != key.kv ? LIBXSTREAM_SYRK_NSG : 0);
+  key.simd = (short)(0 == key.kv ? LIBXSTREAM_SYRK_SIMD : 0);
+  key.bsx = (short)(0 != key.kv ? key.sg : LIBXSTREAM_SYRK_BSX);
+  key.bsy = (short)(0 != key.kv ? LIBXS_MAX(key.nsg, 1) : LIBXSTREAM_SYRK_BSY);
+  key.rx = (short)(0 != key.kv ? (0 != f64 ? LIBXSTREAM_SYRK_SGRX : LIBXSTREAM_SYRK_SGRX32)
+                               : (0 != f64 ? LIBXSTREAM_SYRK_RX : LIBXSTREAM_SYRK_RX32));
+  key.ry = (short)(0 != key.kv ? LIBXS_MIN(LIBXSTREAM_SYRK_SGRY, key.sg)
+                               : (0 != f64 ? LIBXSTREAM_SYRK_RY : LIBXSTREAM_SYRK_RY32));
+  key.bk = (short)(0 != f64 ? LIBXSTREAM_SYRK_BK : LIBXSTREAM_SYRK_BK32);
+  key.lu = (signed char)LIBXSTREAM_SYRK_LU;
+  key.trans = (signed char)('N' != plan->shape.trans);
+  key.twok = (signed char)twok;
+  key.hasd = (signed char)(NULL != ctx->weights);
+  key.upper = (signed char)('U' == plan->shape.uplo);
+  key.lda = plan->shape.lda;
+  key.ldb = (0 != twok ? plan->shape.ldb : plan->shape.lda);
+  if (0 == ctx->built || 0 != memcmp(&key, &ctx->key, sizeof(key))) {
+    const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
+    cl_program* program;
     int result = EXIT_FAILURE;
-    const int nchars = LIBXS_SNPRINTF(flags, sizeof(flags), "-DT=%s -DBSX=%i -DBSY=%i -DRX=%i -DRY=%i -DBK=%i",
-      0 != f64 ? "double" : "float", LIBXSTREAM_SYRK_BSX, LIBXSTREAM_SYRK_BSY,
-      0 != f64 ? LIBXSTREAM_SYRK_RX : LIBXSTREAM_SYRK_RX32, 0 != f64 ? LIBXSTREAM_SYRK_RY : LIBXSTREAM_SYRK_RY32,
-      0 != f64 ? LIBXSTREAM_SYRK_BK : LIBXSTREAM_SYRK_BK32);
-    if (0 < nchars && (int)sizeof(flags) > nchars) {
-      result = libxstream_opencl_program(0 /*source_kind*/, OPENCL_KERNELS_SOURCE_LIBXSTREAM_SYRK, "syrk", flags, NULL /*options*/,
-        NULL /*try*/, NULL /*try_ok*/, exts, 0 != f64 ? 1 : 0, &program);
+    if (NULL != ctx->kernel) clReleaseKernel(ctx->kernel);
+    if (NULL != ctx->sum) clReleaseKernel(ctx->sum);
+    ctx->kernel = ctx->sum = NULL;
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &libxstream_syrk_lock);
+    if (NULL == libxstream_syrk_registry) libxstream_syrk_registry = libxs_registry_create();
+    program = (NULL != libxstream_syrk_registry ? (cl_program*)libxs_registry_get(libxstream_syrk_registry, &key, sizeof(key),
+                                                    libxs_registry_lock(libxstream_syrk_registry))
+                                                : NULL);
+    if (NULL == program && NULL != libxstream_syrk_registry) { /* the first use of this code version */
+      const char* exts[] = {"cl_khr_fp64"};
+      char flags[LIBXSTREAM_BUFFERSIZE];
+      cl_program built = NULL;
+      int status = EXIT_FAILURE;
+      const int nchars = LIBXS_SNPRINTF(flags, sizeof(flags),
+        "-DT=%s -DSYRK_SG=%i -DSYRK_SIMD=%i -DBSX=%i -DBSY=%i -DRX=%i -DRY=%i -DBK=%i -DLU=%i -DSG=%i -DINTEL=%i%s"
+        " -DSYRK_TRANS=%i -DSYRK_TWOK=%i -DSYRK_HASD=%i -DSYRK_UPPER=%i -DSYRK_LDA=%i -DSYRK_LDB=%i",
+        0 != f64 ? "double" : "float", (int)key.kv, (int)key.simd, (int)key.bsx, (int)key.bsy, (int)key.rx, (int)key.ry, (int)key.bk,
+        (int)key.lu, (int)key.sg, (int)(0 != devinfo->intel), CL_DEVICE_TYPE_GPU == devinfo->type ? " -DGPU" : "",
+        (int)key.trans, (int)key.twok, (int)key.hasd, (int)key.upper, key.lda, key.ldb);
+      if (0 < nchars && (int)sizeof(flags) > nchars) {
+        status = libxstream_opencl_program(0 /*source_kind*/, OPENCL_KERNELS_SOURCE_LIBXSTREAM_SYRK, "syrk", flags,
+          NULL /*options*/, NULL /*try*/, NULL /*try_ok*/, exts, 0 != f64 ? 1 : 0, &built);
+      }
+      if (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity || EXIT_SUCCESS != status) {
+        fprintf(stderr, "%s LIBXSTREAM: SYRK kernel %s\n", EXIT_SUCCESS == status ? "INFO" : "ERROR", flags);
+      }
+      program = (cl_program*)libxs_registry_set(libxstream_syrk_registry, &key, sizeof(key), &built, sizeof(built),
+        libxs_registry_lock(libxstream_syrk_registry));
     }
-    if (EXIT_SUCCESS == result) result = libxstream_opencl_kernel_query(program, "syrk_panel", ctx->kernel + which);
-    if (EXIT_SUCCESS == result) result = libxstream_opencl_kernel_query(program, "syrk_sum", ctx->sum + which);
-    if (NULL != program) clReleaseProgram(program); /* the kernel keeps what it needs */
-    ctx->built[which] = (EXIT_SUCCESS == result ? 1 : -1);
+    if (NULL != program && NULL != *program) {
+      result = libxstream_opencl_kernel_query(*program, "syrk_panel", &ctx->kernel);
+      if (EXIT_SUCCESS == result) result = libxstream_opencl_kernel_query(*program, "syrk_sum", &ctx->sum);
+    }
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, &libxstream_syrk_lock);
+    ctx->key = key;
+    ctx->built = (EXIT_SUCCESS == result ? 1 : -1);
   }
-  return (0 < ctx->built[which] ? ctx->kernel[which] : NULL);
+  return (0 < ctx->built ? ctx->kernel : NULL);
 }
 
 
@@ -227,7 +322,7 @@ static int libxstream_syrk_submit(void* vctx, const libxs_syrk_t* plan, const vo
   const int f64 = (LIBXS_DATATYPE_F64 == plan->shape.datatype), twok = (0 != plan->shape.ldb);
   const size_t es = LIBXS_TYPESIZE(plan->shape.datatype), size = (size_t)panel->m * panel->w * es;
   const int blas = (0 != ctx->blas && 0 == twok);
-  const cl_kernel kernel = libxstream_syrk_kernel(ctx, f64);
+  const cl_kernel kernel = libxstream_syrk_kernel(ctx, plan);
   int ticket = -1, s = 0;
   for (; s < LIBXSTREAM_SYRK_NSLOTS && 0 != ctx->slot[s].busy; ++s);
   if ((NULL != kernel || 0 != blas) && LIBXSTREAM_SYRK_NSLOTS > s && 0 < size) { /* else the host computes the panel */
@@ -238,10 +333,11 @@ static int libxstream_syrk_submit(void* vctx, const libxs_syrk_t* plan, const vo
     const cl_int upper = ('U' == plan->shape.uplo);
     const cl_double alpha64 = panel->alpha;
     const cl_float alpha32 = (cl_float)panel->alpha;
-    const size_t bm = (size_t)LIBXSTREAM_SYRK_BSX * (0 != f64 ? LIBXSTREAM_SYRK_RX : LIBXSTREAM_SYRK_RX32);
-    const size_t bn = (size_t)LIBXSTREAM_SYRK_BSY * (0 != f64 ? LIBXSTREAM_SYRK_RY : LIBXSTREAM_SYRK_RY32);
-    const cl_int bk = (0 != f64 ? LIBXSTREAM_SYRK_BK : LIBXSTREAM_SYRK_BK32);
-    const size_t local[3] = {LIBXSTREAM_SYRK_BSX, LIBXSTREAM_SYRK_BSY, 1};
+    /* a work-group: bsx x bsy work-items of rx x ry elements, or (kv) bsy sub-groups of sg lanes along the columns */
+    const size_t bm = (size_t)ctx->key.bsx * ctx->key.rx;
+    const size_t bn = (size_t)ctx->key.bsy * ctx->key.ry;
+    const cl_int bk = (0 == ctx->key.kv ? ctx->key.bk : 1);
+    size_t global[3], local[3];
     const size_t ngroups = LIBXS_UPDIV((size_t)panel->m, bm) * LIBXS_UPDIV((size_t)panel->w, bn);
     const size_t ntarget = (size_t)LIBXSTREAM_SYRK_WAVES * LIBXS_MAX(ctx->ncu, 1);
     /* slices of k for enough work-groups, each at least LIBXSTREAM_SYRK_KMIN deep */
@@ -249,10 +345,12 @@ static int libxstream_syrk_submit(void* vctx, const libxs_syrk_t* plan, const vo
     const cl_int nwant = (cl_int)LIBXS_MIN(LIBXS_UPDIV(ntarget, ngroups), (size_t)nmost);
     const cl_int kslice = (1 < nwant ? (cl_int)LIBXS_UP(LIBXS_UPDIV(k, nwant), bk) : LIBXS_MAX(k, 1));
     const cl_int nslices = LIBXS_MAX((cl_int)LIBXS_UPDIV(k, kslice), 1), nelems = m * w, nparts = nslices - 1;
-    size_t global[3];
     int result = EXIT_SUCCESS, blas_done = 0;
-    global[0] = LIBXS_UPDIV((size_t)panel->m, bm) * LIBXSTREAM_SYRK_BSX;
-    global[1] = LIBXS_UPDIV((size_t)panel->w, bn) * LIBXSTREAM_SYRK_BSY;
+    local[0] = (size_t)ctx->key.bsx;
+    local[1] = (size_t)ctx->key.bsy;
+    local[2] = 1;
+    global[0] = LIBXS_UPDIV((size_t)panel->m, bm) * local[0];
+    global[1] = LIBXS_UPDIV((size_t)panel->w, bn) * local[1]; /* kv: a column block per sub-group */
     global[2] = (size_t)nslices;
     if (0 == panel->c0) result = libxstream_syrk_upload(ctx, plan, a, b); /* the first panel of an update */
     if (EXIT_SUCCESS == result && slot->size < size) {
@@ -304,11 +402,12 @@ static int libxstream_syrk_submit(void* vctx, const libxs_syrk_t* plan, const vo
       result = libxstream_opencl_set_kernel_ptr(kernel, 16, 0 < nparts ? ctx->part : slot->dev);
     }
     if (EXIT_SUCCESS == result && 0 == blas_done) {
-      result = libxstream_opencl_launch_work(ctx->stream, kernel, 3, NULL, global, local, 0, NULL, NULL,
+      result = libxstream_opencl_launch_work(ctx->stream, kernel, 3, NULL, global,
+        (0 == ctx->key.kv || 0 != ctx->key.nsg) ? local : NULL, 0, NULL, NULL,
         (size_t)2 * (1 + twok) * panel->m * panel->w * plan->shape.k, size * nslices);
     }
     if (EXIT_SUCCESS == result && 0 == blas_done && 0 < nparts) { /* the slices of k into the result */
-      const cl_kernel sum = ctx->sum[0 != f64 ? 0 : 1];
+      const cl_kernel sum = ctx->sum;
       const size_t nsum = LIBXS_UP((size_t)nelems, 64);
       cl_int status;
       result = libxstream_opencl_set_kernel_ptr(sum, 0, slot->dev);
@@ -428,10 +527,8 @@ LIBXSTREAM_API void libxstream_syrk_destroy(libxstream_syrk_t* ctx)
     if (NULL != ctx->s) libxstream_mem_deallocate(ctx->s);
     if (NULL != ctx->part) libxstream_mem_deallocate(ctx->part);
     free(ctx->hs);
-    if (NULL != ctx->kernel[0]) clReleaseKernel(ctx->kernel[0]);
-    if (NULL != ctx->kernel[1]) clReleaseKernel(ctx->kernel[1]);
-    if (NULL != ctx->sum[0]) clReleaseKernel(ctx->sum[0]);
-    if (NULL != ctx->sum[1]) clReleaseKernel(ctx->sum[1]);
+    if (NULL != ctx->kernel) clReleaseKernel(ctx->kernel);
+    if (NULL != ctx->sum) clReleaseKernel(ctx->sum);
     if (NULL != ctx->stream) libxstream_stream_destroy(ctx->stream);
     free(ctx);
   }

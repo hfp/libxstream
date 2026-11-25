@@ -155,7 +155,28 @@ file(
 # the OpenCL-MPS server and ICD (below) are programs of their own
 list(FILTER LIBXSTREAM_SRCS EXCLUDE REGEX "/libxstream_mpsd\\.c$")
 
-add_library(libxstream ${LIBXSTREAM_SRCS})
+# the library's own kernels, embedded: generated (not tracked) into src/ as with GNU Make,
+# hence both agree on one header, and the header-only installation (below) carries it
+set(LIBXSTREAM_SYRK_KERNELS_H "${LIBXSTREAM_ROOT_DIR}/src/libxstream_syrk_kernels.h")
+set(LIBXSTREAM_SYRK_CL "${LIBXSTREAM_ROOT_DIR}/src/kernels/libxstream_syrk.cl")
+# headers the kernels of the library and of all samples may include (opencl/*.h)
+file(
+  GLOB LIBXSTREAM_OPENCL_H
+  LIST_DIRECTORIES false
+  CONFIGURE_DEPENDS "${LIBXSTREAM_ROOT_DIR}/libxstream/opencl/*.h")
+add_custom_command(
+  OUTPUT "${LIBXSTREAM_SYRK_KERNELS_H}"
+  COMMAND
+    "${LIBXSTREAM_ROOT_DIR}/scripts/tool_opencl.sh" -b 9 -p "" -I
+    "${LIBXSTREAM_ROOT_DIR}/libxstream" "${LIBXSTREAM_SYRK_CL}"
+    "${LIBXSTREAM_SYRK_KERNELS_H}"
+  DEPENDS "${LIBXSTREAM_SYRK_CL}" ${LIBXSTREAM_OPENCL_H}
+          "${LIBXSTREAM_ROOT_DIR}/scripts/tool_opencl.sh"
+  WORKING_DIRECTORY "${LIBXSTREAM_ROOT_DIR}"
+  COMMENT "Generating libxstream_syrk_kernels.h from libxstream_syrk.cl"
+  VERBATIM)
+
+add_library(libxstream ${LIBXSTREAM_SRCS} "${LIBXSTREAM_SYRK_KERNELS_H}")
 add_library(libxstream::libxstream ALIAS libxstream)
 set_target_properties(
   libxstream
@@ -418,11 +439,6 @@ file(
   CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/params/*.bin")
 
 set(LIBXSTREAM_SMM_KERNELS_H "${CMAKE_CURRENT_BINARY_DIR}/smm_kernels.h")
-# headers the kernels of all samples may include (opencl/*.h)
-file(
-  GLOB LIBXSTREAM_OPENCL_H
-  LIST_DIRECTORIES false
-  CONFIGURE_DEPENDS "${LIBXSTREAM_ROOT_DIR}/libxstream/opencl/*.h")
 
 add_custom_command(
   OUTPUT "${LIBXSTREAM_SMM_KERNELS_H}"

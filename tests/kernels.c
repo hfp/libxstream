@@ -186,6 +186,14 @@
 #define KERNELS_DBM_SGB_NV KERNELS_DBM_BASE KERNELS_DBM_ATOMICS_NV \
   " -DBN=2 -DSG=32 -DINTEL=0 -DNV=1 -DWG=64 -DMAX_M=23 -DSGBCST"
 /**
+ * SYRK: the generic kernel, the host's hard-coded plan (SYRK_*), and the sub-group code version (Intel),
+ * whose header resolves against libxstream/ like DBM's.
+ */
+#define KERNELS_SYRK_BASE "-I" LIBXSTREAM_SRCDIR "/libxstream "
+#define KERNELS_SYRK_FIXED \
+  " -DLU=-1 -DSYRK_TRANS=0 -DSYRK_TWOK=0 -DSYRK_HASD=1 -DSYRK_UPPER=0 -DSYRK_LDA=1088 -DSYRK_LDB=1088"
+#define KERNELS_SYRK_SG KERNELS_SYRK_BASE "-DGPU -DSG=16 -DINTEL=1 -DSYRK_SG=1 "
+/**
  * SMM in the shape that broadcasts A to its columns (BM == SM, BN == BK == 1, so
  * WRK == SM), with the host's Intel atomics below OpenCL 2.0. The work-group
  * broadcast needs the 2.x collectives, which no level states.
@@ -274,8 +282,11 @@ static const kernels_file_t kernel_files[] = {
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "wmma", KERNELS_OZAKI1_WMMA, 5, 0, 0 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wmma", KERNELS_OZAKI_WMMA, 5, 0, 0 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wmmasym", KERNELS_OZAKI_WMMA_SYMRES, 5, 0, 0 },
-  { LIBXSTREAM_SRCDIR "/src/kernels/libxstream_syrk.cl", "fp64", "-DT=double", 0, 0, 0 },
-  { LIBXSTREAM_SRCDIR "/src/kernels/libxstream_syrk.cl", "fp32", "-DT=float", 0, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/src/kernels/libxstream_syrk.cl", "fp64", KERNELS_SYRK_BASE "-DT=double", 0, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/src/kernels/libxstream_syrk.cl", "fp32", KERNELS_SYRK_BASE "-DT=float", 0, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/src/kernels/libxstream_syrk.cl", "fixed", KERNELS_SYRK_BASE "-DT=double" KERNELS_SYRK_FIXED, 0, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/src/kernels/libxstream_syrk.cl", "sg64", KERNELS_SYRK_SG "-DT=double -DRX=4 -DRY=16", 0, 1, 0 },
+  { LIBXSTREAM_SRCDIR "/src/kernels/libxstream_syrk.cl", "sg32", KERNELS_SYRK_SG "-DT=float -DRX=4 -DRY=16", 0, 1, 0 },
   { LIBXSTREAM_SRCDIR "/samples/smm/kernels/transpose.cl", "",
     "-DT=float -DSM=32 -DSN=32 -DWG=32 -DCONSTANT=global" /* WG must equal SM */, 0, 0, 0 },
   { LIBXSTREAM_SRCDIR "/samples/smm/kernels/norms.cl", "", "-DWG=64", 0, 0, 0 },
