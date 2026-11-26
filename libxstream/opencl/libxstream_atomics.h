@@ -73,6 +73,18 @@ __attribute__((always_inline)) inline void atomic32_add64_global(GLOBAL_VOLATILE
 __attribute__((always_inline)) inline void atomic_add_global_cmpxchg(GLOBAL_VOLATILE(T) * dst, T inc)
 {
 #   if !defined(ATOMIC32_ADD64)
+#     if defined(TA2)
+  union {
+    T f;
+    TA a;
+  } try_val, cur_val;
+  cur_val.f = *dst;
+  /* a weak exchange may fail spuriously (value unchanged): retry on its result, not by comparing values */
+  do {
+    try_val.f = cur_val.f + inc;
+  } while (0 == atomic_compare_exchange_weak_explicit((GLOBAL_VOLATILE(TA2)*)dst, &cur_val.a, try_val.a,
+                  memory_order_relaxed, memory_order_relaxed, ATOMIC_SCOPE));
+#     else
   union {
     T f;
     TA a;
@@ -81,16 +93,9 @@ __attribute__((always_inline)) inline void atomic_add_global_cmpxchg(GLOBAL_VOLA
   do {
     exp_val.a = cur_val.a;
     try_val.f = exp_val.f + inc;
-#     if defined(TA2)
-    if (0 == atomic_compare_exchange_weak_explicit((GLOBAL_VOLATILE(TA2)*)dst, &cur_val.a, try_val.a, memory_order_relaxed,
-               memory_order_relaxed, ATOMIC_SCOPE))
-    {
-      continue;
-    }
-#     else
     cur_val.a = CMPXCHG((GLOBAL_VOLATILE(TA)*)dst, exp_val.a, try_val.a);
-#     endif
   } while (cur_val.a != exp_val.a);
+#     endif
 #   else
   atomic32_add64_global(dst, inc);
 #   endif
@@ -103,6 +108,18 @@ __attribute__((always_inline)) inline void atomic_add_global_cmpxchg(GLOBAL_VOLA
 # if defined(ATOMIC_ADD2_GLOBAL) && (1 == TAN /*libxstream_opencl_atomic_fp_32*/)
 __attribute__((always_inline)) inline void atomic_add_global_cmpxchg2(GLOBAL_VOLATILE(float) * dst, float2 inc)
 {
+#   if defined(TA2)
+  union {
+    float2 f;
+    long a;
+  } try_val, cur_val;
+  cur_val.f = (float2)(dst[0], dst[1]);
+  /* a weak exchange may fail spuriously (value unchanged): retry on its result, not by comparing values */
+  do {
+    try_val.f = cur_val.f + inc;
+  } while (0 == atomic_compare_exchange_weak_explicit((GLOBAL_VOLATILE(atomic_long)*)dst, &cur_val.a, try_val.a,
+                  memory_order_relaxed, memory_order_relaxed, ATOMIC_SCOPE));
+#   else
   union {
     float2 f;
     long a;
@@ -111,16 +128,9 @@ __attribute__((always_inline)) inline void atomic_add_global_cmpxchg2(GLOBAL_VOL
   do {
     exp_val.a = cur_val.a;
     try_val.f = exp_val.f + inc;
-#   if defined(TA2)
-    if (0 == atomic_compare_exchange_weak_explicit((GLOBAL_VOLATILE(atomic_long)*)dst, &cur_val.a, try_val.a, memory_order_relaxed,
-               memory_order_relaxed, ATOMIC_SCOPE))
-    {
-      continue;
-    }
-#   else
     cur_val.a = atom_cmpxchg((GLOBAL_VOLATILE(long)*)dst, exp_val.a, try_val.a);
-#   endif
   } while (cur_val.a != exp_val.a);
+#   endif
 }
 # endif
 #endif

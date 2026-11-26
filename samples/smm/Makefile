@@ -104,7 +104,8 @@ all: $(XFILES)
 compile: $(OBJECTS)
 
 # generate embedded kernel header from .cl sources
-$(GENHDR): $(KRNELS) $(PARAMS_PREDICT) $(PARAMS_BIN) $(GENSCR) Makefile $(LIBXSROOT)/Makefile.inc
+$(GENHDR): $(KRNELS) $(PARAMS_PREDICT) $(PARAMS_BIN) $(wildcard $(DEPDIR)/libxstream/opencl/*.h) \
+           $(GENSCR) Makefile $(LIBXSROOT)/Makefile.inc
 	$(GENSCR) $(GENARG) $(KRNELS) $(PARAMS_PREDICT) $@
 
 $(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XLIB) $(LIBXS)
