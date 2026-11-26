@@ -3178,24 +3178,28 @@ LIBXSTREAM_API int libxstream_opencl_kernel_query(cl_program program, const char
 
 LIBXSTREAM_API int libxstream_opencl_kernel(size_t source_kind, const char source[], const char kernel_name[],
   const char build_params[], const char build_options[], const char try_options[], int* try_ok, const char* const extnames[],
-  size_t num_exts, cl_kernel* kernel)
+  size_t num_exts, cl_kernel* kernel, cl_program* program)
 {
-  cl_program program = NULL;
+  cl_program built = NULL;
   int result;
   assert(NULL != kernel);
   *kernel = NULL;
   result = libxstream_opencl_program(
-    source_kind, source, kernel_name, build_params, build_options, try_options, try_ok, extnames, num_exts, &program);
+    source_kind, source, kernel_name, build_params, build_options, try_options, try_ok, extnames, num_exts, &built);
   if (EXIT_SUCCESS == result) {
-    result = libxstream_opencl_kernel_query(program, kernel_name, kernel);
+    result = libxstream_opencl_kernel_query(built, kernel_name, kernel);
   }
-  if (NULL != program) {
+  if (NULL != built) {
     if (EXIT_SUCCESS != result && NULL != *kernel) {
       LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseKernel(*kernel));
       *kernel = NULL;
     }
-    LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseProgram(program));
+    if (NULL == program || EXIT_SUCCESS != result) { /* not handed to the caller */
+      LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseProgram(built));
+      built = NULL;
+    }
   }
+  if (NULL != program) *program = built;
   return result;
 }
 

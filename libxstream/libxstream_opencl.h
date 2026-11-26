@@ -833,10 +833,14 @@ LIBXSTREAM_API int libxstream_opencl_retarget_ptx(const char text[], size_t size
   int maxnreg, const char entry[], char** result_text, size_t* result_size);
 /** Extract a kernel from a built program. */
 LIBXSTREAM_API int libxstream_opencl_kernel_query(cl_program program, const char kernel_name[], cl_kernel* kernel);
-/** Convenience: build program, extract kernel, release program. */
+/**
+ * Convenience: build program and extract kernel. Given a program (non-NULL), the caller
+ * owns the built program (NULL on failure) and releases it, e.g., to create further
+ * kernels (clCreateKernel). Otherwise, the program is released by this function.
+ */
 LIBXSTREAM_API int libxstream_opencl_kernel(size_t source_kind, const char source[], const char kernel_name[],
   const char build_params[], const char build_options[], const char try_build_options[], int* try_ok, const char* const extnames[],
-  size_t num_exts, cl_kernel* kernel);
+  size_t num_exts, cl_kernel* kernel, cl_program* program);
 /** Per-thread variant of libxstream_device_sync. */
 LIBXSTREAM_API int libxstream_opencl_device_synchronize(libxs_lock_t* lock, int thread_id);
 /** To support USM, call this function for pointer arguments instead of clSetKernelArg. */

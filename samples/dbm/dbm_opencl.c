@@ -53,6 +53,12 @@ typedef struct {
   unsigned int tid;
 } dbm_multiply_opencl_key_t;
 
+/** Registry value: the compiled kernel owns its program, which creates the threads' own kernels. */
+typedef struct {
+  cl_kernel kernel;
+  cl_program program; /* NULL for a thread's own kernel */
+} dbm_multiply_opencl_kernel_t;
+
 /** Fill is the percentage of FLOPs a kernel padded to the maxima would do (100: homogeneous). */
 typedef struct {
   int max_m, max_n, max_k, mnk_changes, fill;
@@ -503,7 +509,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
       bk = (0 < bk_max ? LIBXS_MIN(bk0, bk_max) : bk0);
       { /* per-shape kernel lookup/compile */
         dbm_multiply_opencl_key_t key;
-        cl_kernel* kptr;
+        dbm_multiply_opencl_kernel_t* kptr;
         LIBXS_MEMZERO(&key);
         key.bk = bk;
         if (0 == task.mnk_changes) { /* homogeneous: exact shape */
@@ -525,20 +531,20 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
         use_blkrd = (0 != blkrd && 0 != devinfo->intel && 0 != key.m && 16 <= key.m &&
                      key.m <= (int)sgsize_s && 0 == (key.m & (key.m - 1)));
         key.tid = libxs_tid() + 1;
-        kptr = (cl_kernel*)libxs_registry_get(
+        kptr = (dbm_multiply_opencl_kernel_t*)libxs_registry_get(
           kernel_registry, &key, sizeof(key), libxs_registry_lock(kernel_registry));
-        if (NULL == kptr || NULL == *kptr) { /* thread's first launch of this specialization */
+        if (NULL == kptr || NULL == kptr->kernel) { /* thread's first launch of this specialization */
           const unsigned int tid = key.tid;
           key.tid = 0;
-          kptr = (cl_kernel*)libxs_registry_get(
+          kptr = (dbm_multiply_opencl_kernel_t*)libxs_registry_get(
             kernel_registry, &key, sizeof(key), libxs_registry_lock(kernel_registry));
-          if (NULL == kptr || NULL == *kptr) { /* compile specialization */
+          if (NULL == kptr || NULL == kptr->kernel) { /* compile specialization */
             LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &compile_lock);
-            kptr = (cl_kernel*)libxs_registry_get(
+            kptr = (dbm_multiply_opencl_kernel_t*)libxs_registry_get(
               kernel_registry, &key, sizeof(key), libxs_registry_lock(kernel_registry));
-            if (NULL == kptr || NULL == *kptr) {
+            if (NULL == kptr || NULL == kptr->kernel) {
               char flags[LIBXSTREAM_BUFFERSIZE];
-              cl_kernel kernel_new = NULL;
+              dbm_multiply_opencl_kernel_t kernel_new = {NULL, NULL};
               if (0 != key.m) { /* homogeneous: add shape defines */
                 const int use_wg = (0 != use_blkrd || 0 != rowlane_homogeneous || 0 != sgbcst);
                 const char* const kind_bcst = (0 != sgbcst ? " -DSGBCST" : "");
@@ -569,9 +575,9 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
               /* wgsize stays the configured size: each launch takes its kernel's own (see below) */
               result |= libxstream_opencl_kernel(base_source_kind, base_source, "dbm_multiply",
                 flags, base_options, NULL /*try*/, NULL /*try_ok*/, base_exts, base_nexts,
-                &kernel_new);
-              kptr = (cl_kernel*)libxs_registry_set(kernel_registry, &key, sizeof(key),
-                &kernel_new, sizeof(kernel_new), libxs_registry_lock(kernel_registry));
+                &kernel_new.kernel, &kernel_new.program);
+              kptr = (dbm_multiply_opencl_kernel_t*)libxs_registry_set(kernel_registry, &key,
+                sizeof(key), &kernel_new, sizeof(kernel_new), libxs_registry_lock(kernel_registry));
               if (2 <= verbosity || 0 > verbosity || EXIT_SUCCESS != result) {
                 const char* const kind = (EXIT_SUCCESS == result ? "INFO" : "ERROR");
                 fprintf(stderr, "%s ACC/LIBDBM: DBM-kernel bk=%i", kind, key.bk);
@@ -589,21 +595,24 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
             }
             LIBXS_LOCK_RELEASE(LIBXS_LOCK, &compile_lock);
           }
-          if (NULL != kptr && NULL != *kptr) { /* own kernel: arguments are set without a lock */
-            cl_program program = NULL;
-            cl_kernel kernel_new = NULL;
+          if (NULL != kptr && NULL != kptr->kernel) { /* own kernel: arguments are set without a lock */
+            dbm_multiply_opencl_kernel_t kernel_new = {NULL, NULL};
             char name[64];
-            result |= clGetKernelInfo(*kptr, CL_KERNEL_PROGRAM, sizeof(program), &program, NULL);
-            result |= clGetKernelInfo(*kptr, CL_KERNEL_FUNCTION_NAME, sizeof(name), name, NULL);
-            if (EXIT_SUCCESS == result) kernel_new = clCreateKernel(program, name, &result);
+            LIBXS_ASSERT(NULL != kptr->program);
+            result |= clGetKernelInfo(
+              kptr->kernel, CL_KERNEL_FUNCTION_NAME, sizeof(name), name, NULL);
+            if (EXIT_SUCCESS == result) {
+              kernel_new.kernel = clCreateKernel(kptr->program, name, &result);
+            }
             key.tid = tid;
-            kptr = (EXIT_SUCCESS == result ? (cl_kernel*)libxs_registry_set(kernel_registry, &key,
-                                               sizeof(key), &kernel_new, sizeof(kernel_new),
-                                               libxs_registry_lock(kernel_registry))
-                                           : NULL);
+            kptr = (EXIT_SUCCESS == result
+                      ? (dbm_multiply_opencl_kernel_t*)libxs_registry_set(kernel_registry, &key,
+                          sizeof(key), &kernel_new, sizeof(kernel_new),
+                          libxs_registry_lock(kernel_registry))
+                      : NULL);
           }
         }
-        kernel = (NULL != kptr) ? *kptr : NULL;
+        kernel = (NULL != kptr) ? kptr->kernel : NULL;
       }
       if (NULL != lock_memory) {
         LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, lock_memory);

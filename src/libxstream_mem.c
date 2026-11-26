@@ -118,7 +118,7 @@ LIBXSTREAM_API_INTERN int libxstream_memptr_register(cl_mem memory, void** mempt
   }
   if (NULL == devinfo->memptr_kernel) {
     result = libxstream_opencl_kernel(0, source, "memptr",
-      NULL, NULL, NULL, NULL, NULL, 0, &devinfo->memptr_kernel);
+      NULL, NULL, NULL, NULL, NULL, 0, &devinfo->memptr_kernel, NULL /*program*/);
     if (EXIT_SUCCESS == result) devinfo->memptr_context = devinfo->context;
   }
   CL_CHECK(result, clSetKernelArg(devinfo->memptr_kernel, 0, sizeof(cl_mem), &memory));

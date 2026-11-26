@@ -125,7 +125,8 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         }
         if ('\0' != *tname && 0 < nchar && (int)sizeof(build_params) > nchar) {
           result = libxstream_opencl_kernel(0 /*source_kind*/, OPENCL_KERNELS_SOURCE_TRANSPOSE, fname, build_params, buffer,
-            NULL /*try*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &new_config.kernel);
+            NULL /*try*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &new_config.kernel,
+            NULL /*program*/);
           if (EXIT_SUCCESS == result) {
             size_t wgsize_max;
             LIBXS_ASSERT(NULL != new_config.kernel);
@@ -139,7 +140,8 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
                   LIBXS_CAST_INT(new_config.wgsize), tname, tbs, slm_pad);
                 if (0 < nchar && (int)sizeof(build_params) > nchar) {
                   result = libxstream_opencl_kernel(0 /*source_kind*/, OPENCL_KERNELS_SOURCE_TRANSPOSE, fname, build_params, buffer,
-                    NULL /*try*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &new_config.kernel);
+                    NULL /*try*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &new_config.kernel,
+                    NULL /*program*/);
                 }
                 else {
                   result = EXIT_FAILURE;

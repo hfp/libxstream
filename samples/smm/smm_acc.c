@@ -671,7 +671,7 @@ int c_calculate_norms(const double* mat, int nblks, const int* offsets, const in
         if (0 < nchar && (int)sizeof(build_params) > nchar) {
           result = libxstream_opencl_kernel(0 /*source_kind*/, OPENCL_KERNELS_SOURCE_NORMS, LIBSMM_KERNELNAME_NORMS,
             build_params, "" /*build_options*/, NULL /*try*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/,
-            &new_config.kernel);
+            &new_config.kernel, NULL /*program*/);
         }
         else result = EXIT_FAILURE;
         if (EXIT_SUCCESS == result) {

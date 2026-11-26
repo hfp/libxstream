@@ -154,7 +154,7 @@ A range the application allocated itself is declared with `libxstream_mem_host_p
 |---|---|
 | `libxstream_opencl_program` | Compile an OpenCL program from source, file, or binary |
 | `libxstream_opencl_kernel_query` | Extract a named kernel from a compiled program |
-| `libxstream_opencl_kernel` | Convenience: build + extract + release in one call |
+| `libxstream_opencl_kernel` | Convenience: build + extract in one call; the program is released or handed to the caller |
 | `libxstream_opencl_kernel_flags` | Assemble combined build flags from params, options, and extras |
 | `libxstream_opencl_defines` | Merge user defines with internal definitions |
 | `libxstream_opencl_flags_atomics` | Generate compiler flags for FP-atomic extensions |
