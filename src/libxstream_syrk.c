@@ -48,14 +48,19 @@
 #if !defined(LIBXSTREAM_SYRK_LU)
 # define LIBXSTREAM_SYRK_LU -1
 #endif
-/* code version: 0 = local memory, 1 = sub-groups (Intel: SG lanes, RX rows per lane, RY <= SG columns) */
+/**
+ * Code version: 0 = local memory, 1 = sub-groups (Intel: SG lanes, RX rows per lane, RY <= SG columns),
+ * 2 = sub-groups with 2D block reads (trans='T' only, since there are no plain 64-bit block reads; local
+ * memory otherwise). Double precision keeps 0, which is compute-bound where it was measured.
+ */
 #if !defined(LIBXSTREAM_SYRK_KV)
 # define LIBXSTREAM_SYRK_KV 0
 #endif
 /**
  * Code version in single precision: 2 = sub-groups with 2D block reads (Intel's cl_intel_subgroup_2d_block_io,
- * trans='N', pitch a multiple of 16 bytes), else local memory. The kernel took 1.6-1.9x less time than
- * local memory and A resident led MKL (n=1088 k=54272); sub-groups without them (1) did not lead.
+ * plain if trans='N' and transposing if trans='T', pitch a multiple of 16 bytes), else local memory. The kernel
+ * took 1.6-1.9x less time than local memory and A resident led MKL (n=1088 k=54272); sub-groups without them
+ * (1) did not lead.
  */
 #if !defined(LIBXSTREAM_SYRK_KV32)
 # define LIBXSTREAM_SYRK_KV32 2
@@ -91,7 +96,7 @@
 #if !defined(LIBXSTREAM_SYRK_SIMD)
 # define LIBXSTREAM_SYRK_SIMD 16
 #endif
-/* steps of k per 2D block read of the code version 2 (1 to 32) */
+/* steps of k per 2D block read of the code version 2 in single precision (half of it in double precision) */
 #if !defined(LIBXSTREAM_SYRK_B2DK)
 # define LIBXSTREAM_SYRK_B2DK 8
 #endif
@@ -195,11 +200,11 @@ static cl_kernel libxstream_syrk_kernel(libxstream_syrk_t* ctx, const libxs_syrk
   key.lda = plan->shape.lda;
   key.ldb = (0 != twok ? plan->shape.ldb : plan->shape.lda);
   { /* code version: 2 only if the 2D block reads take the surfaces (pitch of 16 bytes, width of 64), else local memory */
-    const int want = (0 != f64 ? LIBXSTREAM_SYRK_KV : LIBXSTREAM_SYRK_KV32);
+    const int want = (0 != f64 ? LIBXSTREAM_SYRK_KV : LIBXSTREAM_SYRK_KV32), es = (0 != f64 ? 8 : 4);
     const int intel = (0 != libxstream_opencl_config.device.intel);
-    const int pitched = (0 == ((key.lda * 4) % 16) && 64 <= key.lda * 4 && 0 == ((key.ldb * 4) % 16) && 64 <= key.ldb * 4);
+    const int pitched = (0 == ((key.lda * es) % 16) && 64 <= key.lda * es && 0 == ((key.ldb * es) % 16) && 64 <= key.ldb * es);
     key.sg = (short)(2 == want ? 16 : (0 < LIBXSTREAM_SYRK_SG ? LIBXSTREAM_SYRK_SG : libxstream_opencl_config.device.wgsize[2]));
-    key.kv = (signed char)(2 == want ? (0 == f64 && 0 != ctx->blk2d && 0 == key.trans && 0 != pitched ? 2 : 0)
+    key.kv = (signed char)(2 == want ? (0 != ctx->blk2d && (0 == f64 || 0 != key.trans) && 0 != pitched ? 2 : 0)
                                      : (0 != want && 0 != intel && 0 < key.sg ? 1 : 0));
   }
   key.nsg = (short)(0 != key.kv ? LIBXSTREAM_SYRK_NSG : 0);
@@ -212,7 +217,8 @@ static cl_kernel libxstream_syrk_kernel(libxstream_syrk_t* ctx, const libxs_syrk
                                : (0 != f64 ? LIBXSTREAM_SYRK_RX : LIBXSTREAM_SYRK_RX32));
   key.ry = (short)(0 != key.kv ? LIBXS_MIN(LIBXSTREAM_SYRK_SGRY, key.sg)
                                : (0 != f64 ? LIBXSTREAM_SYRK_RY : LIBXSTREAM_SYRK_RY32));
-  key.bk = (short)(2 == key.kv ? LIBXSTREAM_SYRK_B2DK : (0 != f64 ? LIBXSTREAM_SYRK_BK : LIBXSTREAM_SYRK_BK32));
+  key.bk = (short)(2 == key.kv ? (0 != f64 ? LIBXS_MAX(LIBXSTREAM_SYRK_B2DK / 2, 4) : LIBXSTREAM_SYRK_B2DK)
+                               : (0 != f64 ? LIBXSTREAM_SYRK_BK : LIBXSTREAM_SYRK_BK32));
   if (0 == ctx->built || 0 != memcmp(&key, &ctx->key, sizeof(key))) {
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
     cl_program* program;
@@ -231,9 +237,10 @@ static cl_kernel libxstream_syrk_kernel(libxstream_syrk_t* ctx, const libxs_syrk
       cl_program built = NULL;
       int status = EXIT_FAILURE;
       const int nchars = LIBXS_SNPRINTF(flags, sizeof(flags),
-        "-DT=%s -DSYRK_SG=%i -DSYRK_SIMD=%i -DVT=%i -DSV=%i -DBSX=%i -DBSY=%i -DRX=%i -DRY=%i -DBK=%i -DLU=%i -DSG=%i -DINTEL=%i%s"
-        " -DSYRK_TRANS=%i -DSYRK_TWOK=%i -DSYRK_HASD=%i -DSYRK_UPPER=%i -DSYRK_LDA=%i -DSYRK_LDB=%i",
-        0 != f64 ? "double" : "float", (int)key.kv, (int)key.simd, (int)key.vt, (int)key.sv, (int)key.bsx, (int)key.bsy, (int)key.rx, (int)key.ry, (int)key.bk,
+        "-DT=%s -DSYRK_ES=%i -DSYRK_SG=%i -DSYRK_SIMD=%i -DVT=%i -DSV=%i -DBSX=%i -DBSY=%i -DRX=%i -DRY=%i -DBK=%i -DLU=%i -DSG=%i"
+        " -DINTEL=%i%s -DSYRK_TRANS=%i -DSYRK_TWOK=%i -DSYRK_HASD=%i -DSYRK_UPPER=%i -DSYRK_LDA=%i -DSYRK_LDB=%i",
+        0 != f64 ? "double" : "float", 0 != f64 ? 8 : 4, (int)key.kv, (int)key.simd, (int)key.vt, (int)key.sv,
+        (int)key.bsx, (int)key.bsy, (int)key.rx, (int)key.ry, (int)key.bk,
         (int)key.lu, (int)key.sg, (int)(0 != devinfo->intel), CL_DEVICE_TYPE_GPU == devinfo->type ? " -DGPU" : "",
         (int)key.trans, (int)key.twok, (int)key.hasd, (int)key.upper, key.lda, key.ldb);
       if (0 < nchars && (int)sizeof(flags) > nchars) {

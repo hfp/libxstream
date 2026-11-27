@@ -104,24 +104,59 @@
  * adds the parts. Code versions: through local memory in blocks of BM x BN per work-group, or
  * SYRK_SG (sub-groups of SG lanes): a lane holds RX rows, and a column's value is broadcast from the
  * lane that loaded it (RY <= SG columns), i.e., neither local memory nor a barrier. SYRK_SG=2 reads
- * BK steps of 16 rows (or columns) at once (Intel's 2D block reads, single precision, trans='N').
+ * BK steps of 16 rows (or columns) at once (Intel's 2D block reads): plain reads if trans='N' (single
+ * precision), transposing reads of 32-bit words if trans='T' (SYRK_ES of 4 or 8 bytes). Double precision
+ * with trans='N' has no such read (no 64-bit block reads).
  */
 #if defined(SYRK_SG) && (0 != SYRK_SG)
 # if !defined(BCST_SG)
 #   error "SYRK_SG requires sub-groups of exactly SG lanes (SG_EXACT)"
 # endif
 # if (2 == SYRK_SG)
-#   if !defined(cl_intel_subgroup_2d_block_io) || (16 != SG) || (16 != RY)
-#     error "SYRK_SG=2 requires cl_intel_subgroup_2d_block_io, SG=16, and RY=16"
+#   if !defined(cl_intel_subgroup_2d_block_io) || (16 != SG) || (16 != RY) || !defined(SYRK_ES)
+#     error "SYRK_SG=2 requires cl_intel_subgroup_2d_block_io, SG=16, RY=16, and SYRK_ES"
 #   endif
+/* words (32-bit) per element, and element R of the words a lane received (W) */
+#   if (8 == SYRK_ES)
+#     define SYRK_EW 2
+#     define SYRK_ELEM(W, R) as_double((uint2)((W)[2 * (R)], (W)[2 * (R) + 1]))
+#   elif (4 == SYRK_ES)
+#     define SYRK_EW 1
+#     define SYRK_ELEM(W, R) as_float((W)[R])
+#   else
+#     error "SYRK_ES must be 4 or 8 (bytes)"
+#   endif
+#   if defined(SYRK_TRANS) && (0 != SYRK_TRANS)
+#     if (0 != ((BK * SYRK_EW) % 8))
+#       error "transposing 2D block reads take 8 words of a row at once (BK * SYRK_EW a multiple of 8)"
+#     endif
+/**
+ * Rows y to y+15 (rows of op(X)) and words x to x+7 of the surface X (rows of LD elements apart,
+ * HEIGHT_T rows), transposed and repeated until BK steps of k: lane l receives row y+l, as 32-bit words
+ * (there are neither 64-bit block reads nor wider transposing ones). Rows beyond the panel only feed
+ * elements that are never stored, and HEIGHT_T keeps a read within the operand.
+ */
+#     define SYRK_READ2D(X, LD, HEIGHT_N, HEIGHT_T, I, P, DST) \
+        do { \
+          int q_ = 0; \
+          UNROLL_FORCE(BK * SYRK_EW / 8) \
+          for (; q_ < (BK * SYRK_EW / 8); ++q_) { \
+            intel_sub_group_2d_block_read_transpose_32b_16r8x1c((global void*)(X), (LD) * SYRK_ES, HEIGHT_T, \
+              (LD) * SYRK_ES, (int2)((P) * SYRK_EW + 8 * q_, I), (DST) + 8 * q_); \
+          } \
+        } while (0)
+#   elif (1 == SYRK_EW)
 /**
  * Rows y to y+BK-1 (steps of k) and columns x to x+15 (rows of op(X)) of the surface X (columns of
- * LD elements apart, height rows): lane l receives column x+l of every row, i.e., one row of op(X)
+ * LD elements apart, HEIGHT_N rows): lane l receives column x+l of every row, i.e., one row of op(X)
  * for BK steps. Rows and columns beyond the panel only feed elements that are never stored.
  */
-#   define SYRK_READ2D(X, LD, HEIGHT, XC, YR, DST) \
-      CAT(CAT(intel_sub_group_2d_block_read_32b_, BK), r16x1c)( \
-        (global void*)(X), (LD) * 4, HEIGHT, (LD) * 4, (int2)(XC, YR), DST)
+#     define SYRK_READ2D(X, LD, HEIGHT_N, HEIGHT_T, I, P, DST) \
+        CAT(CAT(intel_sub_group_2d_block_read_32b_, BK), r16x1c)( \
+          (global void*)(X), (LD) * 4, HEIGHT_N, (LD) * 4, (int2)(I, P), DST)
+#   else
+#     error "SYRK_SG=2 with trans='N' requires single precision (SYRK_ES=4)"
+#   endif
 # endif
 REQD_SG kernel void syrk_panel(global T* restrict out, global const T* restrict a, global const T* restrict b,
   global const T* restrict d, int m, int w, int r0, int c0, int k, int lda, int ldb, int trans, int twok, int hasd, T alpha,
@@ -149,19 +184,20 @@ REQD_SG kernel void syrk_panel(global T* restrict out, global const T* restrict 
 # if (2 == SYRK_SG)
     UNROLL_OUTER(1)
     for (; p + BK <= ke; p += BK) { /* whole steps of BK by block reads, the rest below */
-      uint yb[BK];
+      uint yb[BK * SYRK_EW];
       int r;
-      SYRK_READ2D(y, ldy, k, c0 + j0, p, yb);
+      SYRK_READ2D(y, ldy, k, c0 + w, c0 + j0, p, yb);
       /* unrolled whatever LU says (fixed bounds): the reads take their destination by address */
       UNROLL_FORCE(RX)
       for (u = 0; u < RX; ++u) {
-        uint xb[BK];
-        SYRK_READ2D(x, ldx, k, r0 + i0 + u * SG, p, xb);
+        uint xb[BK * SYRK_EW];
+        SYRK_READ2D(x, ldx, k, r0 + m, r0 + i0 + u * SG, p, xb);
         UNROLL_FORCE(BK)
         for (r = 0; r < BK; ++r) {
-          const T xu = (0 != HASD_ ? (as_float(xb[r]) * d[p + r]) : as_float(xb[r]));
+          const T xu = (0 != HASD_ ? (SYRK_ELEM(xb, r) * d[p + r]) : SYRK_ELEM(xb, r));
+          const T yr = SYRK_ELEM(yb, r);
           UNROLL_FORCE(RY)
-          for (v = 0; v < RY; ++v) acc[u][v] = fma(xu, BCST_SG(as_float(yb[r]), v), acc[u][v]);
+          for (v = 0; v < RY; ++v) acc[u][v] = fma(xu, BCST_SG(yr, v), acc[u][v]);
         }
       }
     }
